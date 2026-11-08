@@ -2,6 +2,8 @@
 
 **Phase 1, milestone M0: steps 1–3 of 5 are complete.** The next step is step 4, the spikes.
 
+**Paused on 2026-11-08 at tag `m0-step3`.** Earlier stopping point: `m0-step2`.
+
 ## Done
 
 - **Step 1, foundations.**
