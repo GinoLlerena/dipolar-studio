@@ -1,0 +1,754 @@
+{
+  "contract_version": "0.1.0",
+  "operations": [
+    {
+      "capability": "preview",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {
+          "phi": {
+            "unit": "deg",
+            "value": 37.0
+          }
+        }
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "$defs": {
+          "Degrees": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "deg",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Degrees",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "phi": {
+            "$ref": "#/$defs/Degrees"
+          }
+        },
+        "required": [
+          "phi"
+        ],
+        "title": "PreviewIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "name": "fit.preview",
+      "output_schema": {
+        "$defs": {
+          "Degrees": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "deg",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Degrees",
+            "type": "object"
+          },
+          "Hertz": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Hz",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Hertz",
+            "type": "object"
+          },
+          "OrderOut": {
+            "additionalProperties": false,
+            "properties": {
+              "Delta": {
+                "title": "Delta",
+                "type": "number"
+              },
+              "Szz": {
+                "title": "Szz",
+                "type": "number"
+              }
+            },
+            "required": [
+              "Szz",
+              "Delta"
+            ],
+            "title": "OrderOut",
+            "type": "object"
+          },
+          "PreviewCoupling": {
+            "additionalProperties": false,
+            "properties": {
+              "calculated": {
+                "$ref": "#/$defs/Hertz"
+              },
+              "id": {
+                "pattern": "^cpl_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "label": {
+                "title": "Label",
+                "type": "string"
+              },
+              "normalized_residual": {
+                "title": "Normalized Residual",
+                "type": "number"
+              },
+              "observed": {
+                "$ref": "#/$defs/Hertz"
+              },
+              "residual": {
+                "$ref": "#/$defs/Hertz"
+              },
+              "sigma": {
+                "$ref": "#/$defs/Hertz"
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "observed",
+              "sigma",
+              "calculated",
+              "residual",
+              "normalized_residual"
+            ],
+            "title": "PreviewCoupling",
+            "type": "object"
+          },
+          "Validity": {
+            "additionalProperties": false,
+            "properties": {
+              "inner_condition_number": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Inner Condition Number"
+              },
+              "inner_parameters": {
+                "title": "Inner Parameters",
+                "type": "integer"
+              },
+              "inner_rank": {
+                "title": "Inner Rank",
+                "type": "integer"
+              },
+              "physically_admissible": {
+                "title": "Physically Admissible",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "inner_rank",
+              "inner_parameters",
+              "inner_condition_number",
+              "physically_admissible"
+            ],
+            "title": "Validity",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "chi2": {
+            "title": "Chi2",
+            "type": "number"
+          },
+          "couplings": {
+            "items": {
+              "$ref": "#/$defs/PreviewCoupling"
+            },
+            "title": "Couplings",
+            "type": "array"
+          },
+          "estimand": {
+            "title": "Estimand",
+            "type": "string"
+          },
+          "frame": {
+            "title": "Frame",
+            "type": "string"
+          },
+          "model": {
+            "const": "rigid",
+            "title": "Model",
+            "type": "string"
+          },
+          "n_obs": {
+            "title": "N Obs",
+            "type": "integer"
+          },
+          "order": {
+            "$ref": "#/$defs/OrderOut"
+          },
+          "phi": {
+            "$ref": "#/$defs/Degrees"
+          },
+          "rms_residual": {
+            "$ref": "#/$defs/Hertz"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          },
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          },
+          "validity": {
+            "$ref": "#/$defs/Validity"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "model",
+          "frame",
+          "estimand",
+          "phi",
+          "order",
+          "couplings",
+          "chi2",
+          "n_obs",
+          "rms_residual",
+          "validity",
+          "statement"
+        ],
+        "title": "PreviewOut",
+        "type": "object"
+      },
+      "revision_check": "none",
+      "summary": "Preview the fit at a fixed torsion: order parameters re-solved, predictions and residuals."
+    },
+    {
+      "capability": "query",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {}
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "DescribeProjectIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "name": "project.describe",
+      "output_schema": {
+        "$defs": {
+          "Angstrom": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Å",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "exclusiveMinimum": 0,
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Angstrom",
+            "type": "object"
+          },
+          "CouplingOut": {
+            "additionalProperties": false,
+            "properties": {
+              "equivalent_pairs": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Equivalent Pairs",
+                "type": "array"
+              },
+              "id": {
+                "pattern": "^cpl_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "label": {
+                "title": "Label",
+                "type": "string"
+              },
+              "multiplicity": {
+                "title": "Multiplicity",
+                "type": "integer"
+              },
+              "observable": {
+                "title": "Observable",
+                "type": "string"
+              },
+              "sigma": {
+                "$ref": "#/$defs/Hertz"
+              },
+              "sigma_source": {
+                "title": "Sigma Source",
+                "type": "string"
+              },
+              "spin_a": {
+                "pattern": "^spn_[0-9]{6}$",
+                "title": "Spin A",
+                "type": "string"
+              },
+              "spin_b": {
+                "pattern": "^spn_[0-9]{6}$",
+                "title": "Spin B",
+                "type": "string"
+              },
+              "value": {
+                "$ref": "#/$defs/Hertz"
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "spin_a",
+              "spin_b",
+              "observable",
+              "value",
+              "sigma",
+              "sigma_source",
+              "multiplicity",
+              "equivalent_pairs"
+            ],
+            "title": "CouplingOut",
+            "type": "object"
+          },
+          "GeometryOut": {
+            "additionalProperties": false,
+            "properties": {
+              "r_cc": {
+                "$ref": "#/$defs/Angstrom"
+              },
+              "r_ch": {
+                "$ref": "#/$defs/Angstrom"
+              },
+              "r_inter": {
+                "$ref": "#/$defs/Angstrom"
+              },
+              "template": {
+                "title": "Template",
+                "type": "string"
+              }
+            },
+            "required": [
+              "template",
+              "r_cc",
+              "r_ch",
+              "r_inter"
+            ],
+            "title": "GeometryOut",
+            "type": "object"
+          },
+          "Hertz": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Hz",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Hertz",
+            "type": "object"
+          },
+          "SpinOut": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "pattern": "^spn_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "isotope": {
+                "title": "Isotope",
+                "type": "string"
+              },
+              "label": {
+                "title": "Label",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "isotope"
+            ],
+            "title": "SpinOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "couplings": {
+            "items": {
+              "$ref": "#/$defs/CouplingOut"
+            },
+            "title": "Couplings",
+            "type": "array"
+          },
+          "estimand": {
+            "title": "Estimand",
+            "type": "string"
+          },
+          "geometry": {
+            "$ref": "#/$defs/GeometryOut"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "spins": {
+            "items": {
+              "$ref": "#/$defs/SpinOut"
+            },
+            "title": "Spins",
+            "type": "array"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "name",
+          "source",
+          "geometry",
+          "spins",
+          "couplings",
+          "model",
+          "estimand"
+        ],
+        "title": "DescribeProjectOut",
+        "type": "object"
+      },
+      "revision_check": "none",
+      "summary": "Describe the project: geometry, spins and observed couplings, with IDs and labels."
+    },
+    {
+      "capability": "science_mutation",
+      "cost": "instant",
+      "effect": "model",
+      "examples": [
+        {
+          "expected_science_revision": 0,
+          "name": "biphenyl-synthetic"
+        }
+      ],
+      "idempotent": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_science_revision": {
+            "minimum": 0,
+            "title": "Expected Science Revision",
+            "type": "integer"
+          },
+          "name": {
+            "const": "biphenyl-synthetic",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "expected_science_revision"
+        ],
+        "title": "OpenExampleIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "name": "project.open_example",
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "n_couplings": {
+            "title": "N Couplings",
+            "type": "integer"
+          },
+          "n_spins": {
+            "title": "N Spins",
+            "type": "integer"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "n_spins",
+          "n_couplings"
+        ],
+        "title": "OpenExampleOut",
+        "type": "object"
+      },
+      "revision_check": "expected_science_revision (required)",
+      "summary": "Replace the session's project with a bundled example dataset."
+    },
+    {
+      "capability": "query",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {}
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "DescribeViewIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "name": "render.describe_view",
+      "output_schema": {
+        "$defs": {
+          "SelectedObject": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "pattern": "^(spn|cpl)_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "spin",
+                  "coupling"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "label": {
+                "title": "Label",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "label"
+            ],
+            "title": "SelectedObject",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
+          },
+          "project_open": {
+            "title": "Project Open",
+            "type": "boolean"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          },
+          "selection": {
+            "items": {
+              "$ref": "#/$defs/SelectedObject"
+            },
+            "title": "Selection",
+            "type": "array"
+          },
+          "workspace_revision": {
+            "title": "Workspace Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "workspace_revision",
+          "project_open",
+          "project_name",
+          "selection"
+        ],
+        "title": "DescribeViewOut",
+        "type": "object"
+      },
+      "revision_check": "none",
+      "summary": "Describe the shared view: revisions and the current selection, with labels."
+    },
+    {
+      "capability": "view_write",
+      "cost": "instant",
+      "effect": "view",
+      "examples": [
+        {
+          "ids": [
+            "cpl_000002"
+          ]
+        }
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "ids": {
+            "items": {
+              "pattern": "^(spn|cpl)_[0-9]{6}$",
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "title": "SelectIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "name": "view.select",
+      "output_schema": {
+        "$defs": {
+          "SelectedObject": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "pattern": "^(spn|cpl)_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "spin",
+                  "coupling"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "label": {
+                "title": "Label",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "label"
+            ],
+            "title": "SelectedObject",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "selection": {
+            "items": {
+              "$ref": "#/$defs/SelectedObject"
+            },
+            "title": "Selection",
+            "type": "array"
+          },
+          "workspace_revision": {
+            "title": "Workspace Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "workspace_revision",
+          "selection"
+        ],
+        "title": "SelectOut",
+        "type": "object"
+      },
+      "revision_check": "none: an absolute set; IDs are validated atomically and never reused",
+      "summary": "Set the shared selection to the given spin or coupling IDs (replaces it)."
+    }
+  ]
+}

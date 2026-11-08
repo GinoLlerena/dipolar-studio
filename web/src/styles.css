@@ -1,0 +1,154 @@
+/* Styles live in a file, never inline, so the strict CSP (style-src 'self') holds. */
+:root {
+  color-scheme: light dark;
+  --fg: #1d2330;
+  --muted: #5b6475;
+  --line: #d7dbe3;
+  --accent: #2357c6;
+  --selected: #e4ecff;
+  --bg: #fbfbfd;
+  --error: #a3212c;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.5;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e6e9ef;
+    --muted: #9aa3b5;
+    --line: #333a48;
+    --accent: #7ea2ff;
+    --selected: #1f2c4d;
+    --bg: #12151c;
+    --error: #ff8a93;
+  }
+}
+
+main {
+  max-width: 56rem;
+  margin: 2.5rem auto;
+  padding: 0 1.25rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.tagline,
+.status,
+.help,
+.meta,
+footer {
+  color: var(--muted);
+}
+
+.status {
+  font-style: italic;
+}
+
+.panel {
+  border-top: 1px solid var(--line);
+  padding: 1rem 0;
+}
+
+.panel.stale {
+  opacity: 0.55;
+}
+
+.row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin: 0.5rem 0;
+  flex-wrap: wrap;
+}
+
+input {
+  font: inherit;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+}
+
+input#token {
+  flex: 1;
+  min-width: 16rem;
+}
+
+input#phi {
+  width: 7rem;
+}
+
+button {
+  font: inherit;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.help {
+  font-size: 0.85rem;
+  margin: 0.3rem 0;
+}
+
+.meta {
+  margin: 0.3rem 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.error {
+  border-left: 3px solid var(--error);
+  padding: 0.5rem 0.8rem;
+  color: var(--error);
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+
+th,
+td {
+  text-align: right;
+  padding: 0.3rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+
+th:first-child,
+td:first-child {
+  text-align: left;
+}
+
+tbody tr {
+  cursor: pointer;
+}
+
+tbody tr:hover,
+tbody tr:focus-visible {
+  outline: 1px solid var(--accent);
+}
+
+tbody tr.selected {
+  background: var(--selected);
+}
+
+footer {
+  border-top: 1px solid var(--line);
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  font-size: 0.85rem;
+}

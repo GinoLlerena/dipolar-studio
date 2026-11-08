@@ -16,7 +16,8 @@ write the new software. It is designed from the start so that an **AI agent** ca
 same tools as a human to run calculations and drive the interface.
 
 > Status: **Phase 1, milestone M0 (foundations).** The workspace, CI, decision records, frozen
-> test answers and legacy goldens are in place; the end-to-end vertical slice is next.
+> test answers, legacy goldens and the end-to-end vertical slice are in place; the M0 spikes are
+> next.
 
 ## Why a new implementation
 
@@ -63,6 +64,16 @@ uv run ruff check . && uv run mypy
 cd web && pnpm install && pnpm run build   # browser UI (strict TypeScript)
 ```
 
+Try the M0 vertical slice (one local session, served on 127.0.0.1 at an OS-assigned port):
+
+```bash
+uv run dipolar serve --project-dir /tmp/dipolar-demo --static-dir web/dist
+# The printed URL serves the page. The per-launch tokens are in /tmp/dipolar-demo/serve.ready.json
+# (mode 0600, never printed). Paste the "user" token into the page, or drive the same session
+# with the robot, which uses HTTP and the standard library only:
+python3 -I tools/robot/robot.py --ready-file /tmp/dipolar-demo/serve.ready.json
+```
+
 | Path | Contents |
 |---|---|
 | `packages/dipolar-core/` | Pure scientific core (no I/O, no UI) |
@@ -71,6 +82,7 @@ cd web && pnpm install && pnpm run build   # browser UI (strict TypeScript)
 | `datasets/*/expected/` | Frozen expected answers the engine is tested against |
 | `tools/reference/` | Independent NumPy/SciPy reference that produced them |
 | `tools/legacy-harness/` | The 1998 solvers compiled and compared with frozen "golden failures" |
+| `tools/robot/` | The scripted robot user: drives the app over HTTP only (standard library) |
 
 ## Documents
 

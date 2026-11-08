@@ -1,0 +1,195 @@
+{
+  "name": "Synthetic biphenyl (known answer)",
+  "source": "datasets/biphenyl-synthetic/couplings.csv (D_obs_Hz, sigma_Hz); a synthetic test fixture, not experimental data",
+  "sigma_source": "stated noise level of the synthetic generator (0.5 Hz)",
+  "geometry_A": {
+    "r_cc": 1.397,
+    "r_ch": 1.084,
+    "r_inter": 1.489
+  },
+  "spins": [
+    "H2",
+    "H3",
+    "H4",
+    "H5",
+    "H6",
+    "H2'",
+    "H3'",
+    "H4'",
+    "H5'",
+    "H6'"
+  ],
+  "couplings": [
+    {
+      "spin_a": "H2",
+      "spin_b": "H2'",
+      "D_obs_Hz": -1124.726,
+      "sigma_Hz": 0.5,
+      "multiplicity": 2,
+      "equivalent_pairs": [
+        "H2-H2'",
+        "H6-H6'"
+      ]
+    },
+    {
+      "spin_a": "H2",
+      "spin_b": "H3",
+      "D_obs_Hz": -1966.69,
+      "sigma_Hz": 0.5,
+      "multiplicity": 4,
+      "equivalent_pairs": [
+        "H2-H3",
+        "H5-H6",
+        "H2'-H3'",
+        "H5'-H6'"
+      ]
+    },
+    {
+      "spin_a": "H2",
+      "spin_b": "H3'",
+      "D_obs_Hz": -282.349,
+      "sigma_Hz": 0.5,
+      "multiplicity": 4,
+      "equivalent_pairs": [
+        "H2-H3'",
+        "H3-H2'",
+        "H5-H6'",
+        "H6-H5'"
+      ]
+    },
+    {
+      "spin_a": "H2",
+      "spin_b": "H4",
+      "D_obs_Hz": -241.958,
+      "sigma_Hz": 0.5,
+      "multiplicity": 4,
+      "equivalent_pairs": [
+        "H2-H4",
+        "H4-H6",
+        "H2'-H4'",
+        "H4'-H6'"
+      ]
+    },
+    {
+      "spin_a": "H2",
+      "spin_b": "H4'",
+      "D_obs_Hz": -117.066,
+      "sigma_Hz": 0.5,
+      "multiplicity": 4,
+      "equivalent_pairs": [
+        "H2-H4'",
+        "H4-H2'",
+        "H4-H6'",
+        "H6-H4'"
+      ]
+    },
+    {
+      "spin_a": "H2",
+      "spin_b": "H5",
+      "D_obs_Hz": 21.192,
+      "sigma_Hz": 0.5,
+      "multiplicity": 4,
+      "equivalent_pairs": [
+        "H2-H5",
+        "H3-H6",
+        "H2'-H5'",
+        "H3'-H6'"
+      ]
+    },
+    {
+      "spin_a": "H2",
+      "spin_b": "H5'",
+      "D_obs_Hz": -46.061,
+      "sigma_Hz": 0.5,
+      "multiplicity": 4,
+      "equivalent_pairs": [
+        "H2-H5'",
+        "H3-H6'",
+        "H5-H2'",
+        "H6-H3'"
+      ]
+    },
+    {
+      "spin_a": "H2",
+      "spin_b": "H6",
+      "D_obs_Hz": 170.401,
+      "sigma_Hz": 0.5,
+      "multiplicity": 4,
+      "equivalent_pairs": [
+        "H2-H6",
+        "H3-H5",
+        "H2'-H6'",
+        "H3'-H5'"
+      ]
+    },
+    {
+      "spin_a": "H2",
+      "spin_b": "H6'",
+      "D_obs_Hz": 69.179,
+      "sigma_Hz": 0.5,
+      "multiplicity": 2,
+      "equivalent_pairs": [
+        "H2-H6'",
+        "H6-H2'"
+      ]
+    },
+    {
+      "spin_a": "H3",
+      "spin_b": "H3'",
+      "D_obs_Hz": -86.829,
+      "sigma_Hz": 0.5,
+      "multiplicity": 2,
+      "equivalent_pairs": [
+        "H3-H3'",
+        "H5-H5'"
+      ]
+    },
+    {
+      "spin_a": "H3",
+      "spin_b": "H4",
+      "D_obs_Hz": 174.101,
+      "sigma_Hz": 0.5,
+      "multiplicity": 4,
+      "equivalent_pairs": [
+        "H3-H4",
+        "H4-H5",
+        "H3'-H4'",
+        "H4'-H5'"
+      ]
+    },
+    {
+      "spin_a": "H3",
+      "spin_b": "H4'",
+      "D_obs_Hz": -47.486,
+      "sigma_Hz": 0.5,
+      "multiplicity": 4,
+      "equivalent_pairs": [
+        "H3-H4'",
+        "H4-H3'",
+        "H4-H5'",
+        "H5-H4'"
+      ]
+    },
+    {
+      "spin_a": "H3",
+      "spin_b": "H5'",
+      "D_obs_Hz": -37.732,
+      "sigma_Hz": 0.5,
+      "multiplicity": 2,
+      "equivalent_pairs": [
+        "H3-H5'",
+        "H5-H3'"
+      ]
+    },
+    {
+      "spin_a": "H4",
+      "spin_b": "H4'",
+      "D_obs_Hz": -37.824,
+      "sigma_Hz": 0.5,
+      "multiplicity": 1,
+      "equivalent_pairs": [
+        "H4-H4'"
+      ]
+    }
+  ]
+}
