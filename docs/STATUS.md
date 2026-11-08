@@ -1,8 +1,10 @@
 # Status
 
-**Phase 1, milestone M0: steps 1–3 of 5 are complete.** The next step is step 4, the spikes.
+**Phase 1, milestone M0: all five steps are done.** The spikes (step 4) pass with evidence, and
+the re-baseline (step 5) is a proposal awaiting the owner. Validation round 10 (GPT-6.1-Sol) covers
+step 4.
 
-**Paused on 2026-11-08 at tag `m0-step3`.** Earlier stopping point: `m0-step2`.
+Earlier stopping points: `m0-step2`, `m0-step3`.
 
 ## Done
 
@@ -26,7 +28,7 @@
   | Registry and dispatcher, policy matrix, session, journal, operations | `packages/dipolar-app/src/dipolar_app/` |
   | Registry contract snapshot (version 0.1.0) | `packages/dipolar-app/registry.snapshot.json` |
   | Numerical context (part of the science hash, D11) | `packages/dipolar-core/src/dipolar_core/context.py` |
-  | Tests | `packages/*/tests/`, `tests/test_boundaries.py` (83 tests) |
+  | Tests | `packages/*/tests/`, `tests/test_boundaries.py` (83 tests at step 3) |
 
 ### What the slice demonstrates
 
@@ -77,43 +79,54 @@
 - **What `fit.preview` is.** It is the profile objective at a fixed φ: the order parameters are
   re-solved, and it is not a fit. The full D3 stack (grid, then refinement, intervals, full
   Jacobian) is M1.
-- **Browser token hand-off.** It is provisional: the page asks for the token, or reads it from the
-  URL fragment. **Deciding this is the D10 spike.**
+- **Browser token hand-off.** Decided in step 4: a launch code exchanged for a tab token.
 - **Deferred to M2, as the plan says:** idempotency keys, dry run, proposals, undo and the event
   stream. The page polls `render.describe_view` every 2 s until the event stream exists.
-- **Damaged journals.** A damaged journal is refused, never repaired. Recovery is the journal
-  spike: discard a torn final record, then decide whether a fail-stopped session may continue
-  without a restart.
+- **Damaged journals.** Settled in step 4: a torn tail is recovered, any other damage is refused,
+  and a fail-stopped session needs a restart.
 - **The TypeScript client.** Its types are hand-written. M2 generates them from the registry.
 
-## Resume here: M0 step 4, the spikes
+- **Step 4, the spikes.** Evidence, findings and decisions:
+  [docs/spikes/m0-spikes.md](spikes/m0-spikes.md). Every spike is an executable module in
+  `spikes/`, and CI runs them.
+  1. **D3 numerical controls: pass.** M1 refines on the residual vector.
+  2. **JSON serialization: pass after fixes.** Validation is strict (no type coercion), the HTTP
+     JSON parser is strict, and the envelopes are published.
+  3. **D10 localhost security: pass after fixes, on the installed wheel.**
+     - The browser hand-off is decided: a single-use launch code is exchanged for a tab token.
+     - Instance lock, instance handshake, page bundled in the wheel.
+     - A new `packaged` CI job.
+  4. **Journal crash recovery: pass.** A torn tail is quarantined and discarded; damage is refused.
+     200 SIGKILLs lost 0 acknowledged commands.
+- **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
+  the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-Each spike passes or fails with evidence (plan §8, M0).
+## Resume here: M1, after the owner approves the re-baseline
 
-1. **D3 numerical controls.** Rank-changing and planar controls, and the grid-then-refine
-   optimum versus `noisy_fixture.json`.
-2. **JSON serialization.** Units, IDs, errors and output schemas. Started in the slice: quantities
-   are `{value, unit}`, IDs are typed patterns, errors are structured.
-3. **D10 localhost security.**
-   - The browser token hand-off.
-   - CSRF and DNS-rebinding negative tests on a packaged build.
-   - Multiple instances and port reuse.
-4. **Journal crash recovery.** Kill the process mid-commit, then recover by discarding a torn
-   final record.
+M1 step 1 is the D3 stack in dipolar-core. It grows from `spikes/test_spike_d3_numerics.py`:
+- grid/Sobol multistart;
+- bounded TRF refinement on the residual vector;
+- full-Jacobian covariance;
+- profiles versus slices;
+- validity flags.
 
-Then step 5: re-baseline the schedule.
+See the re-baseline for the remaining steps.
 
 Check the baseline before resuming:
 
 ```sh
-uv sync --locked && uv run pytest -q -m "not slow"     # 83 passed
+uv sync --locked && uv run pytest -q -m "not slow"     # 162 passed
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 (cd web && pnpm install --frozen-lockfile && pnpm build)
 LEGACY=path/to/NMRApllication tools/legacy-harness/run.sh
+tools/package/build.sh && uv venv /tmp/pkg && uv pip install --python /tmp/pkg/bin/python dist/packages/*.whl \
+  && DIPOLAR_BIN=/tmp/pkg/bin/dipolar uv run pytest spikes/test_spike_d10_localhost.py   # 24 passed
 ```
 
 ## Open items for the owner
 
+- Approve or adjust the M0 re-baseline ([docs/rebaseline-after-m0.md](rebaseline-after-m0.md)),
+  including logging owner hours per step from M1 onwards.
 - Approve plan v0.6 formally (the "go" started M0).
 - Supply the thesis PDF. It is needed for B55/D4, the ρ formula and Phase 2 V3/V6.
 - Get Di Pietro's permission to redistribute the 8CB couplings.

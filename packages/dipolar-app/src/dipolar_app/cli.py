@@ -95,6 +95,13 @@ def serve(project_dir: Path, ready_file: Path, static_dir: Path | None, *, open_
     ready_file.unlink(missing_ok=True)
     registry = build_registry()
     session = Session(Journal(project_dir / "project.events.jsonl"), contract_version=CONTRACT_VERSION)
+    if session.recovery is not None:
+        r = session.recovery
+        print(
+            f"Recovered the journal: discarded {r.discarded_bytes} bytes of an unacknowledged record cut short "
+            f"by a crash (kept {r.kept_records} records; the bytes are in {r.quarantine.name}).",
+            flush=True,
+        )
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("127.0.0.1", 0))

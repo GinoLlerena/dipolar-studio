@@ -75,7 +75,7 @@ def test_fsync_failure_stops_commands_and_restart_follows_the_journal(
     assert client(restarted).call("project.open_example", {**OPEN0, "expected_science_revision": 1})["ok"]
 
 
-def test_torn_write_stops_commands_and_is_refused_on_restart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_torn_write_stops_commands_and_is_recovered_on_restart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     real_write = os.write
     calls = {"n": 0}
 
@@ -90,8 +90,13 @@ def test_torn_write_stops_commands_and_is_refused_on_restart(tmp_path: Path, mon
     assert client(s).call("project.open_example", OPEN0)["error"]["code"] == "JOURNAL_FAILED"
     monkeypatch.undo()
     assert client(s).call("project.open_example", OPEN0)["error"]["code"] == "JOURNAL_FAILED"
-    with pytest.raises(JournalCorrupt, match="incomplete"):
-        new_session(tmp_path)  # recovery of a torn tail is the M0 step-4 journal spike
+    restarted = new_session(tmp_path)  # spike 4: the unacknowledged torn record is discarded
+    assert restarted.recovery is not None and restarted.recovery.discarded_bytes == 40
+    torn = restarted.recovery.quarantine.read_bytes()
+    assert len(torn) == 40 and torn.startswith(b'{"') and b"\n" not in torn  # the cut-short record, kept aside
+    assert (tmp_path / "project.events.jsonl").read_bytes() == b""
+    assert (restarted.state.seq, restarted.state.science_revision) == (0, 0)
+    assert client(restarted).call("project.open_example", OPEN0)["ok"]
 
 
 # --------------------------------------------------------------------------- envelope coherence

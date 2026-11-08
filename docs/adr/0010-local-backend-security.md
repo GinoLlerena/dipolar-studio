@@ -13,6 +13,20 @@
 
 - M0 spike with negative tests (DNS rebinding, missing Origin, token leakage).
 
+## Decided in M0 spike 3 (2026-11-08)
+
+- **Browser hand-off.** `dipolar open` or `serve --open` mints a single-use launch code (60 s, human
+  launch credential only) and opens `/#launch=<code>`. The page strips the fragment and exchanges
+  the code once, from an allowed Origin, for a tab token kept in `sessionStorage`. Launch tokens
+  never reach a URL. Rejected: a token in the URL, an HttpOnly cookie (not port-isolated), paste.
+- **Instances.** An exclusive project lock makes a second `serve` exit with code 3. A stale ready
+  file is removed under the lock. The authenticated `GET /api/v1/instance` handshake lets clients
+  detect a stale ready file or a reused port.
+- **Transport.** HTTP on loopback for the beta; stdio for the Phase 3 MCP adapter.
+- **Packaging.** The page is bundled in the `dipolar-app` wheel (`tools/package/build.sh`).
+
 ## Verified by
 
-M0 D10 spike.
+`spikes/test_spike_d10_localhost.py`, run against the source tree and, in the `packaged` CI job,
+against the installed wheel; `packages/dipolar-app/tests/test_app_auth.py`. Evidence:
+[docs/spikes/m0-spikes.md](../spikes/m0-spikes.md#3-d10-localhost-security-on-a-packaged-build).

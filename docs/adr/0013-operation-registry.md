@@ -9,6 +9,15 @@
 - Python, CLI, HTTP/OpenAPI, the TypeScript client and (Phase 3) MCP are generated from it; there is no private UI API.
 - Typed quantities and IDs; structured errors with code, message, offending field and hint; committed registry snapshot.
 
+## M0 spike 2 (2026-11-08)
+
+- The dispatcher validates every adapter's input in strict JSON mode: no type coercion, finite
+  numbers only. The HTTP adapter parses strict RFC 8259 JSON (no NaN/Infinity, no duplicate keys,
+  UTF-8 only).
+- Wire integers stay within 2⁵³ − 1.
+- The snapshot publishes the success and error envelopes, including every error code.
+
 ## Verified by
 
-Registry snapshot and contract tests (M0 slice onward).
+Registry snapshot and contract tests (M0 slice onward); `spikes/test_spike_json_serialization.py`
+checks every schema, example, result and error code with the independent `jsonschema` validator.

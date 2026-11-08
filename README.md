@@ -15,9 +15,9 @@ software architecture), to cross-validate every conclusion with an independent m
 write the new software. It is designed from the start so that an **AI agent** can later use the
 same tools as a human to run calculations and drive the interface.
 
-> Status: **Phase 1, milestone M0 (foundations).** The workspace, CI, decision records, frozen
-> test answers, legacy goldens and the end-to-end vertical slice are in place; the M0 spikes are
-> next.
+> Status: **Phase 1, milestone M0 (foundations), complete.** The workspace, CI, decision records,
+> frozen test answers, legacy goldens, the end-to-end vertical slice and the four M0 spikes are in
+> place. A re-baseline for M1–M3 awaits the owner.
 
 ## Why a new implementation
 
@@ -67,11 +67,18 @@ cd web && pnpm install && pnpm run build   # browser UI (strict TypeScript)
 Try the M0 vertical slice (one local session, served on 127.0.0.1 at an OS-assigned port):
 
 ```bash
-uv run dipolar serve --project-dir /tmp/dipolar-demo --static-dir web/dist
-# The printed URL serves the page. The per-launch tokens are in /tmp/dipolar-demo/serve.ready.json
-# (mode 0600, never printed). Paste the "user" token into the page, or drive the same session
-# with the robot, which uses HTTP and the standard library only:
+uv run dipolar serve --project-dir /tmp/dipolar-demo --static-dir web/dist --open
+# --open (or, later, `uv run dipolar open --project-dir /tmp/dipolar-demo`) opens the page with a
+# single-use launch link; the per-launch tokens stay in /tmp/dipolar-demo/serve.ready.json (mode
+# 0600, never printed). Drive the same session with the robot, which uses HTTP and the standard
+# library only:
 python3 -I tools/robot/robot.py --ready-file /tmp/dipolar-demo/serve.ready.json
+```
+
+Build the installable wheels (the page is bundled, so `pip install` needs no Node):
+
+```bash
+tools/package/build.sh       # -> dist/packages/*.whl
 ```
 
 | Path | Contents |
@@ -83,6 +90,8 @@ python3 -I tools/robot/robot.py --ready-file /tmp/dipolar-demo/serve.ready.json
 | `tools/reference/` | Independent NumPy/SciPy reference that produced them |
 | `tools/legacy-harness/` | The 1998 solvers compiled and compared with frozen "golden failures" |
 | `tools/robot/` | The scripted robot user: drives the app over HTTP only (standard library) |
+| `tools/package/` | Builds the wheels with the browser page bundled |
+| `spikes/` | The M0 spikes as executable evidence (D3 numerics, JSON, D10 security, crash recovery) |
 
 ## Documents
 
@@ -92,6 +101,8 @@ python3 -I tools/robot/robot.py --ready-file /tmp/dipolar-demo/serve.ready.json
 | [docs/04-ai-ready-architecture.md](docs/04-ai-ready-architecture.md) | The headless engine and the AI-ready architecture |
 | [docs/adr/](docs/adr/) | Architecture decision records ADR-0001 to ADR-0020 (one per decision D1–D20) |
 | [docs/STATUS.md](docs/STATUS.md) | Current stopping point, where to resume, and open owner items |
+| [docs/spikes/m0-spikes.md](docs/spikes/m0-spikes.md) | The four M0 spikes: evidence, findings and decisions |
+| [docs/rebaseline-after-m0.md](docs/rebaseline-after-m0.md) | Measured M0 velocity and the proposed shape of M1–M3 (for the owner) |
 | [docs/legacy/](docs/legacy/) | Analysis of the 1998 application, and the bug report |
 | [docs/panel/](docs/panel/) | Expert-panel inputs: UX research, UI design with an [HTML mockup](docs/panel/mockup-workspace.html), science and numerics, architecture |
 | [docs/validation/](docs/validation/) | Independent validation rounds (GPT-6.1-Sol) |

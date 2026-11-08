@@ -19,6 +19,12 @@
 
 `tests/test_expected_fixtures.py` (frozen answers); the engine's own M1 tests.
 
+## M0 spike 1 (2026-11-08)
+
+The D3 controls pass on dipolar-core (`spikes/test_spike_d3_numerics.py`). M1 refines with bounded
+TRF on the residual vector: minimizing the scalar profile χ² resolves φ only to ~1.5·10⁻⁹ ° at a
+zero-residual optimum. The frozen expected values are unchanged.
+
 ## Changelog of frozen fixtures
 
 Any re-freeze of `datasets/*/expected/` (via `tools/reference/make_expected.py`) is recorded here with its reason.

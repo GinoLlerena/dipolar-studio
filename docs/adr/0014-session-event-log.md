@@ -9,6 +9,17 @@
 - Each accepted command appends events with seq, revision, actor, command, args hash, causation and inverse.
 - The journal gives global chronological undo, audit, replay and live multi-client sync; optimistic concurrency via expected_revision.
 
+## Recovery policy (M0 spike 4, 2026-11-08)
+
+- A torn tail (bytes after the last newline) was never acknowledged. It is copied to a private
+  quarantine file and then truncated, with every step fsynced, and `serve` reports it.
+- A damaged complete line may have been acknowledged. It is refused and the file is left
+  untouched.
+- After a journal failure the session stays fail-stopped until it restarts (fsync errors cannot
+  be retried safely).
+
 ## Verified by
 
-Replay and REVISION_CONFLICT tests; M0 journal crash-recovery spike.
+Replay and REVISION_CONFLICT tests; `spikes/test_spike_journal_crash.py` (SIGKILL loop, real server
+restart); recovery unit tests in `test_app_journal.py`. Evidence:
+[docs/spikes/m0-spikes.md](../spikes/m0-spikes.md#4-journal-crash-recovery).

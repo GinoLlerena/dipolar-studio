@@ -22,7 +22,7 @@ from typing import Any, TypeVar
 from dipolar_core.context import numerical_context
 
 from dipolar_app.errors import ErrorCode, OperationError
-from dipolar_app.journal import JOURNAL_SCHEMA_VERSION, Journal, JournalCorrupt
+from dipolar_app.journal import JOURNAL_SCHEMA_VERSION, Journal, JournalCorrupt, Recovery
 from dipolar_app.policy import Principal
 from dipolar_app.project import PROJECT_SCHEMA_VERSION, Project, science_hash
 
@@ -86,7 +86,10 @@ class Session:
         self._journal = journal
         self._contract_version = contract_version
         self._failure: str | None = None
+        #: What opening the journal repaired (an unacknowledged torn tail), if anything.
+        self.recovery: Recovery | None = None
         if journal is not None:
+            self.recovery = journal.recover_torn_tail()
             self._state = replay(journal)
 
     @property
