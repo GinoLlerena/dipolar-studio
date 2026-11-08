@@ -1,0 +1,24 @@
+{
+  "0.930": {
+    "phi_deg": 32.95,
+    "Szz": 0.4308,
+    "Delta": 0.1852,
+    "rms_Hz": 5.24,
+    "thesis_AP_DPD": {
+      "phi_max_deg": 35.37,
+      "Saa": 0.425,
+      "Sbb_minus_Scc": 0.182
+    }
+  },
+  "0.980": {
+    "phi_deg": 33.05,
+    "Szz": 0.3248,
+    "Delta": 0.1531,
+    "rms_Hz": 3.89,
+    "thesis_AP_DPD": {
+      "phi_max_deg": 35.51,
+      "Saa": 0.321,
+      "Sbb_minus_Scc": 0.152
+    }
+  }
+}

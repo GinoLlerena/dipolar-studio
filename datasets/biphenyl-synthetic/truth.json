@@ -1,0 +1,12 @@
+{
+  "model": "rigid, D2 bisector frame, regular hexagonal rings",
+  "phi_deg": 37.0,
+  "Szz": 0.25,
+  "Delta": 0.03,
+  "r_CC_ring_A": 1.397,
+  "r_CH_A": 1.084,
+  "r_C1C1p_A": 1.489,
+  "sigma_Hz": 0.5,
+  "seed": 19980101,
+  "K_HH_Hz_A3": -120120.16114864848
+}

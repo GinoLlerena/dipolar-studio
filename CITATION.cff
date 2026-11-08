@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use Dipolar Studio, please cite it as below."
+title: "Dipolar Studio"
+type: software
+authors:
+  - family-names: Llerena
+    given-names: Gino
+license: BSD-3-Clause
+repository-code: "https://github.com/GinoLlerena/dipolar-studio"
+abstract: >-
+  A new, AI-assisted implementation of a 1998 graduation-thesis application that determines
+  molecular conformation and liquid-crystal orientational order from NMR dipolar couplings.
+references:
+  - type: software
+    title: "Proyecto (NMR application, 1998 graduation thesis)"
+    authors:
+      - family-names: Llerena
+        given-names: Gino
+    year: 1998
+    repository-code: "https://github.com/GinoLlerena/NMRApllication"
+  - type: thesis
+    title: "RMN dans différents solvants partiellement orientés: pour la détermination de la structure, l'ordre et la conformation de molécules organiques"
+    authors:
+      - family-names: Di Pietro
+        given-names: Maria Enrica
+    year: 2013
+    institution:
+      name: "Université Paris-Sud / Università della Calabria"
+    url: "https://lisa.unical.it/bitstreams/1deb8605-44d0-4c62-9a8f-d4f7eb6cafe1/download"
+    notes: "Source of the experimental biphenyl/8CB dipolar couplings in datasets/biphenyl-8CB-dipietro2013 (Table 3.1)."

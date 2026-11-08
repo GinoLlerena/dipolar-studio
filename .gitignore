@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Legacy harness build products (sources are copied in locally, not committed)
+tools/legacy-harness/src/*.cpp
+tools/legacy-harness/src/Matriz.h
+tools/legacy-harness/src/SistEcuac.h
+tools/legacy-harness/t
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+.playwright-mcp/

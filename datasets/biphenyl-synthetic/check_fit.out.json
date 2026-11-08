@@ -1,0 +1,19 @@
+{
+  "phi_hat_deg": 36.985,
+  "phi_68pct_profile_interval_deg": [
+    36.976,
+    36.994
+  ],
+  "Szz_hat": 0.25004,
+  "Delta_hat": 0.03053,
+  "chi2": 12.43,
+  "nu": 11,
+  "chi2_reduced": 1.13,
+  "inner_rank": 2,
+  "truth": {
+    "phi_deg": 37.0,
+    "Szz": 0.25,
+    "Delta": 0.03
+  },
+  "equivalent_solutions_note": "At fixed labels, (phi, Delta) and (-phi, Delta) give identical couplings. (180 +/- phi, -Delta) is equivalent ONLY together with the ring-B relabelling H2'<->H6', H3'<->H5' (x moves to the other bisector). Domain folded to phi in [0, 90] deg."
+}
