@@ -3,7 +3,8 @@
 One accepted command is one transaction record: a single JSON Lines entry carrying all of the
 command's events and a SHA-256 checksum. The record is fsynced before the command is acknowledged.
 
-M0 scope: append, read and verify. Recovery from a torn final record is the M0 step-4 spike; until
+M0 scope: append, read and verify. If an append fails, the session stops accepting commands
+(fail-stop, see ``Session.commit``). Recovery from a torn final record is the M0 step-4 spike; until
 then a damaged journal is refused (``JournalCorrupt``) rather than silently repaired.
 """
 
@@ -50,7 +51,12 @@ class Journal:
         line = (canonical_json(stored) + "\n").encode()
         fd = os.open(self.path, os.O_WRONLY | os.O_APPEND)
         try:
-            os.write(fd, line)
+            view = memoryview(line)
+            while view:  # os.write may store fewer bytes than asked; never acknowledge a partial record
+                written = os.write(fd, view)
+                if written <= 0:
+                    raise OSError("journal write stored no bytes")
+                view = view[written:]
             os.fsync(fd)
         finally:
             os.close(fd)

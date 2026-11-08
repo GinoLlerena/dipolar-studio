@@ -66,6 +66,12 @@ def serve(project_dir: Path, ready_file: Path, static_dir: Path | None) -> None:
     config = uvicorn.Config(app, log_level="warning", access_log=False, lifespan="off")
     server = uvicorn.Server(config)
 
+    # uvicorn shuts down gracefully, then re-raises SIGTERM; turn it into SystemExit so that the
+    # ready file is still removed below.
+    signal.signal(signal.SIGTERM, _exit_on_sigterm)
+    print(f"Dipolar Studio: http://127.0.0.1:{port}/  (credentials: {ready_file})", flush=True)
+    # Publishing the ready file is the last start-up step: a reader that sees it may rely on
+    # everything above (listening socket, signal handling, the printed banner).
     _write_private(
         ready_file,
         {
@@ -75,10 +81,6 @@ def serve(project_dir: Path, ready_file: Path, static_dir: Path | None) -> None:
             "tokens": by_name,
         },
     )
-    # uvicorn shuts down gracefully, then re-raises SIGTERM; turn it into SystemExit so that the
-    # ready file is still removed below.
-    signal.signal(signal.SIGTERM, _exit_on_sigterm)
-    print(f"Dipolar Studio: http://127.0.0.1:{port}/  (credentials: {ready_file})", flush=True)
     try:
         server.run(sockets=[sock])
     finally:

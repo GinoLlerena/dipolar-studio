@@ -19,6 +19,9 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from typing import Any, TypeVar
 
+from dipolar_core.context import numerical_context
+
+from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.journal import JOURNAL_SCHEMA_VERSION, Journal, JournalCorrupt
 from dipolar_app.policy import Principal
 from dipolar_app.project import PROJECT_SCHEMA_VERSION, Project, science_hash
@@ -82,6 +85,7 @@ class Session:
         self._state = SessionState()
         self._journal = journal
         self._contract_version = contract_version
+        self._failure: str | None = None
         if journal is not None:
             self._state = replay(journal)
 
@@ -90,39 +94,74 @@ class Session:
         """A consistent snapshot. Queries compute from it outside the lock."""
         return self._state
 
-    def commit(self, principal: Principal, operation: str, args: dict[str, Any], plan: Plan[T]) -> T:
+    @property
+    def failed(self) -> str | None:
+        """Why the session stopped accepting commands, or None while it is healthy."""
+        return self._failure
+
+    def commit(
+        self, principal: Principal, operation: str, args: dict[str, Any], plan: Plan[T]
+    ) -> tuple[T, SessionState]:
+        """Plan, journal, then apply, atomically. Returns the result and the state it produced.
+
+        Fail-stop: if the journal append raises, the outcome on disk is uncertain (the record may
+        or may not be durable). The in-memory state is left unchanged and **every later command is
+        refused** until the process restarts and replays the journal, which is the source of truth.
+        Queries keep working on the last acknowledged state.
+        """
         with self._lock:
+            if self._failure is not None:
+                raise OperationError(
+                    ErrorCode.JOURNAL_FAILED,
+                    "the session stopped accepting commands after a journal failure",
+                    hint="restart dipolar serve; it replays the journal, which is the source of truth",
+                    details={"cause": self._failure},
+                )
             current = self._state
             events, result = plan(current)
             if not events:
-                return result
+                return result, current
             new_state = apply_transaction(current, events)
             if self._journal is not None:
-                self._journal.append(
-                    {
-                        "journal_schema": JOURNAL_SCHEMA_VERSION,
-                        "project_schema": PROJECT_SCHEMA_VERSION,
-                        "contract_version": self._contract_version,
-                        "seq": new_state.seq,
-                        "txn_id": uuid.uuid4().hex,
-                        "timestamp": dt.datetime.now(dt.UTC).isoformat(),
-                        "actor": principal.actor,
-                        "tier": principal.tier.value,
-                        "operation": operation,
-                        "args": args,
-                        "events": events,
-                        "revisions": {SCIENCE: new_state.science_revision, WORKSPACE: new_state.workspace_revision},
-                        "science_hash": new_state.science_hash,
-                    }
-                )
+                record = {
+                    "journal_schema": JOURNAL_SCHEMA_VERSION,
+                    "project_schema": PROJECT_SCHEMA_VERSION,
+                    "contract_version": self._contract_version,
+                    "seq": new_state.seq,
+                    "txn_id": uuid.uuid4().hex,
+                    "timestamp": dt.datetime.now(dt.UTC).isoformat(),
+                    "actor": principal.actor,
+                    "tier": principal.tier.value,
+                    "operation": operation,
+                    "args": args,
+                    "events": events,
+                    "revisions": {SCIENCE: new_state.science_revision, WORKSPACE: new_state.workspace_revision},
+                    "numerical_context": numerical_context(),
+                    "science_hash": new_state.science_hash,
+                }
+                try:
+                    self._journal.append(record)
+                except Exception as exc:
+                    self._failure = f"{type(exc).__name__}: {exc}"
+                    raise OperationError(
+                        ErrorCode.JOURNAL_FAILED,
+                        "the journal write failed; whether this command was recorded is uncertain",
+                        hint="restart dipolar serve and read the state before retrying",
+                        details={"cause": self._failure},
+                    ) from exc
             self._state = new_state
-            return result
+            return result, new_state
 
 
 def replay(journal: Journal) -> SessionState:
     """Rebuild the state from the journal, checking sequence, revisions and science hash."""
     state = SessionState()
     for record in journal.records():
+        if record.get("numerical_context") != numerical_context():
+            raise JournalCorrupt(
+                f"record seq {record.get('seq')}: written under a different numerical context; "
+                "a migration is required before replay"
+            )
         state = apply_transaction(state, record["events"])
         recorded = record["revisions"]
         if (

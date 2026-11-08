@@ -17,6 +17,7 @@ class ErrorCode(StrEnum):
     ID_NOT_FOUND = "ID_NOT_FOUND"
     OUT_OF_DOMAIN = "OUT_OF_DOMAIN"
     PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE"
+    JOURNAL_FAILED = "JOURNAL_FAILED"
     INTERNAL = "INTERNAL"
 
 
@@ -32,6 +33,7 @@ HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.ID_NOT_FOUND: 404,
     ErrorCode.OUT_OF_DOMAIN: 400,
     ErrorCode.PAYLOAD_TOO_LARGE: 413,
+    ErrorCode.JOURNAL_FAILED: 503,
     ErrorCode.INTERNAL: 500,
 }
 

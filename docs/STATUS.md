@@ -23,7 +23,8 @@
   | Forward model, biphenyl template, whitened SVD inner solve, validity flags | `packages/dipolar-core/src/dipolar_core/` |
   | Registry and dispatcher, policy matrix, session, journal, operations | `packages/dipolar-app/src/dipolar_app/` |
   | Registry contract snapshot (version 0.1.0) | `packages/dipolar-app/registry.snapshot.json` |
-  | Tests | `packages/*/tests/`, `tests/test_boundaries.py` (75 tests) |
+  | Numerical context (part of the science hash, D11) | `packages/dipolar-core/src/dipolar_core/context.py` |
+  | Tests | `packages/*/tests/`, `tests/test_boundaries.py` (83 tests) |
 
 ### What the slice demonstrates
 
@@ -40,7 +41,10 @@
   `expected_science_revision` returns `REVISION_CONFLICT` and nothing changes. Reopening a project
   clears the selection in the same transaction.
 - **Journal.**
-  - Each accepted command is one checksummed, fsynced JSON Lines record.
+  - Each accepted command is one checksummed, fsynced JSON Lines record, written in full before
+    the command is acknowledged.
+  - **Fail-stop:** after any journal failure, every later command returns `JOURNAL_FAILED`
+    until a restart replays the journal. Queries keep working.
   - Replay reproduces the science hash and the revisions, and a new process resumes from the
     journal.
   - A tampered or torn journal is refused.
@@ -54,7 +58,10 @@
 - **Browser.** Checked by hand in Chromium (Playwright):
   - open the example, preview, select a row;
   - the robot's selection then appeared on the page;
-  - the old preview was marked stale after the robot reopened the project.
+  - the old preview was marked stale after the robot reopened the project;
+  - a superseded preview that arrived late was discarded.
+- **Validation round 8** (GPT-6.1-Sol): NOT READY. Seven findings, all fixed with regression
+  tests; see [docs/validation/round8-m0-slice.md](validation/round8-m0-slice.md).
 
 ### Deliberate limits of the slice (each is planned work)
 
@@ -69,7 +76,8 @@
 - **Deferred to M2, as the plan says:** idempotency keys, dry run, proposals, undo and the event
   stream. The page polls `render.describe_view` every 2 s until the event stream exists.
 - **Damaged journals.** A damaged journal is refused, never repaired. Recovery is the journal
-  spike.
+  spike: discard a torn final record, then decide whether a fail-stopped session may continue
+  without a restart.
 - **The TypeScript client.** Its types are hand-written. M2 generates them from the registry.
 
 ## Resume here: M0 step 4, the spikes
@@ -92,7 +100,7 @@ Then step 5: re-baseline the schedule.
 Check the baseline before resuming:
 
 ```sh
-uv sync --locked && uv run pytest -q -m "not slow"     # 75 passed
+uv sync --locked && uv run pytest -q -m "not slow"     # 83 passed
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 (cd web && pnpm install --frozen-lockfile && pnpm build)
 LEGACY=path/to/NMRApllication tools/legacy-harness/run.sh

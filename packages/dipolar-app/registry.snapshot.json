@@ -220,6 +220,20 @@
             "title": "N Obs",
             "type": "integer"
           },
+          "numerical_context": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "title": "Numerical Context",
+            "type": "object"
+          },
           "order": {
             "$ref": "#/$defs/OrderOut"
           },
@@ -258,6 +272,7 @@
           "n_obs",
           "rms_residual",
           "validity",
+          "numerical_context",
           "statement"
         ],
         "title": "PreviewOut",

@@ -12,6 +12,7 @@ from typing import Annotated, Literal
 
 import numpy as np
 from dipolar_core.biphenyl import BiphenylGeometry, rigid_design
+from dipolar_core.context import numerical_context
 from dipolar_core.forward import constraint_diagonal
 from dipolar_core.inference import is_admissible, solve_inner
 from pydantic import Field
@@ -87,7 +88,7 @@ def open_example(ctx: Context, p: OpenExampleIn) -> OpenExampleOut:
             n_couplings=len(project.couplings),
         )
 
-    return ctx.session.commit(ctx.principal, "project.open_example", p.model_dump(mode="json"), plan)
+    return ctx.commit("project.open_example", p.model_dump(mode="json"), plan)
 
 
 # --------------------------------------------------------------------------- project.describe
@@ -134,7 +135,7 @@ class DescribeProjectOut(Wire):
 
 
 def describe_project(ctx: Context, _: DescribeProjectIn) -> DescribeProjectOut:
-    state = ctx.session.state
+    state = ctx.read()
     project = _require_project(state)
     g = project.molecule.geometry
     return DescribeProjectOut(
@@ -204,11 +205,12 @@ class PreviewOut(Wire):
     n_obs: int
     rms_residual: Hertz
     validity: Validity
+    numerical_context: dict[str, str | float]
     statement: str
 
 
 def fit_preview(ctx: Context, p: PreviewIn) -> PreviewOut:
-    state = ctx.session.state  # one snapshot: the result names the revision it reflects
+    state = ctx.read()  # one snapshot: the result names the revision it reflects
     project = _require_project(state)
     lo, hi = project.model.phi_domain_deg
     if not lo <= p.phi.value <= hi:
@@ -256,6 +258,7 @@ def fit_preview(ctx: Context, p: PreviewIn) -> PreviewOut:
             inner_condition_number=sol.condition if math.isfinite(sol.condition) else None,
             physically_admissible=is_admissible(constraint_diagonal() @ sol.params),
         ),
+        numerical_context=numerical_context(),
         statement=(
             "Profile objective at fixed φ: the order parameters are re-solved by whitened SVD "
             "(known σ, not rescaled). This is a preview, not a fit: no ν, p-value or interval is implied."
@@ -316,7 +319,7 @@ def view_select(ctx: Context, p: SelectIn) -> SelectOut:
         }
         return [event], out
 
-    return ctx.session.commit(ctx.principal, "view.select", p.model_dump(mode="json"), plan)
+    return ctx.commit("view.select", p.model_dump(mode="json"), plan)
 
 
 # --------------------------------------------------------------------------- render.describe_view
@@ -333,7 +336,7 @@ class DescribeViewOut(Wire):
 
 
 def describe_view(ctx: Context, _: DescribeViewIn) -> DescribeViewOut:
-    state = ctx.session.state
+    state = ctx.read()
     return DescribeViewOut(
         science_revision=state.science_revision,
         workspace_revision=state.workspace_revision,

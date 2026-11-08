@@ -8,13 +8,15 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
 from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.policy import Capability, Decision, Principal, decide
-from dipolar_app.session import Session
+from dipolar_app.session import Plan, Session, SessionState
+
+T = TypeVar("T")
 
 #: Semantic version of the tool contract (D20), independent of the package version.
 CONTRACT_VERSION = "0.1.0"
@@ -24,10 +26,24 @@ Effect = Literal["none", "model", "view", "compute", "io", "destructive"]
 Cost = Literal["instant", "seconds", "job"]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class Context:
+    """Per-call context. It records the one state snapshot the operation observed or produced, so
+    the envelope's revisions always describe the same state as the result (never a later one)."""
+
     session: Session
     principal: Principal
+    observed: SessionState | None = None
+
+    def read(self) -> SessionState:
+        """Take the operation's state snapshot (queries compute from it outside the lock)."""
+        self.observed = self.session.state
+        return self.observed
+
+    def commit(self, operation: str, args: dict[str, Any], plan: Plan[T]) -> T:
+        result, state = self.session.commit(self.principal, operation, args, plan)
+        self.observed = state
+        return result
 
 
 Handler = Callable[[Context, Any], BaseModel]
@@ -138,10 +154,13 @@ def dispatch(
                 hint=f"see the input schema of {op.name}",
                 details={"error_count": exc.error_count()},
             ) from None
-        result = op.handler(Context(session, principal), parsed)
+        ctx = Context(session, principal)
+        result = op.handler(ctx, parsed)
         if not isinstance(result, op.output_model):
             raise TypeError(f"{op.name} returned {type(result).__name__}, expected {op.output_model.__name__}")
-        state = session.state
+        if ctx.observed is None:
+            raise TypeError(f"{op.name} must read or commit through its Context")
+        state = ctx.observed
         return {
             "ok": True,
             "operation": op.name,

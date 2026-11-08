@@ -7,6 +7,7 @@ import json
 from importlib import resources
 from typing import Annotated, Any, Literal
 
+from dipolar_core.context import numerical_context
 from pydantic import Field
 
 from dipolar_app.schemas import Angstrom, CouplingId, ExampleName, Hertz, SpinId, Wire
@@ -83,7 +84,11 @@ def canonical_json(data: Any) -> str:
 
 
 def science_hash(project: Project | None) -> str:
-    payload = None if project is None else project.model_dump(mode="json")
+    """Canonical science identity: the project plus the core's numerical context (D11)."""
+    payload = {
+        "numerical_context": numerical_context(),
+        "project": None if project is None else project.model_dump(mode="json"),
+    }
     return "sha256:" + hashlib.sha256(canonical_json(payload).encode()).hexdigest()
 
 

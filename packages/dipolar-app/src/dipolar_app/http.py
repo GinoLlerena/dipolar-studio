@@ -123,9 +123,15 @@ def create_app(
         declared = request.headers.get("content-length")
         if declared is not None and (not declared.isdigit() or int(declared) > MAX_BODY_BYTES):
             return _error(ErrorCode.PAYLOAD_TOO_LARGE, f"the body limit is {MAX_BODY_BYTES} bytes", operation=name)
-        body = await request.body()
-        if len(body) > MAX_BODY_BYTES:
-            return _error(ErrorCode.PAYLOAD_TOO_LARGE, f"the body limit is {MAX_BODY_BYTES} bytes", operation=name)
+        # Count while streaming: a chunked body (no Content-Length) must never be buffered past the limit.
+        chunks: list[bytes] = []
+        size = 0
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > MAX_BODY_BYTES:
+                return _error(ErrorCode.PAYLOAD_TOO_LARGE, f"the body limit is {MAX_BODY_BYTES} bytes", operation=name)
+            chunks.append(chunk)
+        body = b"".join(chunks)
         try:
             envelope_in: Any = json.loads(body or b"{}")
         except ValueError:

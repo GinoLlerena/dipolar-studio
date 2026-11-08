@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   callOperation,
   type DescribeView,
@@ -23,6 +23,15 @@ function tokenFromFragment(): string {
 
 const fmt = (value: number, digits = 3) => value.toFixed(digits);
 
+// Revisions never decrease (04 §8.1), so a view response older than the one shown is a late
+// response and is discarded (D11).
+function isNotOlder(next: DescribeView, shown: DescribeView | null): boolean {
+  return (
+    shown === null ||
+    (next.science_revision >= shown.science_revision && next.workspace_revision >= shown.workspace_revision)
+  );
+}
+
 export function App() {
   const [token, setToken] = useState(tokenFromFragment);
   const [connected, setConnected] = useState(false);
@@ -30,6 +39,7 @@ export function App() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [phi, setPhi] = useState("37");
   const [error, setError] = useState<OperationError | null>(null);
+  const previewRequest = useRef(0); // only the latest preview request may update the page
 
   const run = useCallback(
     async <T,>(name: string, args: object): Promise<T | null> => {
@@ -47,7 +57,7 @@ export function App() {
   const refreshView = useCallback(async () => {
     const result = await run<DescribeView>("render.describe_view", {});
     if (result) {
-      setView(result);
+      setView((shown) => (isNotOlder(result, shown) ? result : shown));
       setConnected(true);
     }
     return result;
@@ -69,14 +79,16 @@ export function App() {
       expected_science_revision: current.science_revision,
     });
     if (opened) {
+      previewRequest.current++; // a preview still in flight belongs to the replaced project
       setPreview(null);
       await refreshView();
     }
   };
 
   const runPreview = async () => {
+    const request = ++previewRequest.current;
     const result = await run<Preview>("fit.preview", { phi: { value: Number(phi), unit: "deg" } });
-    if (result) setPreview(result);
+    if (result && request === previewRequest.current) setPreview(result);
   };
 
   const select = async (id: string) => {
