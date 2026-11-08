@@ -1,9 +1,16 @@
 # AI-ready architecture: a headless engine with one tool surface
 
-Version 0.3 · 2026-11-07 · Extends [03-redesign-plan.md](03-redesign-plan.md) (decisions D1–D12).
+Version 0.4 · 2026-11-07 · Extends [03-redesign-plan.md](03-redesign-plan.md) (decisions D1–D12).
 New decisions: **D13–D20**. v0.2 applied the GPT-6.1-Sol round-4 review, and v0.3 the round-5 minor changes
 ([round5-confirmation.md](validation/round5-confirmation.md)). See the round-4 review
 ([round4-ai-architecture-review.md](validation/round4-ai-architecture-review.md)).
+
+**v0.4 renumbering.** The owner inserted a verification phase (plan v0.6), so the AI phase is
+now **Phase 3**. The validation rounds call it "Phase 2". Phase 2 (verification) is expected to
+keep the application boundaries and the session/policy semantics defined here. Each extension
+first reviews its observable and parameter schemas, inference assumptions, resource budgets,
+D19 outputs, snapshots/hashes and journal replay. Domain schemas evolve through D20, with
+project and event migrations where required (plan §8, Phase 2 rules).
 Corrections are made in place, and the binding contracts are in **§8**, which overrides any
 looser wording earlier in this document.
 
@@ -13,7 +20,7 @@ looser wording earlier in this document.
 2. **One tool surface for humans and agents.** A future AI agent must be able to *perform
    calculations* and *manage the view* with the **same tools** the UI uses.
 3. **Phase 1 builds no agent**, but its architecture must not need a major refactor when the
-   agent arrives in Phase 2.
+   agent arrives in Phase 3.
 
 ## 2. Gap analysis of plan v0.3
 
@@ -40,12 +47,12 @@ flowchart TB
     PY[Python API / notebooks]
     CLI[CLI]
     ROBOT[Scripted 'robot user'<br/>Phase 1 test client]
-    AGENT[AI agent<br/>Phase 2]
+    AGENT[AI agent<br/>Phase 3]
   end
   subgraph Adapters["Adapters (generated from the registry)"]
     HTTP[HTTP + WebSocket events]
     PYB[Python bindings]
-    MCP[MCP server<br/>Phase 2]
+    MCP[MCP server<br/>Phase 3]
   end
   subgraph App["dipolar-app: headless application layer"]
     REG[Operation registry<br/>typed commands and queries]
@@ -94,13 +101,13 @@ def add_coupling(s: Session, p: AddCoupling) -> CouplingAdded: ...
   (`Quantity[Hz]`, `Quantity[deg]`), so units are never implicit, and references are typed IDs
   (`SpinId`). Every output returns **both IDs and display labels**.
 - **The other interfaces are generated from it.** Python API, CLI (Typer), HTTP routes and
-  OpenAPI, the TypeScript client, and in Phase 2 the MCP tool list.
+  OpenAPI, the TypeScript client, and in Phase 3 the MCP tool list.
 - **Rule: there is no private UI API.** A CI test fails if the frontend calls any endpoint that
   is not a registered operation. The UI therefore exercises the full agent surface every day.
 - **Granularity.**
   - Fine-grained operations: `coupling.add`, `parameter.set_range`, `view.select`.
   - A few workflow operations: `fit.run_profile`, `dataset.import_csv`.
-  - Phase 2 adds agent-oriented composites, built on top of these and never bypassing them.
+  - Phase 3 adds agent-oriented composites, built on top of these and never bypassing them.
 - **Structured errors.** Every error carries a `code`, a `message`, the `offending_field` and a
   `hint`, for example `SPIN_NOT_FOUND`, `STEP_NOT_POSITIVE`, `RANK_DEFICIENT`. An agent can
   repair its own call; the UI shows the same hint.
@@ -163,7 +170,7 @@ Initial namespaces (Phase 1):
    issues `view.select` + `view.focus` + `view.highlight`, and the user's screen follows.
 2. View commands are cheap and logged, but they have their **own undo stack**, separate from the
    science stack, so undoing a camera move never reverts a coupling edit.
-3. **The beta has a single shared view.** Detached or per-client views are deferred. In Phase 2,
+3. **The beta has a single shared view.** Detached or per-client views are deferred. In Phase 3,
    while an agent is driving, the UI shows "Agent is pointing at…". Transient drag feedback stays
    local; only coalesced semantic view changes are committed.
 
@@ -200,7 +207,7 @@ These primitives are cheap to build now and very expensive to retrofit:
 - **Proposals.** A command from a `propose`-tier actor is stored as a pending change set. The
   user accepts it in the UI (in whole or in part), and acceptance replays it as a `user`-approved
   command. Phase 1 implements and tests this with the scripted robot; only the chat UI waits
-  for Phase 2.
+  for Phase 3.
 - **Budgets.** Per actor: maximum grid points, concurrent jobs, CPU-seconds and file size. These
   are enforced in the job runner and build on the D10 limits.
 - **Treat inputs as data.** Imported labels, file contents and report text are never interpreted
@@ -226,8 +233,8 @@ Every result query returns machine-interpretable content, not just numbers:
 - the **assumptions** list and the **warnings** with codes;
 - links to the run's provenance.
 
-This does not by itself stop an agent from inventing claims. It makes every claim **traceable**: Phase 2 requires each generated statement to cite the fields it depends on, and the A4 evaluations measure ungrounded claims.
-The same structure feeds the Phase 2 "explain this fit" and Methods-text features.
+This does not by itself stop an agent from inventing claims. It makes every claim **traceable**: Phase 3 requires each generated statement to cite the fields it depends on, and the A5 evaluations measure ungrounded claims.
+The same structure feeds the Phase 3 "explain this fit" and Methods-text features.
 
 ### D20 — Versioned tool contract
 
@@ -235,7 +242,7 @@ The same structure feeds the Phase 2 "explain this fit" and Methods-text feature
 - **Compatibility rules.** Fields may be added; removing or renaming one needs a major version
   bump. Deprecated operations keep working for one minor release, with a warning event.
 - **Contract tests.** A conformance suite runs the registry examples against every adapter
-  (HTTP, Python, and MCP in Phase 2), so all interfaces behave identically.
+  (HTTP, Python, and MCP in Phase 3), so all interfaces behave identically.
 
 ## 5. What changes in the existing decisions
 
@@ -246,7 +253,7 @@ The same structure feeds the Phase 2 "explain this fit" and Methods-text feature
 | D5 (IDs) | IDs also cover view objects (annotations, panels) and actors. |
 | D6 (formats) | Adds `*.workspace.json` (view) and `*.events.jsonl` (log). The project file stays science-only. |
 | D8 (UI as a client) | Strengthened into D13's "no private UI API" rule, enforced in CI. |
-| D10 (local security) | Tokens are scoped per actor tier (D17). The agent transport in Phase 2 goes through the same policy layer. |
+| D10 (local security) | Tokens are scoped per actor tier (D17). The agent transport in Phase 3 goes through the same policy layer. |
 | D11 (durable runs) | Runs record the actor and the revision. The event log is fsynced with the same publication-order rules. |
 
 ## 6. Anti-goals, to avoid over-engineering in Phase 1
@@ -271,7 +278,7 @@ The same structure feeds the Phase 2 "explain this fit" and Methods-text feature
 | Contract | The registry schema snapshot and the examples pass on both the HTTP and Python adapters |
 
 Additional checks required by round 4 are listed in §8.6. If all of them pass, and the §8 contracts
-are implemented, Phase 2 is expected to add an adapter (MCP), composite tools and a client
+are implemented, Phase 3 is expected to add an adapter (MCP), composite tools and a client
 without restructuring the application.
 
 ## 8. Binding contracts (round-4 amendments)
@@ -408,7 +415,7 @@ schema snapshot.
 - Cross-actor undo conflicts.
 - "Equal results" use quantity-specific tolerances; "within 200 ms" is measured on named hardware.
 
-### 8.7 MCP adapter topology (Phase 2, decided now)
+### 8.7 MCP adapter topology (Phase 3, decided now)
 
 - **One session, many clients.** A locally launched MCP server (stdio) is a **thin bridge** that
   attaches to the **already running** `dipolar serve` session through authenticated local

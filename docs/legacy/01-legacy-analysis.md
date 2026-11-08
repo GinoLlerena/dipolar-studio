@@ -1,6 +1,7 @@
 # Legacy analysis — "Proyecto" (NMR application, 1998)
 
 Source: [GinoLlerena/NMRApllication](https://github.com/GinoLlerena/NMRApllication) (git `34a0bff`, imported 2015, written 1998).
+Authors: Gino Llerena and Marco Idrogo (joint graduation thesis); thesis advisor: Dr. Jaime Avalos.
 Analyzed 2026-11-07.
 
 ## 1. What the application does (domain)

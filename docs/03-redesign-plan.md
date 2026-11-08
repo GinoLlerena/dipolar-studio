@@ -1,7 +1,37 @@
 # Dipolar Studio — consolidated redesign plan
 
-**Version 0.5** · 2026-11-07 · Status: **draft for the owner's approval as the Phase-1
-execution baseline.** It applies all ten required changes from GPT-6.1-Sol round 4
+**Version 0.6** · 2026-11-07 · Status: **draft for the owner's approval as the Phase-1
+execution baseline.**
+
+Changes in v0.6: the owner added a **verification phase**, so the roadmap now has three phases:
+
+1. foundation and the biphenyl beta;
+2. **verification**: further molecule classes, models and measurement types. Selected,
+   implemented extensions get known-answer verification and, where suitable experimental data
+   exist, a preregistered experimental comparison. Reports keep the synthetic-only and
+   unresolved-failure outcomes (§4, §8);
+3. AI integration.
+
+GPT-6.1-Sol round 6 ([round6-verification-phase.md](validation/round6-verification-phase.md))
+judged the first Phase 2 draft *not ready*. All ten required changes are applied, and the
+confirmatory round 7 (*ready with minor changes*; its three consistency fixes are also applied)
+is recorded in the same file:
+
+- model-specific identifiability gates instead of blanket exact recovery;
+- executable rank and scale tests;
+- permutation classes instead of point-group "equivalence";
+- a complete ²H EFG specification and declared total-coupling conventions;
+- the restored ¹³C coplanarity rule;
+- a conditional AP-DPD reproduction gate;
+- the terphenyl dataset corrected to ¹³C–¹⁹F;
+- "no architectural change" replaced by schema-evolution rules;
+- a holdout policy;
+- a bounded first verification release (V0 + V1), with separate status labels.
+
+**Naming note:** in v0.5 and in validation rounds 1–5, "Phase 2" means the AI phase, which is
+now **Phase 3**.
+
+v0.5 applied all ten required changes from GPT-6.1-Sol round 4
 ([round4-ai-architecture-review.md](validation/round4-ai-architecture-review.md), verdict on
 v0.4: *not ready*). The confirmatory round 5 returned *ready with minor changes*
 ([round5-confirmation.md](validation/round5-confirmation.md)), and those changes are applied here.
@@ -266,6 +296,10 @@ place; a Zenodo DOI comes at the first release.
   conformer averaging after the beta.
 - **Isotope constants** from the nuclide table. **Signed dipolar D** with σ, the source of σ,
   and an optional model-error floor recorded separately.
+- **The ¹³C coplanarity rule (binding for Phase 2 V4).** ¹³C labelling does not automatically
+  remove planar rank deficiency. When all measured internuclear vectors remain coplanar,
+  dipolar data constrain at most three tensor combinations. Additional in-plane vectors may
+  improve rank or conditioning within that limit.
 - **CSV import with reconciliation** (D5). Stable references, undo/redo, visibly stale results.
 - **Order models:** the C2(z)/bisector-frame model (D12) plus the unconstrained C1 reference
   model.
@@ -280,21 +314,41 @@ place; a Zenodo DOI comes at the first release.
   registry with live preview, a coupling table, residuals and a 1D/2D landscape. Strings are
   externalized.
 
-### Phase 2: AI integration (see §8)
+**What the beta processes.** The datasets in `datasets/` are *test fixtures*, not the only input.
+Users load their own measured couplings (CSV, with σ) and their own geometry (the template or
+XYZ). The Phase 1 limit is the **molecule class and its models** (biphenyl-type: two rings, one
+inter-ring torsion, rigid or four-site jump), not the data.
+
+### Phase 2: verification (owner decision, 2026-11-07; see §8)
+
+Phase 2 widens the engine to the other molecule classes and measurement models that the 1998
+application, or the literature, needs. Each one is **verified** against a known-answer synthetic
+case and, where one exists, a published experimental dataset. In outline:
+
+- a curated, citable benchmark corpus;
+- **any rigid molecule from XYZ**: the legacy single phenyl ring, benzene and substituted benzenes;
+- multi-torsion fragments: the legacy "triphenyl"/branched fragment and terphenyls;
+- further symmetry and frame models: legacy D4 parity (B55) and the ρ ring-distortion model;
+- new measurement types: ²H quadrupolar splittings, ¹³C–¹H and ¹H–¹⁹F couplings;
+- conformational distributions: discrete conformers, AP/DPD and MaxEnt;
+- a legacy-parity and thesis audit.
+
+Phase 2 is expected to keep the application boundaries and session/policy semantics. Domain
+schemas (observables, parameters, D19 outputs) evolve through D20 and migrations where needed
+(§8). Only **V0 + V1** form the first, re-baselined verification release; V2–V5 are separately
+conditional, and V3/V6 are gated on recovered thesis evidence. Each implemented model gets a
+robot tutorial, and those tutorials become Phase 3 evaluation scenarios.
+
+### Phase 3: AI integration (see §8)
 
 The MCP adapter; agent-oriented composite tools; the in-app assistant with proposals and
 approvals; view control by the agent; "explain this fit" and Methods drafting grounded in the
 D19 fields; an agent evaluation suite and safety red-teaming.
 
-### After the beta (each item needs its own acceptance gate)
+### Later (each item needs its own acceptance gate)
 
 | Item | Gate |
 |---|---|
-| Further symmetry and frame models; the new ρ shape model (separate from legacy ρ output) | A derivation plus validation datasets |
-| ²H quadrupolar and ¹³C/¹H total couplings, each with its own schema | Validation datasets. ¹³C labels do **not** by themselves add out-of-plane information: they give new vector directions only if the carbons are not coplanar with the existing vectors. |
-| General discrete conformer averaging (fitted populations) | The model states whether tensors are shared or depend on the conformation. Freely fitted populations × tensors are confounded. |
-| AP/DPD and MaxEnt torsional distributions (needed to match the thesis's published φ_m) | A distribution model plus the 8CB benchmark |
-| Model comparison | Only regular models on identical datasets |
 | Desktop installers (Tauri), Dask/SLURM, a stable third-party plugin API | Delivery evidence |
 | Vibrational corrections, RDCs, RCSA, direct spectral fitting | Research tracks |
 
@@ -339,8 +393,12 @@ Before each study, a written protocol fixes:
 - the scoring rules;
 - the cancellation-latency limits.
 
-The benchmark corpus is split into **development/regression** cases and an **untouched
-experimental holdout**. Development never uses the holdout; it is opened once per release.
+The benchmark corpus keeps **development/regression** cases and **experimental holdout** cases
+distinct where both are available. Related observations are grouped so they do not leak
+between the two. The model and criteria are frozen before a holdout is opened. Once opened, a
+holdout becomes regression data, and the next independent evaluation needs a fresh holdout.
+When none is available, "no independent experimental holdout" is reported, separately from
+"synthetic-only".
 
 Recruitment: 11–13 participants (roles listed in UX §7), with a defined number of novices.
 Research checkpoints are aligned to the prototypes that actually exist.
@@ -355,7 +413,7 @@ flowchart LR
   NB[Notebooks / scripts] --> REG
   CLI[CLI] --> REG
   ROBOT[Robot user: Phase 1 tests] --> REG
-  AGENT[AI agent: Phase 2 via MCP] -.-> REG
+  AGENT[AI agent: Phase 3 via MCP] -.-> REG
   REG[dipolar-app: operation registry → policy → session + event log + view state + headless renderer]
   REG --> CORE[dipolar-core: model · geometry · physics · inference, pure]
   REG --> JOBS[Job runner: atomic chunks, cancel, resume]
@@ -381,14 +439,25 @@ flowchart LR
 | Priority | Idea | Status |
 |---|---|---|
 | **Now** | **Open benchmark corpus.** A small set of cited datasets with reviewed rights. Each records its estimand (rigid effective angle vs distribution mean vs the maximum of P(φ)) and its conventions. | Promoted: it is the regression suite and the held-out test. |
-| **Now (conditional)** | **Thesis audit.** Re-run the thesis datasets as `legacy_exact` with bug compatibility, `legacy_exact` with the bugs fixed, and the new fit. | Depends on recovering the data. It does **not** block the engine. |
+| **Phase 2 (V6, conditional)** | **Thesis audit.** Re-run the thesis datasets as `legacy_exact` with bug compatibility, `legacy_exact` with the bugs fixed, and the new fit. | Depends on recovering the data. It does **not** block the engine. |
 | Later, leading research candidate | **Experiment-design assistant.** Rank which unmeasured couplings or labels would most reduce σ(φ), using the Fisher information. | Needs a stable inference core. Novelty must be checked against the literature. |
 | Later | Bayesian mode (NumPyro/emcee, DFT torsion priors) | Deferred until the frequentist core is validated. Sampling across multiple modes is hard. |
 | Later | Zero-install teaching edition (Pyodide/JupyterLite) | Deferred until demand is shown |
 | Later | Spectrum overlay (nmrglue, JCAMP-DX) | Deferred, because it needs the spin-Hamiltonian simulation done properly |
-| **Phase 2** | **AI agent** that uses the registry tools to set up fits, run them, drive the view and explain results (D19 grounding). Methods drafting. | Phase 1 builds the foundation (D13–D20) with no AI code; Phase 2 adds the MCP adapter and the agent. It never invents numbers: every claim maps to a result field. |
+| **Phase 3** | **AI agent** that uses the registry tools to set up fits, run them, drive the view and explain results (D19 grounding). Methods drafting. | Phase 1 builds the foundation (D13–D20) with no AI code; Phase 3 adds the MCP adapter and the agent. It never invents numbers: every claim maps to a result field. |
 
-## 8. Roadmap: two phases
+## 8. Roadmap: three phases
+
+**Phase order.** Phase 1 builds the foundation and the biphenyl beta; Phase 2 broadens and
+verifies the science; Phase 3 adds AI. Phase 3 depends **technically** only on Phase 1 (the
+04 §8 contracts). By default it follows the **first verification release (V0 + V1)**, for three
+reasons:
+
+- the agent then works on an engine verified on more than one molecule class;
+- the Phase 2 robot tutorials become the A5 evaluation scenarios;
+- the tool list has stabilized before the MCP surface is pinned (D20).
+
+Phase 3 may also start from Phase 1 independently, for example alongside V2–V6. Gates do not move.
 
 The owner builds this with AI-assisted development. Phase sizes are re-baselined after M0
 from measured velocity; no calendar dates are fixed before then.
@@ -402,9 +471,67 @@ from measured velocity; no calendar dates are fixed before then.
 | **M2 Application layer + jobs** | Grow the slice into `dipolar-app`: operations added **only as the beta UI needs them**; global chronological undo; replay of recorded events; one shared view; actors and capabilities from credentials; dry run; proposals (dependency-closed, atomic); idempotency keys; jobs with input snapshots (§8.1); D11 runs; scene description + `describe_view` + SVG renderer with projection parity | All §8.6 checks pass. Replay reproduces the science hash. The registry snapshot, behavioural fixtures and contract tests pass on the Python and HTTP adapters. The benchmark is published. |
 | **M3 Browser beta UI** | A thin React client on the generated TS client: Data and Fit workspaces, a minimal Structure view, reconciliation, live preview, stale badges, landscape, view sync from events | **The AI-readiness checklist (04 §7 + §8.6) is fully green**, including the robot completing the biphenyl tutorial in a clean process through HTTP only. The dependency-boundary and behavioural-parity tests pass. The preview p95 target is met on named hardware. |
 | **Beta release** | Docs with executed notebooks, a summary report, `pip install` + `dipolar serve` | 2 or more external users reproduce the 8CB dataset on their own; 0 open S1 issues |
-| **M-L Legacy import** *(parallel, gated)* | A CArchive spike, only once fixtures exist | As in v0.3 |
+| **M-L Legacy import** *(parallel, gated)* | A CArchive spike, only once fixtures exist | As in v0.3; if not done in Phase 1, it moves to V6 |
 
-### Phase 2: AI integration (starts after the beta; with the 04 §8 contracts in place, no Phase 1 restructuring is expected)
+### Phase 2: verification (starts after the beta; extends models and data within the Phase 1 application boundaries)
+
+**Scope is bounded and re-baselined.** After the beta, the owner selects and re-baselines a
+bounded **first verification release: V0 plus V1**.
+
+- **V2–V5** are separate, conditional extensions. Each one is selected and re-baselined on its own.
+- **V3 and V6** stay gated wherever they depend on the thesis or on recovered legacy evidence.
+- **Phase 3 does not have to wait.** It may proceed from Phase 1 independently (see the phase
+  order above).
+
+**Rules for every V milestone:**
+
+- **Frozen estimands and tolerances.** For each model, freeze the identifiable estimands, the
+  equivalences and the numerical tolerances for each quantity **before** evaluation.
+- **Noiseless recovery.** Noiseless tests recover the identifiable quantities and the
+  predictions. Unidentified directions are reported, without finite error bars.
+- **Regression and coverage are separate.** Fixed-seed regressions and coverage tests are run
+  separately. The M1 protocol (1000 seeds, acceptance band 64.5–72.1%) applies to supported
+  68.3% intervals. Boundary, regularized and nonregular cases need their own calibration, or
+  report "interval not supported".
+- **Published comparisons are preregistered.** Where suitable experimental data exist, they
+  are compared with the published result using predeclared agreement criteria.
+- **Disagreements are reported, never tuned away.** Each one is documented in the dataset
+  README (estimand, geometry, vibrational corrections, solvent) and reviewed. **An explanation
+  documents a discrepancy; it does not turn a failure into experimental validation.**
+- **Separate status labels.**
+  - **Implementation status:** *implemented* or *deferred*.
+  - **Verification status**, reported separately: *pending*, *synthetic-only*,
+    *experimentally supported*, or *unresolved failure*.
+  - **Independent-holdout availability** is reported on its own as well.
+- **Holdouts.**
+  - Keep experimental development cases and holdout cases distinct where both are available.
+    Group related observations (same sample, same paper series) so they do not leak between
+    the two.
+  - Freeze the model and the criteria before a holdout is opened.
+  - Once opened, a holdout becomes regression data. The next independent evaluation needs a
+    fresh holdout.
+- **Architecture.**
+  - Phase 2 is expected to keep the application boundaries and the session/policy semantics
+    of 04.
+  - Each extension first reviews its observable and parameter schemas, its inference
+    assumptions, resource budgets, D19 outputs, snapshots/hashes and journal replay.
+  - Domain schemas evolve through D20, with project and event migrations where required.
+  - VarPro is used only where conditional linearity holds; for example, AP models need not
+    keep the beta's linear inner solve.
+  - The existing compatibility fixtures and the AI-readiness checks stay green.
+
+| Milestone | Deliverables | Exit criteria |
+|---|---|---|
+| **V0 Benchmark corpus** | A written selection protocol. Transcription is double-checked: the owner enters each value, and an independent AI cross-checks it against the rendered source page. Each dataset README gives the source, checksum, rights basis, numbering map, conventions, estimand and published values. Development and holdout cases are split as in the rules above. **Candidates, to be confirmed** (individual entries, units, table completeness, rights):<br>• **Benzene and 1,3,5-trihalobenzenes** in ZLI-1132 at several concentrations: Taggar, Campbell, Yethiraj and Burnell, *J. Phys. Chem. B* 110, 1363–1368 (2006). The coupling tables are in the Supporting Information.<br>• **Fluorobenzene, 1,4-dichlorobenzene and 1,3,5-trichlorobenzene** in 8CB as a function of temperature: Yethiraj et al., *Chem. Phys. Lett.* (2004). The paper shows derived order parameters; whether a complete numerical coupling dataset exists is **unverified**.<br>• **4,4′-d₂-biphenyl:** Sinton, LBL thesis (1981), §4.4.1. It has proton spectra and proposes a deuterium comparison; whether paired numerical ¹H/²H data exist is **unverified**.<br>• **Fluorinated terphenyl:** Castiglione et al., *PCCP* 4, 4921–4930 (2002). It reports **¹³C–¹⁹F** couplings; table completeness and rights are unverified. Deferred unless ¹³C–¹⁹F support is explicitly selected. A **separate ¹³C–¹H benchmark** is still required.<br>• **Biphenyl in other solvents:** to be identified. | Every selected extension has at least one experimental dataset or an explicit *synthetic-only* label. Rights are documented before anything is published. No transcribed value is left unverified. |
+| **V1 Rigid molecules from XYZ** | A rigid model for any imported geometry (the legacy single phenyl ring, benzene, substituted benzenes), with a C1 tensor and declared symmetry reductions. **Site and pair permutation classes** are derived from the declared isotopic structure, molecular symmetry, medium symmetry and fast motions. Symmetry-related sites and chemical equivalence are kept distinct from magnetic equivalence, and merged observations never inflate the independent sample count. A Structure view for one-ring molecules. A robot tutorial | The tests cover a nonplanar rank-5 case, a planar rank-3 case, a collinear rank-1 case, and ideal benzene with D6h constraints and one independent order parameter. Identifiable combinations are reported in the declared frame. Endpoint permutations are tested together. Fixed geometry provides the scale anchor (D12). Any fitted geometry needs a **joint-rank check** and enough independent constraints to remove all confounding between geometry and order. For example, proton-only regular benzene depends on the proton-ring radius, so fixing C–C while fitting C–H allows an exact compensating rescaling of S. Published order parameters are compared under the preregistered criteria. |
+| **V2 Multi-torsion fragments** *(conditional)* | A torsion tree with two or more torsions; the legacy "triphenyl"/branched fragment as a template; terphenyl; 2D landscape slices and multistart | Recovery of the identifiable quantities with two torsions. An identifiability report per torsion (correlations, profiles). Performance re-measured on the larger grid (§6). |
+| **V3 Symmetry, frames, ring distortion** *(conditional; thesis-gated)* | Further symmetry and frame models; legacy D4 parity (B55); the new ρ shape model, kept separate from the legacy ρ output | A reviewed written derivation. Contraction-invariance and endpoint tests. Parity with the legacy code wherever the legacy code is correct. **Partly blocked on the thesis PDF.** Until compatibility is demonstrated, the model is labelled *independently re-derived; legacy parity unverified*. |
+| **V4 New measurement types** *(conditional)* | Each type has its own schema and D5 reconciliation.<br>• **²H observations** specify C_Q with its uncertainty and source, the EFG asymmetry and its complete orientation, the splitting normalization, and what is known about signs. EFG alignment with C–D and axial symmetry are declared approximations (D7).<br>• **Total-coupling records** (¹³C–¹H, ¹H–¹⁹F) specify the dataset's Hamiltonian, sign and factor convention, and a J reference with its uncertainty. `T = J + 2D` applies only under that declared convention.<br>• **Shared order** across samples or isotopologues must be justified, including isotope geometry and vibrational averaging. | A validation dataset per type. Joint fits are validated with predeclared residual and uncertainty criteria on identifiable combinations; separate fits may be underdetermined, so their parameters need not equal the joint estimates. The ¹³C coplanarity rule (§4) is tested. |
+| **V5 Conformational distributions + model comparison** *(conditional)* | Discrete conformer averaging with populations (declaring whether tensors are shared or depend on the conformer); AP/DPD and MaxEnt torsional distributions; model comparison only between regular models on identical data | **AP-DPD reproduction is conditional** on recovering the published geometry, the full model and averaging equations, the fitting objective, and the parameterization (which parameters depend on temperature and which are shared). With those inputs, reproduce the ten-temperature, 31-parameter analysis. Compare predictions, residuals and distribution parameters against preregistered tolerances. Agreement with the published φ_m uncertainties (35.37° at T_red 0.930, 35.51° at 0.980) is reported separately. If inputs are missing, the benchmark stays *pending*. The idealized, unweighted Phase 1 jump regressions give 32.95° and 33.05°; they estimate a different quantity. Population × tensor confounding is detected and flagged. |
+| **V6 Legacy parity + thesis audit** *(thesis-gated)* | `legacy_exact` compared with the `tools/legacy-harness` goldens, both bug-compatible and with the bugs fixed; the thesis audit (§7) if the data are recovered; M-L if its gate passes | Every legacy difference traces to a B-number **or** to a documented intentional change of model or method. |
+| **Verification release** | A **verification report**: one page per dataset (data, model, estimand, our result, the published result, the agreement criterion, and the status label from the rules above). Every implemented model has a robot tutorial. | Every gate of the selected milestones is green. Experimental results carry honest status labels; an explained discrepancy is not counted as validation. No dataset is tuned to pass. At least one external user reproduces a Phase 2 dataset. |
+
+### Phase 3: AI integration (depends technically only on Phase 1; by default it follows the first verification release; with the 04 §8 contracts in place, no Phase 1 restructuring is expected)
 
 | Milestone | Deliverables | Exit criteria |
 |---|---|---|
@@ -412,21 +539,23 @@ from measured velocity; no calendar dates are fixed before then.
 | **A2 Agent tools and grounding** | Agent-oriented composite tools (for example `setup_from_csv`, `explain_fit`, `suggest_next_measurement`), all built on registry operations, with D19-grounded explanations and Methods drafts that cite fields | Every generated claim cites the result fields it depends on; ungrounded claims are measured in A5 |
 | **A3 Minimum safety gate** (before users see any assistant) | Capability-denial tests through MCP; prompt-injection red-team with malicious labels and files; budget enforcement; stale-proposal rejection; audit of proposer and approver | No tier escalation, no out-of-scope I/O, no unapproved science mutation |
 | **A4 In-app assistant** | A chat panel; agent actions arrive as **proposals** that the user accepts or rejects; the "agent is pointing at…" view sync | Usability study tasks. At the `propose` tier, science mutations, compute jobs and imports/exports are never applied without human approval; view writes, bounded previews and cancelling the agent's own jobs are direct and logged (04 §8.3). |
-| **A5 Evaluations** | A scenario eval suite (setup, fit, interpretation, recovery from errors); a traceability audit of generated claims; cost/latency telemetry (local, opt-in) | Pass thresholds fixed in advance |
+| **A5 Evaluations** | A scenario eval suite (setup, fit, interpretation, recovery from errors), seeded from the Phase 1 and Phase 2 robot tutorials; a traceability audit of generated claims; cost/latency telemetry (local, opt-in) | Pass thresholds fixed in advance |
 | **A6 Research features** | The experiment-design assistant as an agent tool; literature-assisted dataset entry, with human verification | Gated by A3 and A5 |
 
 ## 9. Risks
 
 | Risk | L / I | Mitigation |
 |---|---|---|
-| The thesis derivations (D4, ρ) cannot be recovered | M / H | Re-derive; label legacy-only models as legacy-compatible. The beta does not depend on them. |
+| The thesis derivations (D4, ρ) cannot be recovered | M / H | Re-derive; label models "independently re-derived; legacy parity unverified" until compatibility is demonstrated. The beta does not depend on them. |
 | Unjustified precision (attractive error bars that are wrong) | M / **H** | The D3 contract, coverage tests, and separate validity indicators |
 | The local-backend attack surface | M / **H** | D10, with negative tests in M0 |
 | Browser delivery (`pip install` + `dipolar serve`, localhost security, browser compatibility) | M / M | M0 D10 spike; Playwright on Chromium, Firefox and WebKit; desktop packaging deferred |
 | Over-scope for 1–2 developers | H / H | The beta boundary in §4; re-baseline after M0 |
 | No legacy fixtures | M / M | M-L is gated; enter the thesis tables directly if needed |
 | The registry adds overhead for a one-person team | M / M | Vertical slice first (M0); one dispatcher with thin adapters; add operations only when the beta UI needs them |
-| Agent safety and prompt injection (Phase 2) | M / **H** | D17 primitives from Phase 1, proposals by default, A3 safety gate before any user sees the assistant |
+| Published datasets are incomplete, unreachable or not redistributable | M / M | V0 confirms the candidates before any model work depends on them. Rights are documented, or the dataset stays local. Classes without data are labelled *synthetic-only*. |
+| Verification is quietly tuned until it passes | M / **H** | Agreement criteria are fixed before the run; disagreements are documented and reviewed; holdouts are sealed |
+| Agent safety and prompt injection (Phase 3) | M / **H** | D17 primitives from Phase 1, proposals by default, A3 safety gate before any user sees the assistant |
 | The tool contract drifts between phases | M / M | D20 versioning, the registry snapshot, the contract suite on every adapter |
 | Small community | H / M | Python API first, the benchmark corpus, a JOSS paper after the beta |
 
@@ -434,12 +563,13 @@ from measured velocity; no calendar dates are fixed before then.
 
 | # | Topic | Decision or status |
 |---|---|---|
-| 1 | Thesis PDF (B55 D4, ρ formula) | **Open.** The owner is searching old notes. Nothing in Phase 1 depends on it. |
+| 1 | Thesis PDF (B55 D4, ρ formula) | **Open.** The owner is searching old notes. Nothing in Phase 1 depends on it; Phase 2 V3 does, in part. |
 | 2 | Legacy files | None are available. **Biphenyl** is the focus. Public data were found and transcribed: Di Pietro (2013), Table 3.1, 8CB (`datasets/`). M-L remains gated. |
 | 3 | Workflow and UI | **Biphenyl; a browser interface is acceptable.** The desktop app (Tauri) is deferred. |
 | 4 | Staffing | **Built by the owner with AI-assisted development** ("a refactor of an old application with current techniques"). Velocity is measured in M0. |
 | 5 | Licence, name, remote | **BSD-3-Clause**, "Dipolar Studio" (working name), a **public GitHub repository** whose README states the intent: a new AI-assisted implementation that rescues a 1998 graduation thesis. |
-| 6 | New requirement | **A headless engine and an AI-ready architecture**, with an AI phase second. Adopted as D13–D20 and §8 Phase 2. |
+| 6 | New requirement | **A headless engine and an AI-ready architecture**, with a separate AI phase. Adopted as D13–D20 and §8 Phase 3. |
+| 7 | Verification phase | **Adopted** (bounded after round 6: the first release is V0 + V1; V2–V5 are conditional; V3/V6 are thesis-gated). The models and molecule classes beyond the biphenyl beta (rigid molecules from XYZ, multi-torsion fragments, further symmetry and ρ models, ²H, ¹³C and ¹⁹F measurement types, conformational distributions, legacy parity) go into a dedicated **Phase 2: verification**. Selected, implemented extensions get known-answer verification and, where suitable experimental data exist, a preregistered experimental comparison. Reports keep the synthetic-only and unresolved-failure outcomes. The AI phase becomes Phase 3. |
 
 ## 11. Panel statements superseded by validation
 

@@ -16,8 +16,11 @@ references:
     authors:
       - family-names: Llerena
         given-names: Gino
+      - family-names: Idrogo
+        given-names: Marco
     year: 1998
     repository-code: "https://github.com/GinoLlerena/NMRApllication"
+    notes: "Joint graduation thesis of Gino Llerena and Marco Idrogo; thesis advisor: Dr. Jaime Avalos."
   - type: thesis
     title: "RMN dans différents solvants partiellement orientés: pour la détermination de la structure, l'ordre et la conformation de molécules organiques"
     authors:
