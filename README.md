@@ -79,6 +79,7 @@ cd web && pnpm install && pnpm run build   # browser UI (strict TypeScript)
 | [docs/03-redesign-plan.md](docs/03-redesign-plan.md) | The consolidated plan: decisions D1–D20, scope, roadmap, risks |
 | [docs/04-ai-ready-architecture.md](docs/04-ai-ready-architecture.md) | The headless engine and the AI-ready architecture |
 | [docs/adr/](docs/adr/) | Architecture decision records ADR-0001 to ADR-0020 (one per decision D1–D20) |
+| [docs/STATUS.md](docs/STATUS.md) | Current stopping point, where to resume, and open owner items |
 | [docs/legacy/](docs/legacy/) | Analysis of the 1998 application, and the bug report |
 | [docs/panel/](docs/panel/) | Expert-panel inputs: UX research, UI design with an [HTML mockup](docs/panel/mockup-workspace.html), science and numerics, architecture |
 | [docs/validation/](docs/validation/) | Independent validation rounds (GPT-6.1-Sol) |
