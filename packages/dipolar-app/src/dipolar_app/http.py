@@ -83,6 +83,24 @@ class LocalhostGuard:
         await self.app(scope, receive, send_with_headers)
 
 
+def _reject_constant(token: str) -> None:
+    raise ValueError(f"{token} is not JSON")
+
+
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in out:  # parsers disagree on duplicates (first or last wins), so refuse them
+            raise ValueError(f"duplicate key {key!r}")
+        out[key] = value
+    return out
+
+
+def parse_json_body(body: bytes) -> Any:
+    """Strict RFC 8259 parsing: UTF-8 only, no NaN or Infinity tokens, no duplicate keys."""
+    return json.loads(body.decode("utf-8"), parse_constant=_reject_constant, object_pairs_hook=_unique_object)
+
+
 def _error(
     code: ErrorCode,
     message: str,
@@ -133,9 +151,10 @@ def create_app(
             chunks.append(chunk)
         body = b"".join(chunks)
         try:
-            envelope_in: Any = json.loads(body or b"{}")
-        except ValueError:
-            return _error(ErrorCode.INVALID_ARGUMENT, "the body is not valid JSON", operation=name)
+            envelope_in: Any = parse_json_body(body or b"{}")
+        except ValueError as exc:  # includes UnicodeDecodeError and JSONDecodeError
+            reason = "not UTF-8" if isinstance(exc, UnicodeDecodeError) else str(exc).split(":")[0]
+            return _error(ErrorCode.INVALID_ARGUMENT, f"the body is not valid JSON ({reason})", operation=name)
         if not isinstance(envelope_in, dict) or set(envelope_in) - {"args"}:
             extra = sorted(set(envelope_in) - {"args"}) if isinstance(envelope_in, dict) else []
             return _error(

@@ -21,7 +21,19 @@ from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.policy import Capability
 from dipolar_app.project import Project, load_example, science_hash
 from dipolar_app.registry import Context, Operation, Registry
-from dipolar_app.schemas import Angstrom, CouplingId, Degrees, ExampleName, Hertz, ObjectId, SpinId, Wire, deg, hz
+from dipolar_app.schemas import (
+    Angstrom,
+    CouplingId,
+    Degrees,
+    ExampleName,
+    Hertz,
+    ObjectId,
+    Revision,
+    SpinId,
+    Wire,
+    deg,
+    hz,
+)
 from dipolar_app.session import SCIENCE, WORKSPACE, Event, SessionState
 
 MAX_SELECTION = 1000
@@ -42,7 +54,7 @@ def _require_project(state: SessionState) -> Project:
 # --------------------------------------------------------------------------- project.open_example
 class OpenExampleIn(Wire):
     name: ExampleName
-    expected_science_revision: Annotated[int, Field(ge=0)]
+    expected_science_revision: Revision
 
 
 class OpenExampleOut(Wire):

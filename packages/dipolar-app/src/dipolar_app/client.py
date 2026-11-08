@@ -20,9 +20,8 @@ class LocalClient:
     def call(self, name: str, args: Mapping[str, Any] | None = None) -> dict[str, Any]:
         """Return the same JSON envelope as ``POST /api/v1/ops/{name}``.
 
-        The arguments go through a JSON round trip so that the Python path accepts exactly what
-        the HTTP path accepts (no Python-only types).
+        The dispatcher validates the arguments as strict JSON, so the Python path accepts exactly
+        what the HTTP path accepts (no Python-only types, no NaN or infinity).
         """
-        wire_args = json.loads(json.dumps(dict(args or {}), allow_nan=False))
-        envelope = dispatch(self._registry, self._session, self._principal, name, wire_args)
+        envelope = dispatch(self._registry, self._session, self._principal, name, args)
         return json.loads(json.dumps(envelope, allow_nan=False))  # type: ignore[no-any-return]

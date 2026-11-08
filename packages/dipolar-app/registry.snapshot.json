@@ -1,5 +1,167 @@
 {
   "contract_version": "0.1.0",
+  "envelopes": {
+    "error": {
+      "$defs": {
+        "ErrorBody": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/ErrorCode"
+            },
+            "details": {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "title": "Details",
+              "type": "object"
+            },
+            "hint": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hint"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "offending_field": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Offending Field"
+            }
+          },
+          "required": [
+            "code",
+            "message",
+            "offending_field",
+            "hint",
+            "details"
+          ],
+          "title": "ErrorBody",
+          "type": "object"
+        },
+        "ErrorCode": {
+          "enum": [
+            "INVALID_ARGUMENT",
+            "UNKNOWN_OPERATION",
+            "UNAUTHENTICATED",
+            "CAPABILITY_DENIED",
+            "PROPOSAL_REQUIRED",
+            "REVISION_CONFLICT",
+            "NO_PROJECT",
+            "ID_NOT_FOUND",
+            "OUT_OF_DOMAIN",
+            "PAYLOAD_TOO_LARGE",
+            "JOURNAL_FAILED",
+            "INTERNAL"
+          ],
+          "title": "ErrorCode",
+          "type": "string"
+        },
+        "JsonValue": {}
+      },
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ErrorBody"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Operation"
+        }
+      },
+      "required": [
+        "ok",
+        "operation",
+        "error"
+      ],
+      "title": "ErrorEnvelope",
+      "type": "object"
+    },
+    "success": {
+      "$defs": {
+        "JsonValue": {},
+        "Revisions": {
+          "additionalProperties": false,
+          "properties": {
+            "science": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Science",
+              "type": "integer"
+            },
+            "workspace": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Workspace",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "science",
+            "workspace"
+          ],
+          "title": "Revisions",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "title": "Operation",
+          "type": "string"
+        },
+        "result": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Result",
+          "type": "object"
+        },
+        "revisions": {
+          "$ref": "#/$defs/Revisions"
+        }
+      },
+      "required": [
+        "ok",
+        "operation",
+        "result",
+        "revisions"
+      ],
+      "title": "SuccessEnvelope",
+      "type": "object"
+    }
+  },
   "operations": [
     {
       "capability": "preview",
@@ -531,6 +693,7 @@
         "additionalProperties": false,
         "properties": {
           "expected_science_revision": {
+            "maximum": 9007199254740991,
             "minimum": 0,
             "title": "Expected Science Revision",
             "type": "integer"

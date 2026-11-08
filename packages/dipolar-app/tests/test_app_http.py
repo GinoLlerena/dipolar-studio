@@ -100,6 +100,30 @@ def test_body_limit_and_bad_json(server: Server) -> None:
     assert (bad.status, bad.json()["error"]["code"]) == (400, "INVALID_ARGUMENT")
 
 
+@pytest.mark.parametrize(
+    ("body", "reason"),
+    [
+        (b'{"args": {"phi": {"value": NaN, "unit": "deg"}}}', "NaN is not JSON"),
+        (b'{"args": {"phi": {"value": -Infinity, "unit": "deg"}}}', "-Infinity is not JSON"),
+        (b'{"args": {"phi": {"value": 37, "unit": "deg"}}, "args": {}}', "duplicate key 'args'"),
+        ('{"args": {}}'.encode("utf-16"), "not UTF-8"),
+    ],
+)
+def test_http_json_is_strict(server: Server, body: bytes, reason: str) -> None:
+    """Spike 2: RFC 8259 only. Non-standard tokens, duplicate keys and non-UTF-8 bodies are refused."""
+    resp = server.request("POST", "/api/v1/ops/fit.preview", body, headers=JSON)
+    assert (resp.status, resp.json()["error"]["code"]) == (400, "INVALID_ARGUMENT")
+    assert reason in resp.json()["error"]["message"]
+
+
+def test_http_overflowing_number_is_not_infinity(server: Server) -> None:
+    server.call("project.open_example", {"name": "biphenyl-synthetic", "expected_science_revision": 0})
+    body = b'{"args": {"phi": {"value": 1e400, "unit": "deg"}}}'
+    resp = server.request("POST", "/api/v1/ops/fit.preview", body, headers=JSON)
+    assert (resp.status, resp.json()["error"]["code"]) == (400, "INVALID_ARGUMENT")
+    assert "finite" in resp.json()["error"]["message"]
+
+
 def test_error_status_mapping(server: Server) -> None:
     assert post(server, "fit.preview", {"args": {"phi": {"value": 1, "unit": "deg"}}}).status == 409  # NO_PROJECT
     assert post(server, "nope.op", {"args": {}}).status == 404

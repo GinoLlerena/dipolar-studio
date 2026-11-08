@@ -6,14 +6,16 @@ wrappers around ``dispatch``, which alone applies policy, validation and error m
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, TypeVar
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, JsonValue, ValidationError
 
 from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.policy import Capability, Decision, Principal, decide
+from dipolar_app.schemas import Revision, Wire
 from dipolar_app.session import Plan, Session, SessionState
 
 T = TypeVar("T")
@@ -47,6 +49,33 @@ class Context:
 
 
 Handler = Callable[[Context, Any], BaseModel]
+
+
+# --------------------------------------------------------------------------- envelopes (published in the snapshot)
+class ErrorBody(Wire):
+    code: ErrorCode
+    message: str
+    offending_field: str | None
+    hint: str | None
+    details: dict[str, JsonValue]
+
+
+class ErrorEnvelope(Wire):
+    ok: Literal[False]
+    operation: str | None
+    error: ErrorBody
+
+
+class Revisions(Wire):
+    science: Revision
+    workspace: Revision
+
+
+class SuccessEnvelope(Wire):
+    ok: Literal[True]
+    operation: str
+    result: dict[str, JsonValue]  # validated against the operation's own output schema
+    revisions: Revisions
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +131,10 @@ class Registry:
         """The full contract, committed as a snapshot and compared in CI (D13, D20)."""
         return {
             "contract_version": CONTRACT_VERSION,
+            "envelopes": {
+                "success": SuccessEnvelope.model_json_schema(mode="serialization"),
+                "error": ErrorEnvelope.model_json_schema(mode="serialization"),
+            },
             "operations": [self._ops[name].describe() for name in self.names],
         }
 
@@ -111,6 +144,19 @@ def _field_path(loc: tuple[int | str, ...]) -> str:
     for part in loc:
         out += f"[{part}]" if isinstance(part, int) else (f".{part}" if out else str(part))
     return out
+
+
+def _wire_json(args: Mapping[str, Any] | None) -> str:
+    """The arguments as JSON text. Every adapter's input passes through here, so a Python caller
+    gets exactly the HTTP rules: plain JSON values and finite numbers only."""
+    try:
+        return json.dumps(dict(args or {}), allow_nan=False)
+    except (TypeError, ValueError):
+        raise OperationError(
+            ErrorCode.INVALID_ARGUMENT,
+            "arguments must be plain JSON values with finite numbers",
+            hint="NaN and ±Infinity are not JSON; send numbers, strings, booleans, null, arrays and objects",
+        ) from None
 
 
 def dispatch(
@@ -143,8 +189,10 @@ def dispatch(
                 f"{op.name} from tier {principal.tier.value!r} must be submitted as a proposal",
                 hint="proposals arrive in M2; use an apply-tier credential for now",
             )
+        raw = _wire_json(args)
         try:
-            parsed = op.input_model.model_validate(dict(args or {}))
+            # Strict JSON mode: no coercion. "37" is not a number and false is not 0 (spike 2).
+            parsed = op.input_model.model_validate_json(raw, strict=True)
         except ValidationError as exc:
             first = exc.errors()[0]
             raise OperationError(

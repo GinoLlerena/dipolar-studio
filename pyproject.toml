@@ -11,6 +11,7 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.8",
     "mypy>=1.13",
+    "jsonschema>=4.23",
 ]
 
 [tool.uv]
@@ -24,7 +25,7 @@ dipolar-core = { workspace = true }
 dipolar-app = { workspace = true }
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "packages/dipolar-core/tests", "packages/dipolar-app/tests"]
+testpaths = ["tests", "spikes", "packages/dipolar-core/tests", "packages/dipolar-app/tests"]
 addopts = "-ra --strict-markers"
 markers = [
     "slow: long-running statistical checks (deselect with -m 'not slow')",
@@ -42,5 +43,9 @@ ignore = ["RUF001", "RUF002", "RUF003"]  # Greek letters and primes are intentio
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["packages/dipolar-core/src", "packages/dipolar-app/src", "tools/robot"]
+files = ["packages/dipolar-core/src", "packages/dipolar-app/src", "tools/robot", "spikes"]
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["scipy.*", "jsonschema.*"]  # no bundled stubs; used only by the spikes and tests
+ignore_missing_imports = true

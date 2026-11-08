@@ -42,3 +42,7 @@ CouplingId = Annotated[str, StringConstraints(pattern=r"^cpl_[0-9]{6}$")]
 ObjectId = Annotated[str, StringConstraints(pattern=r"^(spn|cpl)_[0-9]{6}$")]
 
 ExampleName = Literal["biphenyl-synthetic"]
+
+#: Integers on the wire stay within ±(2⁵³ − 1), so a JavaScript client reads them exactly.
+MAX_SAFE_INTEGER = 2**53 - 1
+Revision = Annotated[int, Field(ge=0, le=MAX_SAFE_INTEGER)]

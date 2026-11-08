@@ -12,7 +12,7 @@ from dipolar_app.project import load_example
 OPEN = {"name": "biphenyl-synthetic", "expected_science_revision": 0}
 
 
-def phi_args(value: float, unit: str = "deg") -> dict[str, object]:
+def phi_args(value: object, unit: str = "deg") -> dict[str, object]:
     return {"phi": {"value": value, "unit": unit}}
 
 
@@ -128,6 +128,39 @@ def test_structured_validation_errors(args: dict[str, object], field: str) -> No
     assert env["error"]["code"] == "INVALID_ARGUMENT"
     assert env["error"]["offending_field"] == field
     assert env["error"]["hint"]
+
+
+@pytest.mark.parametrize(
+    ("operation", "args", "field"),
+    [
+        ("fit.preview", phi_args("37"), "phi.value"),
+        ("fit.preview", phi_args(True), "phi.value"),
+        ("project.open_example", {"name": "biphenyl-synthetic", "expected_science_revision": "1"}, None),
+        ("project.open_example", {"name": "biphenyl-synthetic", "expected_science_revision": 1.0}, None),
+        ("project.open_example", {"name": "biphenyl-synthetic", "expected_science_revision": True}, None),
+        ("project.open_example", {"name": "biphenyl-synthetic", "expected_science_revision": 2**53}, None),
+        ("view.select", {"ids": "cpl_000001"}, "ids"),
+    ],
+)
+def test_no_type_coercion(operation: str, args: dict[str, object], field: str | None) -> None:
+    """Spike 2: validation is strict. A string is not a number and true is not 1, so a wrong type
+    can never pass a revision check by accident."""
+    c = client(new_session())
+    c.call("project.open_example", OPEN)
+    env = c.call(operation, args)
+    assert env["ok"] is False and env["error"]["code"] == "INVALID_ARGUMENT", env
+    assert env["error"]["offending_field"] == (field or "expected_science_revision")
+    assert c.call("render.describe_view")["result"]["science_revision"] == 1
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+def test_python_adapter_rejects_non_finite_numbers(value: float) -> None:
+    """The Python adapter returns a structured error for NaN and ±inf instead of raising."""
+    c = client(new_session())
+    c.call("project.open_example", OPEN)
+    env = c.call("fit.preview", phi_args(value))
+    assert env["ok"] is False and env["error"]["code"] == "INVALID_ARGUMENT"
+    assert "finite" in env["error"]["message"]
 
 
 def test_domain_project_and_id_errors() -> None:
