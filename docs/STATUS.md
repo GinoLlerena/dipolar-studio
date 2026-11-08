@@ -59,9 +59,13 @@
   - open the example, preview, select a row;
   - the robot's selection then appeared on the page;
   - the old preview was marked stale after the robot reopened the project;
-  - a superseded preview that arrived late was discarded.
-- **Validation round 8** (GPT-6.1-Sol): NOT READY. Seven findings, all fixed with regression
-  tests; see [docs/validation/round8-m0-slice.md](validation/round8-m0-slice.md).
+  - a superseded preview that arrived late was discarded. This check is manual; automated browser
+    tests arrive with M3.
+- **Validation** (GPT-6.1-Sol), recorded in
+  [docs/validation/round8-m0-slice.md](validation/round8-m0-slice.md):
+  - **Round 8: NOT READY.** Seven findings, all fixed. Six of the fixes have automated regression
+    tests; the frontend fix was checked by hand in a browser.
+  - **Round 9: READY WITH MINOR CHANGES.** Both minor fixes are applied.
 
 ### Deliberate limits of the slice (each is planned work)
 

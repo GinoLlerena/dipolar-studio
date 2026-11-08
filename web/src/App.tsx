@@ -41,9 +41,12 @@ export function App() {
   const [error, setError] = useState<OperationError | null>(null);
   const previewRequest = useRef(0); // only the latest preview request may update the page
 
+  // isCurrent lets a caller drop a superseded response entirely: neither its result nor its
+  // error may reach the page (D11 late-response rule).
   const run = useCallback(
-    async <T,>(name: string, args: object): Promise<T | null> => {
+    async <T,>(name: string, args: object, isCurrent: () => boolean = () => true): Promise<T | null> => {
       const envelope: Envelope<T> = await callOperation<T>(name, args, token);
+      if (!isCurrent()) return null;
       if (!envelope.ok) {
         setError(envelope.error);
         return null;
@@ -87,8 +90,9 @@ export function App() {
 
   const runPreview = async () => {
     const request = ++previewRequest.current;
-    const result = await run<Preview>("fit.preview", { phi: { value: Number(phi), unit: "deg" } });
-    if (result && request === previewRequest.current) setPreview(result);
+    const isCurrent = () => request === previewRequest.current;
+    const result = await run<Preview>("fit.preview", { phi: { value: Number(phi), unit: "deg" } }, isCurrent);
+    if (result) setPreview(result);
   };
 
   const select = async (id: string) => {

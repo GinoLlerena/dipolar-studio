@@ -13,8 +13,13 @@ memory bound.
 
 ## Findings and fixes
 
-All seven findings are fixed. Each fix has a regression test that fails against the pre-fix code
-(checked by restoring the old file).
+All seven findings are fixed.
+
+- **Findings 1–4 and 6** have automated regression tests. Each test fails against the pre-fix code
+  (checked by restoring the old file).
+- **Finding 7** was fixed by ordering the start-up steps; the existing launch test covers it.
+- **Finding 5 (frontend)** was verified by hand in a browser. There is no automated browser test
+  until M3.
 
 1. **Major. Short journal writes were acknowledged.**
    - The problem: `os.write()`'s return count was ignored.
@@ -61,7 +66,26 @@ All seven findings are fixed. Each fix has a regression test that fails against 
    - The problem: the ready file was published before the URL was printed.
    - The fix: publishing the ready file is now the last start-up step.
 
-## Checked and found correct by the reviewer
+## Round 9: confirmation
+
+Same reviewer, read-only, 2026-11-08. **Verdict: READY WITH MINOR CHANGES.**
+
+- **Confirmed:** all three major findings and minor findings 4, 6 and 7 are resolved.
+  - The reviewer saw the 503 `JOURNAL_FAILED` fail-stop over HTTP.
+  - A real chunked request got its 413 after 1 MiB plus one chunk.
+  - A restart replays an uncertain record without duplicating its sequence.
+- **Persistent deduplication** stays deferred to M2, as planned.
+- **Keeping contract version 0.1.0** is acceptable while the contract is unpublished.
+
+Two minor fixes, both applied:
+
+1. **Superseded previews still changed the error banner.** A late failure could show its error
+   after a newer success, and a late success could clear a newer error.
+   - The fix: the request guard now runs before the result *or* the error reaches the page.
+2. **The documents overstated automated coverage.** They now separate automated tests from the
+   manual browser check.
+
+## Checked and found correct by the reviewer (round 8)
 
 - **Tests and tooling.** The 75 tests, lint, formatting, strict mypy and TypeScript checks pass.
 - **Science.**
