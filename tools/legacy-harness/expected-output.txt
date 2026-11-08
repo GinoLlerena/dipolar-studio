@@ -1,0 +1,7 @@
+diagonal (D4-like)                 -> Sxx= -0.10000 Syy= -0.20000 Szz=  0.30000
+D2: only Sxy!=0                    -> Sxx= -0.22071 Syy= -0.07929 Szz= 99.00000
+only Sxz!=0                        -> Sxx= -0.10615 Syy= -0.20615 Szz=  0.30615
+only Syz!=0                        -> Sxx=      nan Syy=      nan Szz=      nan
+general                            -> Sxx= -0.22133 Syy= -0.08162 Szz=  0.30311
+SistEcuac partial-path solve, expected x=(1,2,3): got (1, 2, 14)
+SistEcuac full Gauss solve,  expected x=(1,2,3): got (1, 2, 3)

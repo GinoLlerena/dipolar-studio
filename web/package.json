@@ -1,0 +1,25 @@
+{
+  "name": "dipolar-studio-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Dipolar Studio browser UI: a thin client of the operation registry (D2, D13)",
+  "license": "BSD-3-Clause",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.2.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6"
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "dataset": "biphenyl-synthetic",
+  "frozen_on": "2026-11-07",
+  "reference_implementation": "tools/reference/biphenyl_reference.py (NumPy/SciPy; independent of dipolar-core)",
+  "model": "rigid (single conformer)",
+  "estimand": "rigid effective inter-ring torsion phi",
+  "frame": "bisector frame of datasets/biphenyl-synthetic/generate.py: z along the inter-ring axis (ring A at z < 0), x bisects the two ring planes, y = z × x; the tensor is diagonal there with free Szz and Delta = Sxx − Syy",
+  "geometry_A": {
+    "r_cc": 1.397,
+    "r_ch": 1.084,
+    "r_inter": 1.489
+  },
+  "K_HH_Hz_A3": -120120.16114864848,
+  "phi_domain_deg": [
+    0.0,
+    90.0
+  ],
+  "equivalences": "At fixed labels (phi, Delta) and (-phi, Delta) are equivalent; (180 ± phi, -Delta) only together with the ring-B relabelling H2'<->H6', H3'<->H5'. Domain folded to [0, 90].",
+  "N_rule": "N counts the 14 unique couplings; multiplicity (symmetry-copied) pairs never inflate N",
+  "p_free": [
+    "phi_deg",
+    "Szz",
+    "Delta"
+  ],
+  "likelihood": "Gaussian, diagonal, known sigma = 0.5 Hz (not rescaled by chi2_nu)",
+  "optimum_convention": "refined bounded optimum: best point of the grid 0:0.5:90 deg, refined by bounded 1-D minimisation of the VarPro profile objective over the neighbouring grid cells (xatol 1e-11 deg); the grid point itself is NOT the expected value",
+  "tolerances": {
+    "regression": {
+      "predictions_atol_Hz": 1e-06,
+      "phi_atol_deg": 0.0001,
+      "S_atol": 1e-06,
+      "objective_rtol": 1e-06,
+      "phi_interval_endpoint_atol_deg": 0.0001,
+      "S_interval_endpoint_atol": 1e-06,
+      "stderr_rtol": 0.001
+    },
+    "noiseless_recovery_atol": {
+      "phi_deg": 1e-08,
+      "Szz": 1e-08,
+      "Delta": 1e-08
+    },
+    "sanity_bounds_vs_check_fit_out": {
+      "phi_deg": 0.05,
+      "S": 0.001,
+      "note": "rounded prototype values are sanity bounds only"
+    },
+    "note": "plan v0.6 §8 M1; objective, interval and stderr tolerances added at the M0 freeze"
+  },
+  "coverage": {
+    "n_seeds": 1000,
+    "seed_rule": "numpy.random.default_rng(numpy.random.SeedSequence(19980101, spawn_key=(k,))) for k in 0..999",
+    "noise": "y_k = noiseless predictions of the 14 unique couplings + rng.normal(0, 0.5, size=14), in couplings.csv row order",
+    "interval": "profile interval at raw delta chi2 = 1.00, one parameter at a time, other parameters re-minimised",
+    "parameters": [
+      "phi_deg",
+      "Szz",
+      "Delta"
+    ],
+    "nominal": 0.683,
+    "acceptance_band": [
+      0.645,
+      0.721
+    ],
+    "band_note": "about a 99% binomial band for n = 1000 at p = 0.683"
+  },
+  "gates": {
+    "a_noiseless": "fit noiseless.json -> recover truth within noiseless_recovery_atol; objective ~ 0",
+    "b_regression": "fit couplings.csv -> match noisy_fixture.json within the regression tolerances",
+    "c_coverage": "coverage over the seed ensemble within acceptance_band, for each parameter",
+    "d_forward": "forward.json: all 45 pairs, reversed pairs and the 0/90 deg endpoints",
+    "e_jump": "see the 8CB expected set (explicit four-conformer average == relabelling shortcut)"
+  }
+}

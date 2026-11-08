@@ -1,0 +1,19 @@
+{
+  "description": "coverage achieved by the reference implementation under spec.json 'coverage'",
+  "n_seeds": 1000,
+  "coverage": {
+    "phi_deg": 0.701,
+    "Szz": 0.691,
+    "Delta": 0.684
+  },
+  "interval_not_supported": {
+    "phi_deg": 0,
+    "Szz": 0,
+    "Delta": 0
+  },
+  "within_band": {
+    "phi_deg": true,
+    "Szz": true,
+    "Delta": true
+  }
+}

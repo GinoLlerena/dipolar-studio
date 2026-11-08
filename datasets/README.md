@@ -9,4 +9,9 @@
 
 These datasets are **test fixtures**. In the app, users load their own couplings and geometry.
 
-Scripts need only Python 3 and NumPy: `python3 generate.py`, `python3 check_fit.py`.
+**Frozen expected answers** (M0): each dataset has an `expected/` directory computed by the
+independent reference implementation in [tools/reference/](../tools/reference/). It holds a
+`spec.json` (frame, estimand, optimum convention, tolerances, gates), the full-precision results,
+and a `MANIFEST.sha256` that detects hand edits. The engine's tests compare against these files.
+
+The prototype scripts need only Python 3 and NumPy: `python3 generate.py`, `python3 check_fit.py`.

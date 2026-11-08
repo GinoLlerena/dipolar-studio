@@ -1,0 +1,26 @@
+# ADR-0003: Scientific and inference contract (D3)
+
+- **Status:** Accepted, 2026-11-07 (plan v0.6, Phase 1 baseline)
+- **Source:** [D3](../03-redesign-plan.md#3-key-decisions)
+
+## Decision
+
+- Whitened inner solve by SVD or pivoted QR (never normal equations as the reference); bounded TRF outer fit seeded by a grid or multistart; competing basins reported.
+- Gaussian likelihood with a fixed covariance; known σ is never silently rescaled; multiplicity rows never inflate N.
+- Covariance from the full Jacobian in joint coordinates; profiles vs slices; raw Δχ² thresholds 1.00 / 3.84 / 2.30 with labelled levels; "interval not supported" outside regular conditions.
+- Independent validity flags: inner rank and condition, joint rank, convergence, admissibility, interval support.
+- ν = N − p_free for regular interior models; joint rank reported separately.
+
+## Consequences
+
+- The M1 gate is fixed in advance and frozen as data in `datasets/*/expected/` (M0 step 2).
+
+## Verified by
+
+`tests/test_expected_fixtures.py` (frozen answers); the engine's own M1 tests.
+
+## Changelog of frozen fixtures
+
+Any re-freeze of `datasets/*/expected/` (via `tools/reference/make_expected.py`) is recorded here with its reason.
+
+- 2026-11-07: initial freeze (M0 step 2). Synthetic rigid fixture, 8CB jump-model fits at T_red 0.930 and 0.980, coverage reference (φ 70.1%, Szz 69.1%, Δ 68.4%; band 64.5–72.1%).

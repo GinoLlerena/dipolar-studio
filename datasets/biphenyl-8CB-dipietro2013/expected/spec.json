@@ -1,0 +1,59 @@
+{
+  "dataset": "biphenyl-8CB-dipietro2013",
+  "frozen_on": "2026-11-07",
+  "reference_implementation": "tools/reference/biphenyl_reference.py (NumPy/SciPy; independent of dipolar-core)",
+  "model": "symmetric four-site jump (+phi, -phi, 180-phi, 180+phi), equal populations, one tensor diagonal in each conformer's acute-bisector frame (shared Szz, Delta)",
+  "estimand": "jump-model phi (NOT the thesis AP-DPD phi_m; a different quantity)",
+  "frame": "bisector frame of datasets/biphenyl-synthetic/generate.py: z along the inter-ring axis (ring A at z < 0), x bisects the two ring planes, y = z × x; the tensor is diagonal there with free Szz and Delta = Sxx − Syy",
+  "geometry_A": {
+    "r_cc": 1.397,
+    "r_ch": 1.084,
+    "r_inter": 1.489
+  },
+  "geometry_note": "idealised regular rings, NOT the optimised geometry used in the thesis",
+  "phi_domain_deg": [
+    0.0,
+    90.0
+  ],
+  "temperatures": [
+    "0.930",
+    "0.980"
+  ],
+  "N_rule": "12 unique couplings per temperature; p_free = 3; nu = 9",
+  "configurations": {
+    "unweighted": "ordinary least squares (no error model): report phi, Szz, Delta, RMS, predictions; intervals not supported",
+    "weighted": "spectral sigma as a Gaussian likelihood: report the fit AND the inadequacy flag"
+  },
+  "adequacy_policy": {
+    "statistic": "p = chi2.sf(chi2, nu)",
+    "adequate_if": "p >= 1e-3"
+  },
+  "optimum_convention": "refined bounded optimum: best point of the grid 0:0.5:90 deg, refined by bounded 1-D minimisation of the VarPro profile objective over the neighbouring grid cells (xatol 1e-11 deg); the grid point itself is NOT the expected value",
+  "tolerances": {
+    "regression": {
+      "predictions_atol_Hz": 1e-06,
+      "phi_atol_deg": 0.0001,
+      "S_atol": 1e-06,
+      "objective_rtol": 1e-06,
+      "phi_interval_endpoint_atol_deg": 0.0001,
+      "S_interval_endpoint_atol": 1e-06,
+      "stderr_rtol": 0.001
+    },
+    "noiseless_recovery_atol": {
+      "phi_deg": 1e-08,
+      "Szz": 1e-08,
+      "Delta": 1e-08
+    },
+    "sanity_bounds_vs_check_fit_out": {
+      "phi_deg": 0.05,
+      "S": 0.001,
+      "note": "rounded prototype values are sanity bounds only"
+    },
+    "note": "plan v0.6 §8 M1; objective, interval and stderr tolerances added at the M0 freeze"
+  },
+  "gates": {
+    "unweighted": "reproduce phi, Szz, Delta, RMS and the prediction vector within the regression tolerances",
+    "weighted": "reproduce the fit within the regression tolerances and report adequate == false",
+    "e_jump": "explicit four-conformer averaging equals the relabelling shortcut (atol 1e-9 Hz)"
+  }
+}

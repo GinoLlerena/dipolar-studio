@@ -1,0 +1,45 @@
+# Workspace root (not a package). Members live in packages/*.
+[project]
+name = "dipolar-studio-workspace"
+version = "0.0.0"
+description = "Workspace for Dipolar Studio (not published)"
+requires-python = ">=3.12"
+dependencies = ["dipolar-core", "dipolar-app"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+dipolar-core = { workspace = true }
+dipolar-app = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "packages/dipolar-core/tests", "packages/dipolar-app/tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: long-running statistical checks (deselect with -m 'not slow')",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["web", "tools/legacy-harness", "datasets", "docs", "*.md"]  # dataset scripts are frozen, numpy-only prototypes
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "NPY", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # Greek letters and primes are intentional in physics text
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["packages/dipolar-core/src", "packages/dipolar-app/src"]
