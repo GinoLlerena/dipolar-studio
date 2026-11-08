@@ -46,6 +46,32 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
 
+  packaged:
+    name: Packaged build (D10 negative tests on the installed wheel)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install uv and pnpm
+        run: |
+          python -m pip install --upgrade uv
+          npm install -g pnpm@9
+      - name: Build the wheels (page bundled)
+        run: tools/package/build.sh
+      - name: Install the wheels into a clean virtualenv
+        run: |
+          uv venv "$RUNNER_TEMP/pkg"
+          uv pip install --python "$RUNNER_TEMP/pkg/bin/python" dist/packages/*.whl
+      - name: D10 spike against the installed package
+        run: |
+          uv sync --locked
+          DIPOLAR_BIN="$RUNNER_TEMP/pkg/bin/dipolar" uv run pytest spikes/test_spike_d10_localhost.py
+
   legacy-goldens:
     name: Legacy goldens (1998 solvers)
     runs-on: macos-latest

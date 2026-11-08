@@ -3,7 +3,9 @@
 It uses the Python standard library alone, so it runs in a clean process with no frontend,
 browser or dipolar packages (CI runs it with ``python -I``). M0 scenario:
 
-1. read the ready file (port and the robot's credential) and check the registry handshake;
+1. read the ready file (port and the robot's credential), check that the instance answering on the
+   port is the one the ready file names (a stale file or a reused port fails here), then check the
+   registry;
 2. ``project.open_example`` at the science revision read from ``render.describe_view``;
 3. ``fit.preview`` at the requested φ;
 4. ``view.select`` the coupling with the largest |normalized residual|;
@@ -42,10 +44,15 @@ class Client:
             request.add_header("Content-Type", "application/json")
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
-                payload: dict[str, Any] = json.loads(response.read())
+                payload: Any = json.loads(response.read())
         except urllib.error.HTTPError as exc:
             payload = json.loads(exc.read())
+        if not isinstance(payload, dict):
+            raise RobotError(f"{path} did not return a JSON object")
         return payload
+
+    def instance(self) -> dict[str, Any]:
+        return self._request("GET", "/api/v1/instance")
 
     def registry(self) -> dict[str, Any]:
         return self._request("GET", "/api/v1/registry")
@@ -61,6 +68,13 @@ class Client:
 def run(ready_file: Path, phi_deg: float) -> dict[str, Any]:
     ready = json.loads(ready_file.read_text("utf-8"))
     client = Client(ready["base_url"], ready["tokens"]["robot"])
+
+    try:
+        answered = client.instance().get("instance_id")
+    except (RobotError, OSError, ValueError):
+        answered = None
+    if answered != ready["instance_id"]:
+        raise RobotError("the ready file does not describe the server on its port (stopped, or the port was reused)")
 
     names = [op["name"] for op in client.registry()["operations"]]
     missing = {"project.open_example", "fit.preview", "view.select", "render.describe_view"} - set(names)

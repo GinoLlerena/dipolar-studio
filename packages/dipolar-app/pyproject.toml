@@ -25,3 +25,4 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dipolar_app"]
+artifacts = ["src/dipolar_app/static/**"]  # the built page, copied in by tools/package/build.sh (git-ignored)

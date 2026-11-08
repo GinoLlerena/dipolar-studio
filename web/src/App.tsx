@@ -7,19 +7,25 @@ import {
   type OperationError,
   type Preview,
   type Select,
+  startTabSession,
+  type TabSession,
 } from "./api";
 import { strings } from "./strings";
 
-// The token may arrive in the URL fragment (never sent to the server). It is read once, removed
-// from the address bar, and kept only in memory.
-function tokenFromFragment(): string {
-  const match = /(?:^|&)token=([^&]+)/.exec(window.location.hash.slice(1));
-  if (match?.[1]) {
-    history.replaceState(null, "", window.location.pathname + window.location.search);
-    return decodeURIComponent(match[1]);
-  }
-  return "";
+// Browser hand-off (D10, M0 spike 3). `dipolar open` opens /#launch=<code>. The fragment never
+// reaches the server; it is removed from the address bar before anything else happens, and the
+// single-use code is exchanged once per page load for this tab's token. The token lives in
+// sessionStorage: scoped to this origin and tab, kept across reloads, gone when the tab closes.
+const TOKEN_KEY = "dipolar.tab-token";
+
+function takeLaunchCode(): string | null {
+  const match = /(?:^|&)launch=([^&]+)/.exec(window.location.hash.slice(1));
+  if (window.location.hash) history.replaceState(null, "", window.location.pathname + window.location.search);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
+
+const launchCode = takeLaunchCode();
+const exchange: Promise<TabSession> | null = launchCode ? startTabSession(launchCode) : null; // once per load
 
 const fmt = (value: number, digits = 3) => value.toFixed(digits);
 
@@ -33,7 +39,8 @@ function isNotOlder(next: DescribeView, shown: DescribeView | null): boolean {
 }
 
 export function App() {
-  const [token, setToken] = useState(tokenFromFragment);
+  const [token, setToken] = useState(() => sessionStorage.getItem(TOKEN_KEY) ?? "");
+  const [pending, setPending] = useState(exchange !== null);
   const [connected, setConnected] = useState(false);
   const [view, setView] = useState<DescribeView | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -48,6 +55,12 @@ export function App() {
       const envelope: Envelope<T> = await callOperation<T>(name, args, token);
       if (!isCurrent()) return null;
       if (!envelope.ok) {
+        if (envelope.error.code === "UNAUTHENTICATED") {
+          // The server restarted or the token was revoked: this tab needs a new launch link.
+          sessionStorage.removeItem(TOKEN_KEY);
+          setToken("");
+          setConnected(false);
+        }
         setError(envelope.error);
         return null;
       }
@@ -65,6 +78,29 @@ export function App() {
     }
     return result;
   }, [run]);
+
+  useEffect(() => {
+    if (exchange === null) return;
+    let live = true;
+    void exchange.then((session) => {
+      if (!live) return;
+      setPending(false);
+      if (session.ok) {
+        sessionStorage.setItem(TOKEN_KEY, session.token);
+        setToken(session.token);
+      } else {
+        setError(session.error);
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  // Connect as soon as a token exists (after the exchange, or on reload).
+  useEffect(() => {
+    if (token && !connected) void refreshView();
+  }, [token, connected, refreshView]);
 
   // The beta has one shared view (D15). Until the M2 event stream exists, poll it so that
   // changes made by other clients (the robot, a script) appear here.
@@ -111,22 +147,16 @@ export function App() {
         <p className="status">{strings.status}</p>
       </header>
 
-      <section className="panel">
-        <label htmlFor="token">{strings.tokenLabel}</label>
-        <div className="row">
-          <input
-            id="token"
-            type="password"
-            autoComplete="off"
-            value={token}
-            onChange={(e) => setToken(e.target.value.trim())}
-          />
-          <button type="button" disabled={!token} onClick={() => void refreshView()}>
-            {strings.connect}
-          </button>
-        </div>
-        <p className="help">{strings.tokenHelp}</p>
-      </section>
+      {pending && <p className="meta">{strings.connecting}</p>}
+      {!pending && !token && (
+        <section className="panel">
+          <p>{strings.needLaunch}</p>
+          <pre>
+            <code>{strings.launchCommand}</code>
+          </pre>
+          <p className="help">{strings.launchHelp}</p>
+        </section>
+      )}
 
       {error && (
         <section className="error" role="alert">

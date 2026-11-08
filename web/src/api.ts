@@ -1,7 +1,8 @@
 // The only module that talks to the backend (04 D13: "no private UI API").
-// Every call is a registry operation through the single dispatcher. A CI test scans web/src for
-// any other network access. The types below are hand-written for M0; M2 generates them from the
-// registry snapshot.
+// Every domain call is a registry operation through the single dispatcher. The one exception is
+// authentication (04 §8.5): exchanging the single-use launch code for this tab's token. A CI test
+// scans web/src for any other network access. The types below are hand-written for M0; M2
+// generates them from the registry snapshot.
 
 export type Quantity<U extends string> = { value: number; unit: U };
 
@@ -11,6 +12,8 @@ export type OperationError = {
   offending_field: string | null;
   hint: string | null;
 };
+
+export type TabSession = { ok: true; token: string; actor: string } | { ok: false; error: OperationError };
 
 export type Envelope<T> =
   | { ok: true; operation: string; result: T; revisions: { science: number; workspace: number } }
@@ -66,4 +69,22 @@ export async function callOperation<T>(name: string, args: object, token: string
     credentials: "omit",
   });
   return (await response.json()) as Envelope<T>;
+}
+
+// Exchange the launch code from the URL fragment for this tab's token (D10). The code is single
+// use, so this runs at most once per page load.
+export async function startTabSession(code: string): Promise<TabSession> {
+  const response = await fetch("/api/v1/auth/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+    cache: "no-store",
+    credentials: "omit",
+  });
+  const body = (await response.json()) as { token?: string; actor?: string; error?: OperationError };
+  if (response.ok && body.token && body.actor) return { ok: true, token: body.token, actor: body.actor };
+  return {
+    ok: false,
+    error: body.error ?? { code: "UNAUTHENTICATED", message: `HTTP ${response.status}`, offending_field: null, hint: null },
+  };
 }

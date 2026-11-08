@@ -5,10 +5,11 @@ export const strings = {
   status: "Milestone M0 vertical slice: a thin client of the operation registry.",
   credits:
     "A new implementation of the 1998 graduation thesis by Gino Llerena and Marco Idrogo (advisor: Dr. Jaime Avalos).",
-  tokenLabel: "Session token",
-  tokenHelp:
-    "Copy the user token from the ready file that dipolar serve wrote (provisional until the M0 D10 spike decides the browser hand-off).",
-  connect: "Connect",
+  connecting: "Connecting…",
+  needLaunch: "This page needs a launch link. In a terminal, run:",
+  launchCommand: "dipolar open --project-dir <your project directory>",
+  launchHelp:
+    "The link works once, for one minute. This tab then keeps its own session until it is closed or the server stops.",
   openExample: "Open the synthetic biphenyl example",
   phiLabel: "Torsion φ (deg)",
   preview: "Preview",

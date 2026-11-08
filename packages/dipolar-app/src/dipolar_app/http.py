@@ -1,23 +1,25 @@
-"""HTTP adapter (Starlette) with the provisional M0 localhost controls (plan D10).
+"""HTTP adapter (Starlette) with the localhost controls of plan D10 (decided in M0 spike 3).
 
 Routes:
-  POST /api/v1/ops/{name}   body {"args": {...}} -> the dispatcher's JSON envelope
-  GET  /api/v1/registry     the contract snapshot (no side effects)
-  GET  /                    the built browser page, if a static directory is given
+  POST /api/v1/ops/{name}         body {"args": {...}} -> the dispatcher's JSON envelope
+  GET  /api/v1/registry           the contract snapshot (no side effects)
+  GET  /api/v1/instance           who answers on this port: instance ID, pid, contract version
+  POST /api/v1/auth/launch-code   a single-use browser launch code (human launch credential only)
+  POST /api/v1/auth/session       body {"code": ...} -> a tab token; allowed Origin required
+  GET  /                          the browser page (bundled, or --static-dir)
 
-Controls in place now: loopback binding (in the CLI), Host allow-list on every request
-(DNS-rebinding defence), Origin allow-list when an Origin is present, a bearer token on every API
-request (so cross-site forms cannot act: CSRF), JSON content type, a body-size limit, CPU work off
-the event loop, and strict security headers. How the browser receives its token is the D10 spike
-(M0 step 4); the M0 page asks for it.
+Controls: loopback binding and an instance lock (in the CLI); a Host allow-list on every request
+(DNS-rebinding defence); an Origin allow-list whenever an Origin is present; a bearer token on every
+API request except the code exchange, so cross-site forms cannot act (CSRF); no CORS headers ever;
+JSON content type; a streamed body limit; strict RFC 8259 JSON; CPU work off the event loop; strict
+security headers. Authentication routes are the explicit exception to "registry operations only"
+(04 §8.5).
 """
 
 from __future__ import annotations
 
-import hmac
 import json
 import logging
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +31,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from dipolar_app.auth import LAUNCH_CODE_TTL_S, Credentials
 from dipolar_app.errors import HTTP_STATUS, ErrorCode, OperationError
 from dipolar_app.policy import Principal
 from dipolar_app.registry import Registry, dispatch
@@ -36,6 +39,7 @@ from dipolar_app.session import Session
 
 LOG = logging.getLogger("dipolar_app.http")
 MAX_BODY_BYTES = 1 << 20
+MAX_AUTH_BODY_BYTES = 1 << 10
 
 CSP = (
     "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; "
@@ -114,47 +118,66 @@ def _error(
     return JSONResponse(body, status_code=HTTP_STATUS[code])
 
 
+class BodyError(Exception):
+    def __init__(self, response: Response) -> None:
+        self.response = response
+
+
+async def read_json_body(request: Request, limit: int, operation: str | None) -> Any:
+    """Read and parse a JSON body, counting while streaming so nothing is buffered past ``limit``."""
+    if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
+        wrong_type = _error(ErrorCode.INVALID_ARGUMENT, "content type must be application/json", operation=operation)
+        raise BodyError(wrong_type)
+    too_large = _error(ErrorCode.PAYLOAD_TOO_LARGE, f"the body limit is {limit} bytes", operation=operation)
+    declared = request.headers.get("content-length")
+    if declared is not None and (not declared.isdigit() or int(declared) > limit):
+        raise BodyError(too_large)
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():  # a chunked body (no Content-Length) is bounded here
+        size += len(chunk)
+        if size > limit:
+            raise BodyError(too_large)
+        chunks.append(chunk)
+    try:
+        return parse_json_body(b"".join(chunks) or b"{}")
+    except ValueError as exc:  # includes UnicodeDecodeError and JSONDecodeError
+        reason = "not UTF-8" if isinstance(exc, UnicodeDecodeError) else str(exc).split(":")[0]
+        raise BodyError(
+            _error(ErrorCode.INVALID_ARGUMENT, f"the body is not valid JSON ({reason})", operation=operation)
+        ) from None
+
+
 def create_app(
     registry: Registry,
     session: Session,
-    tokens: Mapping[str, Principal],
+    credentials: Credentials,
     *,
     port: int,
+    instance_id: str = "unnamed",
+    pid: int = 0,
     static_dir: Path | None = None,
 ) -> ASGIApp:
+    allowed_origins = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
+
     def authenticate(request: Request) -> Principal | None:
         scheme, _, token = request.headers.get("authorization", "").partition(" ")
         if scheme.lower() != "bearer" or not token:
             return None
-        for known, principal in tokens.items():
-            if hmac.compare_digest(known.encode(), token.encode()):
-                return principal
-        return None
+        return credentials.authenticate(token)
+
+    def unauthenticated(operation: str | None = None) -> Response:
+        return _error(ErrorCode.UNAUTHENTICATED, "missing or invalid bearer token", operation=operation)
 
     async def run_operation(request: Request) -> Response:
         name = request.path_params["name"]
         principal = authenticate(request)
         if principal is None:
-            return _error(ErrorCode.UNAUTHENTICATED, "missing or invalid bearer token", operation=name)
-        if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
-            return _error(ErrorCode.INVALID_ARGUMENT, "content type must be application/json", operation=name)
-        declared = request.headers.get("content-length")
-        if declared is not None and (not declared.isdigit() or int(declared) > MAX_BODY_BYTES):
-            return _error(ErrorCode.PAYLOAD_TOO_LARGE, f"the body limit is {MAX_BODY_BYTES} bytes", operation=name)
-        # Count while streaming: a chunked body (no Content-Length) must never be buffered past the limit.
-        chunks: list[bytes] = []
-        size = 0
-        async for chunk in request.stream():
-            size += len(chunk)
-            if size > MAX_BODY_BYTES:
-                return _error(ErrorCode.PAYLOAD_TOO_LARGE, f"the body limit is {MAX_BODY_BYTES} bytes", operation=name)
-            chunks.append(chunk)
-        body = b"".join(chunks)
+            return unauthenticated(name)
         try:
-            envelope_in: Any = parse_json_body(body or b"{}")
-        except ValueError as exc:  # includes UnicodeDecodeError and JSONDecodeError
-            reason = "not UTF-8" if isinstance(exc, UnicodeDecodeError) else str(exc).split(":")[0]
-            return _error(ErrorCode.INVALID_ARGUMENT, f"the body is not valid JSON ({reason})", operation=name)
+            envelope_in = await read_json_body(request, MAX_BODY_BYTES, name)
+        except BodyError as exc:
+            return exc.response
         if not isinstance(envelope_in, dict) or set(envelope_in) - {"args"}:
             extra = sorted(set(envelope_in) - {"args"}) if isinstance(envelope_in, dict) else []
             return _error(
@@ -177,12 +200,50 @@ def create_app(
 
     async def get_registry(request: Request) -> Response:
         if authenticate(request) is None:
-            return _error(ErrorCode.UNAUTHENTICATED, "missing or invalid bearer token")
+            return unauthenticated()
         return JSONResponse(registry.snapshot())
+
+    async def get_instance(request: Request) -> Response:
+        """The authenticated readiness handshake: a client checks that the instance ID matches its
+        ready file, so a stale ready file or a port reused by another process is detected."""
+        if authenticate(request) is None:
+            return unauthenticated()
+        contract = registry.snapshot()["contract_version"]
+        return JSONResponse({"instance_id": instance_id, "pid": pid, "contract_version": contract})
+
+    async def issue_launch_code(request: Request) -> Response:
+        principal = authenticate(request)
+        if principal is None:
+            return unauthenticated()
+        try:
+            code = credentials.issue_launch_code(principal)
+        except OperationError as err:
+            return JSONResponse({"ok": False, "operation": None, "error": err.to_json()}, HTTP_STATUS[err.code])
+        return JSONResponse({"code": code, "expires_in_s": LAUNCH_CODE_TTL_S})
+
+    async def start_tab_session(request: Request) -> Response:
+        # Only the browser page exchanges codes, and a browser always sends Origin on a POST fetch.
+        if request.headers.get("origin") not in allowed_origins:
+            return _error(ErrorCode.CAPABILITY_DENIED, "the code exchange needs an allowed Origin")
+        try:
+            body = await read_json_body(request, MAX_AUTH_BODY_BYTES, None)
+        except BodyError as exc:
+            return exc.response
+        code = body.get("code") if isinstance(body, dict) and set(body) == {"code"} else None
+        if not isinstance(code, str):
+            return _error(ErrorCode.INVALID_ARGUMENT, 'send {"code": "<launch code>"}', offending_field="code")
+        try:
+            token, principal = credentials.redeem(code)
+        except OperationError as err:
+            return JSONResponse({"ok": False, "operation": None, "error": err.to_json()}, HTTP_STATUS[err.code])
+        return JSONResponse({"token": token, "actor": principal.actor, "tier": principal.tier.value})
 
     routes: list[Route | Mount] = [
         Route("/api/v1/ops/{name:str}", run_operation, methods=["POST"]),
         Route("/api/v1/registry", get_registry, methods=["GET"]),
+        Route("/api/v1/instance", get_instance, methods=["GET"]),
+        Route("/api/v1/auth/launch-code", issue_launch_code, methods=["POST"]),
+        Route("/api/v1/auth/session", start_tab_session, methods=["POST"]),
     ]
     if static_dir is not None:
         routes.append(Mount("/", app=StaticFiles(directory=static_dir, html=True), name="web"))

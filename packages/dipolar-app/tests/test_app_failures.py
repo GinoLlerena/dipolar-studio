@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 from conftest import USER, VIEWER, client, new_session
 from dipolar_app import journal as journal_module
+from dipolar_app.auth import Credentials
 from dipolar_app.http import MAX_BODY_BYTES, create_app
 from dipolar_app.journal import Journal, JournalCorrupt
 from dipolar_app.operations import DescribeViewIn, DescribeViewOut, build_registry, describe_view
@@ -127,7 +128,7 @@ def test_envelope_revisions_describe_the_result_snapshot() -> None:
 def test_chunked_body_is_never_buffered_past_the_limit() -> None:
     """Without Content-Length the adapter must stop reading as soon as the limit is exceeded."""
     tokens = {"tok": VIEWER}
-    app = create_app(build_registry(), new_session(), tokens, port=8765)
+    app = create_app(build_registry(), new_session(), Credentials(tokens), port=8765)
     chunk = b" " * 65536
     consumed = {"bytes": 0}
     sent: list[dict[str, Any]] = []
