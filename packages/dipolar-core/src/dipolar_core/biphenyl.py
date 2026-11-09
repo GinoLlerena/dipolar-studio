@@ -22,6 +22,7 @@ from numpy.typing import NDArray
 
 from dipolar_core.forward import constraint_diagonal, design_rows
 from dipolar_core.nuclides import dipolar_constant_hz_a3
+from dipolar_core.problem import Problem
 
 Array = NDArray[np.float64]
 
@@ -70,3 +71,23 @@ def rigid_design(
     """Design A·C of the rigid model: one conformer, S diagonal in the bisector frame (Szz, Δ)."""
     k = dipolar_constant_hz_a3("1H", "1H")
     return design_rows(proton_positions(phi_deg, geometry), pairs, k) @ constraint_diagonal()
+
+
+def rigid_problem(
+    pairs: tuple[tuple[int, int], ...],
+    y: Array,
+    sigma: Array,
+    geometry: BiphenylGeometry | None = None,
+) -> Problem:
+    """The rigid model as a D3 problem: φ in [0°, 90°] (the folded domain), (Szz, Δ) linear."""
+    g = geometry or BiphenylGeometry()
+    return Problem(
+        design=lambda theta: rigid_design(float(theta[0]), pairs, g),
+        y=np.asarray(y, dtype=np.float64),
+        sigma=np.asarray(sigma, dtype=np.float64),
+        lower=np.array([0.0]),
+        upper=np.array([90.0]),
+        theta_names=("phi_deg",),
+        order_names=("Szz", "Delta"),
+        s5_map=constraint_diagonal(),
+    )

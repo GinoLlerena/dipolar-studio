@@ -17,7 +17,9 @@
 
 ## Verified by
 
-`tests/test_expected_fixtures.py` (frozen answers); the engine's own M1 tests.
+`tests/test_expected_fixtures.py` (frozen answers). M1 step 1: `dipolar_core.fit` passes gates (a)
+and (b) and the irregular-case tests in `packages/dipolar-core/tests/test_core_fit.py`. Coverage,
+gate (c), comes in M1 step 5.
 
 ## M0 spike 1 (2026-11-08)
 

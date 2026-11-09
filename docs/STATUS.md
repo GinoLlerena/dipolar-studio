@@ -112,22 +112,50 @@ The owner approved the re-baseline on 2026-11-09.
 
 | M1 step | Status | Owner hours (owner fills in) |
 |---|---|---|
-| 1. The D3 stack in dipolar-core | in progress | |
+| 1. The D3 stack in dipolar-core | built; under review (round 13) | |
 | 2. Frame contract, C2(z) and C1 | — | |
 | 3. Four-site jump model | — | |
 | 4. CSV/XYZ import, JSON v1 | — | |
 | 5. Gates (a)–(e), coverage, 8CB | — | |
 
-### Step 1
+### Step 1: the D3 stack
 
-M1 step 1 is the D3 stack in dipolar-core. It grows from `spikes/test_spike_d3_numerics.py`:
-- grid/Sobol multistart;
-- bounded TRF refinement on the residual vector;
-- full-Jacobian covariance;
-- profiles versus slices;
-- validity flags.
+`dipolar_core.fit` is the stack, and `dipolar_core.problem` holds the problem definition.
+`biphenyl.rigid_problem` builds the rigid model. The stack does the following:
 
-See the re-baseline for the remaining steps.
+- **Starts.** It scans the profile on a grid for one geometry parameter, or on seeded Sobol points
+  for several.
+- **Refinement.** Each start is refined by bounded TRF on the residual vector.
+- **Basins.** Distinct basins are reported with their Δχ².
+- **Uncertainty.**
+  - The covariance comes from the full whitened Jacobian in joint coordinates (θ, t).
+  - The joint rank is reported separately from the inner rank.
+  - Directions the data do not determine are named, and they get no error bar.
+- **Intervals.** Profile and slice intervals are separate, with their labels and raw Δχ²
+  thresholds. They are "not supported" at a bound or at an irregular optimum.
+- **Validity flags.** They are independent of each other. ν and the p-value are given only for a
+  regular interior optimum.
+
+**Tests** (`packages/dipolar-core/tests/test_core_fit.py`, 16 tests):
+- **Gate (b), noisy fixture.** All frozen regression tolerances are met with wide margins:
+  - φ within 2.3·10⁻⁹ °;
+  - standard errors within about 10⁻¹¹ relative;
+  - interval endpoints within about 10⁻¹⁴.
+- **Gate (a), noiseless recovery:** φ to 10⁻¹² °.
+- **The fit itself:**
+  - both grid basins are reported;
+  - the full fit and the reduced fit agree;
+  - a slice is narrower than its profile.
+- **Irregular cases:** an optimum on the bound, and a geometry parameter the data cannot see.
+- **Two geometry parameters at once:** φ and r_inter are recovered by Sobol multistart, and the
+  search is reproducible.
+- **Mutation checks:** ignoring the bound, ignoring the rank, skipping basin deduplication, and
+  treating a profile as a slice each make a test fail.
+
+`dipolar_app` still starts without importing SciPy's optimizer. A boundary test guards this,
+because the import costs 1.5 s per process start.
+
+The fitter is not yet an operation. Operations come in M2, as the beta UI needs them.
 
 Check the baseline before resuming:
 

@@ -100,3 +100,17 @@ def test_frontend_imports_no_domain_logic() -> None:
     for path in WEB_FILES:
         for spec in re.findall(r"from\s+[\"']([^\"']+)[\"']", path.read_text()):
             assert spec.startswith(".") or spec.split("/")[0] in {"react", "react-dom"}, (path.name, spec)
+
+
+def test_the_app_starts_without_the_optimizer() -> None:
+    """Building problems and serving must not import scipy.optimize or scipy.stats (1.5 s per
+    process start); only fitting does. M1 step 1 moved Problem out of dipolar_core.fit for this."""
+    import subprocess
+    import sys
+
+    probe = (
+        "import sys, dipolar_app.cli, dipolar_core.biphenyl; "
+        "print(sorted(m for m in ('scipy.optimize', 'scipy.stats') if m in sys.modules))"
+    )
+    loaded = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True).stdout.strip()
+    assert loaded == "[]", loaded
