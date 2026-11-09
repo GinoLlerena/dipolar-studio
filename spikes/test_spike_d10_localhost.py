@@ -120,15 +120,29 @@ class Instance:
         return self.raw("POST", "/api/v1/auth/session", headers=headers, body=json.dumps({"code": code}).encode())
 
 
-def launch(tmp: Path, name: str = "a", project_dir: Path | None = None) -> Instance:
+def launch(
+    tmp: Path,
+    name: str = "a",
+    project_dir: Path | None = None,
+    *,
+    ready_file: Path | None = None,
+    cwd: Path | None = None,
+    extra: tuple[str, ...] = (),
+    env: dict[str, str] | None = None,
+) -> Instance:
+    """Start ``serve``. ``project_dir`` and ``ready_file`` may be relative to ``cwd``."""
     project_dir = project_dir or tmp / f"project-{name}"
-    ready_file = project_dir / "serve.ready.json"
+    base = cwd or Path.cwd()
+    ready_arg = ready_file
+    ready_file = base / (ready_file or project_dir / "serve.ready.json")
     output = tmp / f"server-{name}.out"
-    cmd = [*BASE_CMD, "serve", "--project-dir", str(project_dir)]
+    cmd = [*BASE_CMD, "serve", "--project-dir", str(project_dir), *extra]
+    if ready_arg is not None:
+        cmd += ["--ready-file", str(ready_arg)]
     if not PACKAGED and (WEB_DIST / "index.html").is_file():
         cmd += ["--static-dir", str(WEB_DIST)]
     with output.open("wb") as out:
-        process = subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT)
+        process = subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT, cwd=cwd, env=env)
     deadline = time.monotonic() + 20
     while True:  # wait for *this* process's ready file (a crashed one may have left an old file)
         try:
@@ -141,7 +155,7 @@ def launch(tmp: Path, name: str = "a", project_dir: Path | None = None) -> Insta
             process.kill()
             raise RuntimeError(output.read_text())
         time.sleep(0.05)
-    return Instance(process, project_dir, ready_file, output, ready)
+    return Instance(process, base / project_dir, ready_file, output, ready)
 
 
 def stop(instance: Instance) -> None:
@@ -255,7 +269,67 @@ def test_the_browser_launcher_never_sees_the_code(inst: Instance, tmp_path: Path
     assert code not in opened.stdout + opened.stderr
     assert inst.exchange(code).status == 200  # the page that follows the redirect gets the session
     stop(inst)
-    assert not list(page.parent.glob("open-*.html"))  # redirect pages are removed at shutdown
+    assert not list(page.parent.glob("open-*.html"))  # graceful shutdown removes this instance's pages
+
+
+def recording_browser(tmp_path: Path) -> tuple[dict[str, str], Path]:
+    recorder, record = tmp_path / "browser.py", tmp_path / "argv.json"
+    recorder.write_text(RECORDER)
+    return {**os.environ, "BROWSER": f"{sys.executable} {recorder} {record} %s"}, record
+
+
+def test_a_symlinked_launch_directory_is_refused_and_never_touched(tmp_path: Path) -> None:
+    """Round 11, finding 1: ``browser-launch`` as a symlink must never lead to chmod or deletion
+    outside the project, neither when opening nor at shutdown (with or without --open)."""
+    victim = tmp_path / "victim"
+    victim.mkdir(mode=0o755)
+    precious = [victim / "open-important.html", victim / "open-ins_x-y.html"]
+    for path in precious:
+        path.write_text("keep me")
+        os.utime(path, (1, 1))  # "expired", so age-based cleanup would pick it if it looked here
+    project = tmp_path / "project-a"
+    project.mkdir()
+    (project / "browser-launch").symlink_to(victim, target_is_directory=True)
+    inst = launch(tmp_path, project_dir=project)
+    env, record = recording_browser(tmp_path)
+    cmd = [*BASE_CMD, "open", "--ready-file", str(inst.ready_file)]
+    opened = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=env, check=False)
+    assert opened.returncode == 1 and "not a plain directory" in opened.stderr, opened
+    assert not record.exists()  # no browser was started
+    stop(inst)
+    assert all(path.read_text() == "keep me" for path in precious)
+    assert stat.S_IMODE(victim.stat().st_mode) == 0o755
+    assert sorted(victim.iterdir()) == sorted(precious)
+
+
+def test_relative_paths_and_a_custom_ready_file_location(tmp_path: Path) -> None:
+    """Round 11, findings 2 and 3: relative paths give absolute file URIs, and pages live beside
+    the ready file wherever it is, so shutdown removes them."""
+    (tmp_path / "elsewhere").mkdir()
+    inst = launch(tmp_path, project_dir=Path("proj"), ready_file=Path("elsewhere/ready.json"), cwd=tmp_path)
+    env, record = recording_browser(tmp_path)
+    cmd = [*BASE_CMD, "open", "--ready-file", "elsewhere/ready.json"]
+    opened = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=env, cwd=tmp_path, check=False)
+    assert opened.returncode == 0, opened
+    page = Path(json.loads(record.read_text())[0].removeprefix("file://"))
+    assert page.is_absolute() and page.parent == (tmp_path / "elsewhere" / "browser-launch").resolve()
+    assert inst.ready["instance_id"] in page.name
+    stop(inst)  # graceful shutdown removes this instance's pages
+    assert not page.exists()
+
+
+@pytest.mark.skipif(not has_page(), reason="web/dist is not built (cd web && pnpm build)")
+def test_serve_open_with_a_relative_project(tmp_path: Path) -> None:
+    env, record = recording_browser(tmp_path)
+    inst = launch(tmp_path, project_dir=Path("proj"), cwd=tmp_path, extra=("--open",), env=env)
+    deadline = time.monotonic() + 10
+    while not record.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    page = Path(json.loads(record.read_text())[0].removeprefix("file://"))
+    match = re.search(r"#launch=([A-Za-z0-9_-]+)", page.read_text())
+    assert match and inst.exchange(match.group(1)).status == 200
+    stop(inst)
+    assert not page.exists() and not inst.ready_file.exists()
 
 
 @pytest.mark.skipif(not has_page(), reason="web/dist is not built (cd web && pnpm build)")

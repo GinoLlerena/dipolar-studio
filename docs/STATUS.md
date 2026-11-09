@@ -3,7 +3,9 @@
 **Phase 1, milestone M0: all five steps are done.** The spikes (step 4) pass with evidence, and
 the re-baseline (step 5) is a proposal awaiting the owner. Validation round 10 (GPT-6.1-Sol) returned
 NOT READY with one major and six minor findings, all fixed
-([docs/validation/round10-m0-spikes.md](validation/round10-m0-spikes.md)); round 11 confirms.
+([docs/validation/round10-m0-spikes.md](validation/round10-m0-spikes.md)). Round 11 confirmed
+those fixes but returned NOT READY on a new major problem in the redirect-page cleanup (a symlinked
+directory) and three minor ones, all fixed; a round-12 confirmation follows.
 
 Earlier stopping points: `m0-step2`, `m0-step3`.
 
@@ -117,12 +119,12 @@ See the re-baseline for the remaining steps.
 Check the baseline before resuming:
 
 ```sh
-uv sync --locked && uv run pytest -q -m "not slow"     # 181 passed
+uv sync --locked && uv run pytest -q -m "not slow"     # 184 passed
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 (cd web && pnpm install --frozen-lockfile && pnpm build)
 LEGACY=path/to/NMRApllication tools/legacy-harness/run.sh
 tools/package/build.sh && uv venv /tmp/pkg && uv pip install --python /tmp/pkg/bin/python dist/packages/*.whl \
-  && DIPOLAR_BIN=/tmp/pkg/bin/dipolar uv run pytest spikes/test_spike_d10_localhost.py   # 29 passed
+  && DIPOLAR_BIN=/tmp/pkg/bin/dipolar uv run pytest spikes/test_spike_d10_localhost.py   # 32 passed
 ```
 
 ## Open items for the owner

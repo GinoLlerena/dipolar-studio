@@ -24,8 +24,8 @@ findings 1, 2 and 3 were mutation-checked: each fails when the old behaviour is 
      - another user redeemed the code first, forging an allowed `Origin`;
      - the real page got 401, and the attacker kept a working token.
    - **The fix.** `dipolar open` and `serve --open` write the URL into a private redirect page:
-     mode 0600, in the mode-0700 directory `<project>/browser-launch/`, removed at shutdown. The
-     launcher receives only that file's path. This is Jupyter's approach.
+     mode 0600, in a mode-0700 `browser-launch/` directory. The launcher receives only that file's
+     path. This is Jupyter's approach. Round 11 hardened the directory handling (see below).
    - **The threat model is now explicit in ADR-0010:**
      - processes of the same OS user are trusted;
      - other local users and other origins are not;
@@ -109,3 +109,38 @@ findings 1, 2 and 3 were mutation-checked: each fails when the old behaviour is 
   - `UNAUTHENTICATED` clears the stored token.
   - The re-baseline is a reasonable proposal and sets no dates.
 - **HTTP is a reasonable transport for the beta.**
+
+## Round 11: confirmation
+
+- **Reviewer and date:** the same reviewer, read-only, 2026-11-09.
+- **Scope:** commit fdb1a1d.
+- **Verdict: NOT READY.** All seven round-10 findings are resolved. The fix for finding 1
+  introduced a new major problem.
+
+**The tooling passed:** 181 tests, lint, formatting, mypy, the web build, and 29 D10 tests on the
+installed wheel. **Other checks** found no blocker:
+- HTML escaping of the redirect URL works;
+- an existing 0777 directory becomes 0700;
+- strict parsing of a 1 MiB body holding 349,518 strings takes about 0.13 s.
+
+**New findings, all fixed:**
+
+1. **Major. A symlinked `browser-launch` directory led to changes outside the project.**
+   - **The problem.** Shutdown deleted matching files in the symlink's target, even without
+     `--open`, and `open` chmodded the target.
+   - **The fix.** The redirect directory sits beside the ready file and is checked with `lstat`. It
+     must be a real directory owned by the user; a symlink, a non-directory or another user's
+     directory is refused. Its mode is forced to 0700. Page names carry the instance ID, and cleanup
+     deletes only regular files: at shutdown, only this instance's pages.
+   - **Test.** `test_a_symlinked_launch_directory_is_refused_and_never_touched`, which was
+     mutation-checked.
+2. **Minor. Relative project paths broke the browser launch.** `as_uri()` needs an absolute path,
+   and `serve --open` failed before its cleanup block. The fix: absolute paths, and the launch now
+   happens inside the cleanup scope. Tests cover `open` and `serve --open` with relative paths.
+3. **Minor. A ready file in a custom location escaped cleanup.** The fix: `open`, `serve --open`
+   and shutdown all use the directory beside the ready file. There is a test.
+4. **Minor. The documents overclaimed.** The fix:
+   - ADR-0010 now says the ready file is the one file holding launch secrets;
+   - the report names the code exchange as the one response that carries a token;
+   - the shutdown cleanup is described as graceful shutdown only, with leftovers after a SIGKILL;
+   - STATUS gives the actual verdicts.

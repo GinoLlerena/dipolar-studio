@@ -159,7 +159,7 @@ independent validator, rather than Pydantic, which produced the schemas.
 
 ## 3. D10 localhost security on a packaged build
 
-`spikes/test_spike_d10_localhost.py` has 29 tests. `packages/dipolar-app/tests/test_app_auth.py`
+`spikes/test_spike_d10_localhost.py` has 32 tests. `packages/dipolar-app/tests/test_app_auth.py`
 covers the credential logic with a fake clock.
 
 **Question.** Can a browser page and scripts use a local `dipolar serve` safely, and does the
@@ -192,9 +192,14 @@ How the chosen hand-off works:
 
    **The code never appears on a command line** (round 10, finding 1). Browser launchers take
    their URL as an argument, which other local users can read with `ps`. So `dipolar open` writes
-   the URL into a private redirect page: mode 0600, in the mode-0700 directory
-   `<project>/browser-launch/`, removed at shutdown. It gives the launcher only that file's path.
-   This is the approach Jupyter uses for the same problem.
+   the URL into a private redirect page and gives the launcher only that file's path. This is the
+   approach Jupyter uses for the same problem.
+   - The page is mode 0600, in `browser-launch/` beside the ready file.
+   - That directory must be a real, user-owned directory with mode 0700. A symlink or a directory
+     owned by someone else is refused, and nothing in it is chmodded or deleted (round 11).
+   - Graceful shutdown removes the instance's own pages.
+   - After a SIGKILL, pages are left behind. Their codes are already dead, and the next
+     `dipolar open` removes the expired ones.
 2. **Open and exchange.** The redirect page sends the browser to `/#launch=<code>`. The fragment
    never reaches the server. The page removes it from the address bar first, then exchanges the code once, from an
    allowed `Origin`, for a **tab token**. At most 32 tab tokens are issued per instance.
@@ -255,7 +260,8 @@ registry, the instance check, operations and the launch-code route.
 - its process arguments (`ps`), or those of the browser launcher;
 - the journal;
 - the page and its assets;
-- any response body or header.
+- any response body or header. The one intended exception is the code exchange, which returns
+  the new tab token to the page that redeemed the code.
 
 The launch code appears only in the private redirect page and, when asked for, in
 `dipolar open --print-url` output. Both are single-use by design.
@@ -293,7 +299,16 @@ and the robot completes.
    The fix: the private redirect page.
 5. **Round 10, finding 3: tab tokens could mint codes.** The fix: tokens now carry their
    provenance.
-6. **Round 10, finding 7: the page could hang at start.** A failed exchange, or a malformed
+6. **Round 11: the redirect directory was trusted blindly.**
+   - **Major:** a symlinked `browser-launch` led shutdown to delete, and `open` to chmod, files
+     outside the project.
+   - **Minor:** a relative project path broke the `file://` URI.
+   - **Minor:** a ready file in a custom location escaped cleanup.
+
+   The fix: one verified, symlink-free directory beside the ready file. Page names carry the
+   instance ID, cleanup deletes only regular files, and URIs use absolute paths. Each case has a
+   test.
+7. **Round 10, finding 7: the page could hang at start.** A failed exchange, or a malformed
    fragment, left it in the "connecting" state. The fix: the exchange never rejects, and a bad
    link shows the guidance.
 

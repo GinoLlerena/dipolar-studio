@@ -10,8 +10,10 @@ removed on exit.
 ``open`` reads the ready file, checks the instance handshake, asks for a single-use launch code and
 opens the browser at ``/#launch=<code>`` (see ``dipolar_app.auth``). The code never appears on a
 command line: browser launchers pass their URL as an argument, which other local users can read with
-``ps``. So the URL goes into a private redirect page (mode 0600, in a mode-0700 directory) and the
-browser is given only that file's path (validation round 10, finding 1).
+``ps``. So the URL goes into a private redirect page (mode 0600) in ``browser-launch/`` beside the
+ready file (a verified, user-owned, mode-0700 directory, never a symlink), and the browser is given
+only that file's path (validation rounds 10 and 11). Graceful shutdown removes the instance's pages;
+after a SIGKILL, expired pages are removed by the next ``dipolar open``.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ import os
 import secrets
 import signal
 import socket
+import stat
 import sys
 import time
 import urllib.error
@@ -59,37 +62,81 @@ class InstanceRunning(Exception):
     pass
 
 
-def launch_dir(project_dir: Path) -> Path:
-    """Private directory for redirect pages (mode 0700)."""
-    path = project_dir / "browser-launch"
-    path.mkdir(mode=0o700, exist_ok=True)
-    os.chmod(path, 0o700)
+LAUNCH_DIR_NAME = "browser-launch"
+
+
+class UnsafeLaunchDir(Exception):
+    pass
+
+
+def verified_launch_dir(base: Path, *, create: bool) -> Path | None:
+    """``<base>/browser-launch`` (base = the ready file's directory), only if it is a real
+    directory owned by this user, never a symlink (validation round 11). Mode is forced to 0700.
+    Returns None if it does not exist and ``create`` is false."""
+    path = base.resolve() / LAUNCH_DIR_NAME
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        if not create:
+            return None
+        os.mkdir(path, 0o700)
+        info = os.lstat(path)
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        raise UnsafeLaunchDir(f"{path} is not a plain directory (a symlink?); refusing to use it")
+    if hasattr(os, "getuid") and info.st_uid != os.getuid():
+        raise UnsafeLaunchDir(f"{path} belongs to another user; refusing to use it")
+    if stat.S_IMODE(info.st_mode) != 0o700:
+        if os.chmod in os.supports_follow_symlinks:
+            os.chmod(path, 0o700, follow_symlinks=False)
+        else:
+            os.chmod(path, 0o700)  # lstat above showed a real directory we own
     return path
 
 
-def write_redirect_page(url: str, directory: Path) -> Path:
-    """A private page that sends the browser to ``url``; expired ones are removed first."""
+def remove_pages(directory: Path, pattern: str, *, older_than_s: float | None = None) -> None:
+    """Delete matching *regular files* in a verified launch directory (never follow links)."""
     now = time.time()
-    for old in directory.glob("open-*.html"):
+    for page in directory.glob(pattern):
         with contextlib.suppress(OSError):
-            if now - old.stat().st_mtime > LAUNCH_CODE_TTL_S:
-                old.unlink()
+            info = os.lstat(page)
+            if not stat.S_ISREG(info.st_mode):
+                continue
+            if older_than_s is not None and now - info.st_mtime <= older_than_s:
+                continue
+            page.unlink()
+
+
+def write_redirect_page(url: str, directory: Path, instance_id: str) -> Path:
+    """A private page (0600) that sends the browser to ``url``; expired pages are removed first."""
+    remove_pages(directory, "open-*.html", older_than_s=LAUNCH_CODE_TTL_S)
     target = html.escape(url, quote=True)
     page = (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         f'<meta http-equiv="refresh" content="0;url={target}"><title>Dipolar Studio</title></head>'
         f'<body><p><a href="{target}">Open Dipolar Studio</a></p></body></html>\n'
     )
-    path = directory / f"open-{secrets.token_hex(8)}.html"
+    path = directory / f"open-{instance_id}-{secrets.token_hex(8)}.html"
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         handle.write(page)
     return path
 
 
-def open_in_browser(url: str, project_dir: Path) -> bool:
-    """Open ``url`` without putting it on any command line."""
-    return webbrowser.open(write_redirect_page(url, launch_dir(project_dir)).as_uri())
+def open_in_browser(url: str, ready_file: Path, instance_id: str) -> bool:
+    """Open ``url`` without putting it on any command line (validation round 10, finding 1)."""
+    directory = verified_launch_dir(ready_file.parent, create=True)
+    assert directory is not None
+    return webbrowser.open(write_redirect_page(url, directory, instance_id).resolve().as_uri())
+
+
+def remove_instance_pages(ready_file: Path, instance_id: str) -> None:
+    """At shutdown: this instance's redirect pages, whose codes die with it."""
+    try:
+        directory = verified_launch_dir(ready_file.parent, create=False)
+    except (UnsafeLaunchDir, OSError):
+        return
+    if directory is not None:
+        remove_pages(directory, f"open-{instance_id}-*.html")
 
 
 def lock_project(project_dir: Path) -> int:
@@ -173,18 +220,19 @@ def serve(project_dir: Path, ready_file: Path, static_dir: Path | None, *, open_
             "tokens": by_name,
         },
     )
-    if open_browser and static_dir is not None:
-        # The socket is already listening, so the browser's request waits for uvicorn to accept it.
-        code = credentials.issue_launch_code(by_name["user"])
-        open_in_browser(f"http://127.0.0.1:{port}/#launch={code}", project_dir)
     try:
+        if open_browser and static_dir is not None:
+            # The socket is already listening, so the browser's request waits for uvicorn to accept it.
+            code = credentials.issue_launch_code(by_name["user"])
+            try:
+                open_in_browser(f"http://127.0.0.1:{port}/#launch={code}", ready_file, instance_id)
+            except UnsafeLaunchDir as exc:
+                print(f"dipolar serve: {exc}; not opening a browser", file=sys.stderr, flush=True)
         server.run(sockets=[sock])
     finally:
         with contextlib.suppress(FileNotFoundError):
             ready_file.unlink()
-        for page in (project_dir / "browser-launch").glob("open-*.html"):  # their codes die with us
-            with contextlib.suppress(OSError):
-                page.unlink()
+        remove_instance_pages(ready_file, instance_id)
         os.close(lock_fd)
 
 
@@ -206,7 +254,7 @@ def _get_json(url: str, token: str, method: str = "GET") -> tuple[int, Any]:
         return 0, None
 
 
-def launch_url(ready_file: Path) -> str:
+def launch_url(ready_file: Path) -> tuple[str, str]:
     """Check the instance handshake, then return a page URL carrying a fresh single-use code."""
     try:
         ready = json.loads(ready_file.read_text("utf-8"))
@@ -222,7 +270,7 @@ def launch_url(ready_file: Path) -> str:
     status, issued = _get_json(f"{base}/api/v1/auth/launch-code", token, method="POST")
     if status != 200 or not isinstance(issued, dict) or not isinstance(issued.get("code"), str):
         raise StaleReadyFile(f"the server on {base} refused a launch code (HTTP {status})")
-    return f"{base}/#launch={issued['code']}"
+    return f"{base}/#launch={issued['code']}", expected
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -257,13 +305,19 @@ def main(argv: list[str] | None = None) -> int:
     elif ns.command == "open":
         ready_file = ns.ready_file or ns.project_dir / "serve.ready.json"
         try:
-            url = launch_url(ready_file)
+            url, instance_id = launch_url(ready_file)
         except StaleReadyFile as exc:
             print(f"dipolar open: {exc}", file=sys.stderr)
             return EXIT_STALE
         if ns.print_url:
             print(url, flush=True)  # single use, valid for one minute; shown only to this terminal
-        elif not open_in_browser(url, ready_file.parent):
+            return 0
+        try:
+            opened = open_in_browser(url, ready_file, instance_id)
+        except UnsafeLaunchDir as exc:
+            print(f"dipolar open: {exc}", file=sys.stderr)
+            return 1
+        if not opened:
             print("dipolar open: no browser available; rerun with --print-url", file=sys.stderr)
             return 1
     return 0

@@ -14,11 +14,11 @@ The owner decides.
 | | M0 |
 |---|---|
 | Elapsed time | 2026-11-07 19:56 → 2026-11-08 (first commit to spikes complete) |
-| Product code (non-blank lines) | dipolar-core 219, dipolar-app 1569, web 345, robot 104 |
-| Tests and spikes | 1115 lines of tests, 971 lines of spikes; 182 tests (181 in CI, plus one long `-m slow` run) |
+| Product code (non-blank lines) | dipolar-core 219, dipolar-app 1725, web 357, robot 104 |
+| Tests and spikes | 1164 lines of tests, 1134 lines of spikes; 185 tests (184 in CI, plus one long `-m slow` run) |
 | Independent tooling | 533 lines (`tools/reference`, legacy harness) |
-| Independent review | GPT-6.1-Sol rounds 8–9 on the slice, rounds 10–11 on the spikes |
-| Defects found after "done" | **step 3: 7 + 2 review findings; step 4: 11 spike findings + 7 review findings (1 major)**, all fixed |
+| Independent review | GPT-6.1-Sol rounds 8–9 on the slice, rounds 10–12 on the spikes |
+| Defects found after "done" | **step 3: 7 + 2 review findings; step 4: 11 spike findings + 7 + 4 review findings (2 major)**, all fixed (31 in total) |
 
 ## What this supports, and what it does not
 
@@ -27,11 +27,12 @@ The owner decides.
   1. specifying the contract precisely;
   2. adversarial testing (the review rounds and the spikes);
   3. fixing what they found.
-- **The rework rate is the real velocity signal.** About one finding per 100 lines of product code
-  survived the first "done". The review of the spikes still found a major security gap. Every
-  finding was a real defect: durability, coercion, a stale file, an envelope mismatch, a code
-  exposed on a command line. Planning has to assume that each step needs an independent review
-  round and a fix round.
+- **The rework rate is the real velocity signal.** About 1.3 findings per 100 lines of product code
+  survived the first "done". The reviews of the spikes still found two major security gaps, one
+  of them introduced by the fix for the other. Every finding was a real defect: durability,
+  coercion, a stale file, an envelope mismatch, a code exposed on a command line, a cleanup that
+  followed a symlink. Planning has to assume that each step needs an independent review round and
+  a fix round, and that each fix is reviewed again.
 - **Wall-clock hours do not measure the owner's effort.** The owner's review and decision time
   was not logged. **Proposal:** from M1, log owner hours per step in `docs/STATUS.md`, so the
   1.0 estimate after the beta has real data (plan §8: "1.0 date estimated only after the beta").

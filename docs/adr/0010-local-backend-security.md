@@ -5,7 +5,7 @@
 
 ## Decision
 
-- Loopback only, OS-assigned port, authenticated readiness handshake; per-launch secret never in URLs, logs or files.
+- Loopback only, OS-assigned port, authenticated readiness handshake; per-launch secrets never in URLs, command lines or logs; on disk only in the owner-only (0600) ready file.
 - Host and Origin validation, CSRF protection, side-effect-free GET, strict CSP served by the backend.
 - Project-scoped file handles, bounded uploads, points, memory and jobs; supervised worker processes.
 
@@ -17,8 +17,11 @@
 
 - **Browser hand-off.** `dipolar open` or `serve --open` mints a single-use launch code.
   - The code is valid for 60 s, and only the human *launch* token can mint it; tab tokens cannot.
-  - The code goes into a private redirect page (mode 0600, in a 0700 directory), and the browser
-    launcher receives only that file's path. The code is never on a command line.
+  - The code goes into a private redirect page (mode 0600) in `browser-launch/` beside the ready
+    file. That directory must be a real, user-owned directory with mode 0700, and never a symlink.
+    The browser launcher receives only the page's path, so the code is never on a command line.
+  - Graceful shutdown removes the instance's pages. After a SIGKILL, the next `dipolar open`
+    removes expired ones.
   - The page strips the fragment and exchanges the code once, from an allowed Origin, for a tab
     token kept in `sessionStorage`.
   - Launch tokens never reach a URL.
