@@ -72,15 +72,20 @@ class UnsafeLaunchDir(Exception):
 def verified_launch_dir(base: Path, *, create: bool) -> Path | None:
     """``<base>/browser-launch`` (base = the ready file's directory), only if it is a real
     directory owned by this user, never a symlink (validation round 11). Mode is forced to 0700.
-    Returns None if it does not exist and ``create`` is false."""
+    Returns None if it does not exist and ``create`` is false.
+
+    The checks are path-based, so they assume that untrusted users cannot replace ``base`` or its
+    parents (they are the user's own directories; same-user processes are trusted, ADR-0010).
+    Validated on POSIX; on Windows ``chmod`` cannot repair a shared directory's ACL."""
     path = base.resolve() / LAUNCH_DIR_NAME
     try:
         info = os.lstat(path)
     except FileNotFoundError:
         if not create:
             return None
-        os.mkdir(path, 0o700)
-        info = os.lstat(path)
+        with contextlib.suppress(FileExistsError):  # a concurrent `dipolar open` may win (round 12)
+            os.mkdir(path, 0o700)
+        info = os.lstat(path)  # whoever created it, the checks below decide
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
         raise UnsafeLaunchDir(f"{path} is not a plain directory (a symlink?); refusing to use it")
     if hasattr(os, "getuid") and info.st_uid != os.getuid():

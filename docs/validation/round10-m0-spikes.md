@@ -144,3 +144,39 @@ installed wheel. **Other checks** found no blocker:
    - the report names the code exchange as the one response that carries a token;
    - the shutdown cleanup is described as graceful shutdown only, with leftovers after a SIGKILL;
    - STATUS gives the actual verdicts.
+
+## Round 12: confirmation
+
+- **Reviewer and date:** the same reviewer, read-only, 2026-11-09.
+- **Scope:** commit cedd6cc.
+- **Verdict: READY WITH MINOR CHANGES** for the POSIX local-beta M0 baseline, with its filesystem
+  assumptions made explicit.
+
+**The tooling passed:**
+- 184 tests and the 32 installed-wheel tests;
+- 13 further checks by the reviewer;
+- lint, formatting, mypy and the web build.
+
+**All four round-11 findings are resolved:**
+- a symlink or a regular file is refused;
+- a foreign owner is refused (simulated);
+- relative paths work for both launch commands;
+- custom ready-file locations are cleaned up.
+
+**Expired-page cleanup is correct:**
+- it keeps pages aged 59 s and exactly 60 s, and removes a page aged 61 s;
+- shutdown keeps another instance's fresh pages.
+
+**Two minor findings, both applied:**
+
+1. **Concurrent first opens could fail.** Two `dipolar open` runs racing at `mkdir` ended with an
+   unhandled `FileExistsError`. The fix: tolerate it, then run the usual checks.
+   `test_app_launch.py` covers it, and the test was mutation-checked.
+2. **The filesystem guarantee was stated too broadly.** The fix:
+   - the report, ADR-0010 and the code now say that the checks assume untrusted users cannot
+     replace the ready file's directory or its parents;
+   - operations relative to a directory descriptor would be needed otherwise;
+   - the guarantee is validated on POSIX only.
+
+**The residual replacement races** are acceptable for a local beta under that assumption. Same-user
+processes are explicitly trusted.

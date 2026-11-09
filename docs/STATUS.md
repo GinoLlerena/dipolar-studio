@@ -5,7 +5,8 @@ the re-baseline (step 5) is a proposal awaiting the owner. Validation round 10 (
 NOT READY with one major and six minor findings, all fixed
 ([docs/validation/round10-m0-spikes.md](validation/round10-m0-spikes.md)). Round 11 confirmed
 those fixes but returned NOT READY on a new major problem in the redirect-page cleanup (a symlinked
-directory) and three minor ones, all fixed; a round-12 confirmation follows.
+directory) and three minor ones, all fixed. **Round 12: READY WITH MINOR CHANGES**; both minor
+changes are applied. M0 is the baseline at tag `m0-complete`.
 
 Earlier stopping points: `m0-step2`, `m0-step3`.
 
@@ -119,7 +120,7 @@ See the re-baseline for the remaining steps.
 Check the baseline before resuming:
 
 ```sh
-uv sync --locked && uv run pytest -q -m "not slow"     # 184 passed
+uv sync --locked && uv run pytest -q -m "not slow"     # 188 passed
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 (cd web && pnpm install --frozen-lockfile && pnpm build)
 LEGACY=path/to/NMRApllication tools/legacy-harness/run.sh

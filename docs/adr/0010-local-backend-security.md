@@ -22,6 +22,10 @@
     The browser launcher receives only the page's path, so the code is never on a command line.
   - Graceful shutdown removes the instance's pages. After a SIGKILL, the next `dipolar open`
     removes expired ones.
+  - **Assumptions:**
+    - untrusted users cannot replace the ready file's directory or its parents, because the
+      directory checks are path-based;
+    - validated on POSIX only; Windows ACLs are not handled.
   - The page strips the fragment and exchanges the code once, from an allowed Origin, for a tab
     token kept in `sessionStorage`.
   - Launch tokens never reach a URL.

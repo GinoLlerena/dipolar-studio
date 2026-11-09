@@ -15,9 +15,9 @@ The owner decides.
 |---|---|
 | Elapsed time | 2026-11-07 19:56 → 2026-11-08 (first commit to spikes complete) |
 | Product code (non-blank lines) | dipolar-core 219, dipolar-app 1725, web 357, robot 104 |
-| Tests and spikes | 1164 lines of tests, 1134 lines of spikes; 185 tests (184 in CI, plus one long `-m slow` run) |
+| Tests and spikes | 1164 lines of tests, 1134 lines of spikes; 189 tests (188 in CI, plus one long `-m slow` run) |
 | Independent tooling | 533 lines (`tools/reference`, legacy harness) |
-| Independent review | GPT-6.1-Sol rounds 8–9 on the slice, rounds 10–12 on the spikes |
+| Independent review | GPT-6.1-Sol rounds 8–9 on the slice, rounds 10–12 on the spikes (READY WITH MINOR CHANGES at round 12) |
 | Defects found after "done" | **step 3: 7 + 2 review findings; step 4: 11 spike findings + 7 + 4 review findings (2 major)**, all fixed (31 in total) |
 
 ## What this supports, and what it does not

@@ -197,6 +197,16 @@ How the chosen hand-off works:
    - The page is mode 0600, in `browser-launch/` beside the ready file.
    - That directory must be a real, user-owned directory with mode 0700. A symlink or a directory
      owned by someone else is refused, and nothing in it is chmodded or deleted (round 11).
+   - **Scope of this guarantee (round 12).**
+     - The checks are path-based and not atomic, so they assume that untrusted users cannot
+       replace the ready file's directory or its parents. That is normal for a user's own project
+       directory.
+     - If a directory replaced it between check and use, cleanup and page creation could act on
+       the replacement, and on Linux the chmod could follow it.
+     - Supporting directories that other users can write to would need operations relative to a
+       directory descriptor (`O_DIRECTORY|O_NOFOLLOW`, `fstat`, `fchmod`). That is not done in M0.
+     - Validated on POSIX only. On Windows, `chmod` cannot repair a shared directory's ACL, and no
+       Windows run has been done.
    - Graceful shutdown removes the instance's own pages.
    - After a SIGKILL, pages are left behind. Their codes are already dead, and the next
      `dipolar open` removes the expired ones.
