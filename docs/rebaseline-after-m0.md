@@ -1,6 +1,8 @@
 # Re-baseline after M0 (M0 step 5)
 
-**Status: proposal for the owner.** Plan §8 says that phase sizes are re-baselined after M0 from
+**Status: approved by the owner on 2026-11-09** ("go"). M1 runs in the slice-sized steps below.
+
+Plan §8 says that phase sizes are re-baselined after M0 from
 measured velocity, and that no calendar dates are fixed before then. This page gives:
 
 - the measurements;

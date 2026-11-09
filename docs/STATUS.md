@@ -106,7 +106,19 @@ Earlier stopping points: `m0-step2`, `m0-step3`.
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: M1, after the owner approves the re-baseline
+## M1, the scientific core: in progress
+
+The owner approved the re-baseline on 2026-11-09.
+
+| M1 step | Status | Owner hours (owner fills in) |
+|---|---|---|
+| 1. The D3 stack in dipolar-core | in progress | |
+| 2. Frame contract, C2(z) and C1 | — | |
+| 3. Four-site jump model | — | |
+| 4. CSV/XYZ import, JSON v1 | — | |
+| 5. Gates (a)–(e), coverage, 8CB | — | |
+
+### Step 1
 
 M1 step 1 is the D3 stack in dipolar-core. It grows from `spikes/test_spike_d3_numerics.py`:
 - grid/Sobol multistart;
@@ -130,8 +142,8 @@ tools/package/build.sh && uv venv /tmp/pkg && uv pip install --python /tmp/pkg/b
 
 ## Open items for the owner
 
-- Approve or adjust the M0 re-baseline ([docs/rebaseline-after-m0.md](rebaseline-after-m0.md)),
-  including logging owner hours per step from M1 onwards.
+- Log your hours per M1 step in the table above. The re-baseline needs them for a first date
+  estimate.
 - Approve plan v0.6 formally (the "go" started M0).
 - Supply the thesis PDF. It is needed for B55/D4, the ρ formula and Phase 2 V3/V6.
 - Get Di Pietro's permission to redistribute the 8CB couplings.
