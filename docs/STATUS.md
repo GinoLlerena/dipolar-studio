@@ -112,7 +112,7 @@ The owner approved the re-baseline on 2026-11-09.
 
 | M1 step | Status | Owner hours (owner fills in) |
 |---|---|---|
-| 1. The D3 stack in dipolar-core | built; under review (round 13) | |
+| 1. The D3 stack in dipolar-core | round 13 fixes applied; round 14 confirms | |
 | 2. Frame contract, C2(z) and C1 | — | |
 | 3. Four-site jump model | — | |
 | 4. CSV/XYZ import, JSON v1 | — | |
@@ -136,7 +136,27 @@ The owner approved the re-baseline on 2026-11-09.
 - **Validity flags.** They are independent of each other. ν and the p-value are given only for a
   regular interior optimum.
 
-**Tests** (`packages/dipolar-core/tests/test_core_fit.py`, 16 tests):
+**Validation round 13** returned NOT READY: six major findings and six minor ones on adversarial
+problems. All are fixed ([docs/validation/round13-m1-step1.md](validation/round13-m1-step1.md)):
+- the derivative stencil stays inside the bounds;
+- the first crossing is found, and multi-component regions are refused;
+- profiles search every known basin;
+- an interval is refused when a re-minimization fails;
+- the null space is complete;
+- a **full covariance Σ** is accepted;
+- every scan point records its own diagnostics;
+- starts are diverse, and unfinished runs are not called basins;
+- convergence is checked by the predicted Gauss–Newton reduction;
+- each bound is judged on its own scale;
+- labels state one-parameter coverage;
+- inputs are validated.
+
+**Tests:**
+- `test_core_fit.py`: 16 tests.
+- `test_core_fit_adversarial.py`: 30 tests, made from the round-13 counterexamples, plus GLS
+  controls for correlated errors.
+
+The `test_core_fit.py` tests:
 - **Gate (b), noisy fixture.** All frozen regression tolerances are met with wide margins:
   - φ within 2.3·10⁻⁹ °;
   - standard errors within about 10⁻¹¹ relative;

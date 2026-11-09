@@ -85,7 +85,7 @@ def test_profile_intervals(noisy: tuple[Problem, FitResult, dict[str, Any]]) -> 
     ref = exp["profile_intervals_68pct"]
     for name, atol in (("phi_deg", TOL["phi_interval_endpoint_atol_deg"]), ("Szz", TOL["S_interval_endpoint_atol"])):
         interval = profile_interval(problem, result, name)
-        assert interval.supported and interval.kind == "profile" and interval.label == "68.3% one-parameter"
+        assert interval.supported and interval.kind == "profile" and interval.label == "68.3% one-parameter (Δχ² = 1)"
         np.testing.assert_allclose([interval.lower, interval.upper], ref[name], atol=atol)
     delta = profile_interval(problem, result, "Delta")
     np.testing.assert_allclose([delta.lower, delta.upper], ref["Delta"], atol=TOL["S_interval_endpoint_atol"])
@@ -110,7 +110,7 @@ def test_slices_are_not_profiles(noisy: tuple[Problem, FitResult, dict[str, Any]
 def test_95_percent_label(noisy: tuple[Problem, FitResult, dict[str, Any]]) -> None:
     problem, result, _ = noisy
     i68, i95 = profile_interval(problem, result, "phi_deg"), profile_interval(problem, result, "phi_deg", 3.84)
-    assert i95.label == "95% one-parameter"
+    assert i95.label == "95.0% one-parameter (Δχ² = 3.84)"
     assert i95.lower is not None and i68.lower is not None and i95.lower < i68.lower
 
 
@@ -195,10 +195,11 @@ def test_sobol_multistart_recovers_two_geometry_parameters() -> None:
     )
     settings = Settings(n_sobol=128, n_starts=6)
     result = fit(problem, settings)
-    np.testing.assert_allclose(result.theta, [truth_phi, truth_r], atol=1e-8)
-    np.testing.assert_allclose(result.order, [0.25, 0.03], atol=1e-10)
+    np.testing.assert_allclose(result.theta, [truth_phi, truth_r], rtol=0, atol=1e-8)
+    np.testing.assert_allclose(result.order, [0.25, 0.03], rtol=0, atol=1e-10)
     assert result.validity.joint_rank == 4 and result.validity.regular
-    assert len(result.basins) == 1  # all six refined starts are the same basin, reported once
+    # Diverse starts also find a far basin (at the r_inter bound); it is reported, with its Δχ².
+    assert all(b.delta_chi2 > 1e3 for b in result.basins[1:])
     again = fit(problem, settings)  # the seeded Sobol scramble makes the search reproducible
     np.testing.assert_array_equal(again.scan.points, result.scan.points)
 

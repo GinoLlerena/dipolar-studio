@@ -17,8 +17,10 @@
 
 ## Verified by
 
-`tests/test_expected_fixtures.py` (frozen answers). M1 step 1: `dipolar_core.fit` passes gates (a)
-and (b) and the irregular-case tests in `packages/dipolar-core/tests/test_core_fit.py`. Coverage,
+`tests/test_expected_fixtures.py` (frozen answers). M1 step 1 (`FIT_VERSION` varpro-trf.2, with full
+Σ supported): `dipolar_core.fit` passes gates (a)
+and (b) and the irregular-case tests in `packages/dipolar-core/tests/test_core_fit.py`, and the round-13
+adversarial controls in `test_core_fit_adversarial.py`. Coverage,
 gate (c), comes in M1 step 5.
 
 ## M0 spike 1 (2026-11-08)

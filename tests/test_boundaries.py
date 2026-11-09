@@ -103,14 +103,25 @@ def test_frontend_imports_no_domain_logic() -> None:
 
 
 def test_the_app_starts_without_the_optimizer() -> None:
-    """Building problems and serving must not import scipy.optimize or scipy.stats (1.5 s per
-    process start); only fitting does. M1 step 1 moved Problem out of dipolar_core.fit for this."""
+    """Building a problem, the registry and the HTTP app must not import scipy.optimize or
+    scipy.stats (1.5 s per process start); only fitting does. M1 step 1 moved Problem out of
+    dipolar_core.fit for this."""
     import subprocess
     import sys
 
-    probe = (
-        "import sys, dipolar_app.cli, dipolar_core.biphenyl; "
-        "print(sorted(m for m in ('scipy.optimize', 'scipy.stats') if m in sys.modules))"
+    probe = "\n".join(
+        [
+            "import sys, numpy as np",
+            "import dipolar_app.cli",
+            "from dipolar_app.auth import Credentials",
+            "from dipolar_app.http import create_app",
+            "from dipolar_app.operations import build_registry",
+            "from dipolar_app.session import Session",
+            "from dipolar_core.biphenyl import rigid_problem",
+            "rigid_problem(((0, 5),), np.array([-1000.0]), np.array([0.5]))",  # build a problem
+            "create_app(build_registry(), Session(None, contract_version='0'), Credentials({}), port=1)",
+            "print(sorted(m for m in ('scipy.optimize', 'scipy.stats') if m in sys.modules))",
+        ]
     )
     loaded = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True).stdout.strip()
     assert loaded == "[]", loaded
