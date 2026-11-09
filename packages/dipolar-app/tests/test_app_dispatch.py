@@ -136,7 +136,7 @@ def test_structured_validation_errors(args: dict[str, object], field: str) -> No
         ("fit.preview", phi_args("37"), "phi.value"),
         ("fit.preview", phi_args(True), "phi.value"),
         ("project.open_example", {"name": "biphenyl-synthetic", "expected_science_revision": "1"}, None),
-        ("project.open_example", {"name": "biphenyl-synthetic", "expected_science_revision": 1.0}, None),
+        ("project.open_example", {"name": "biphenyl-synthetic", "expected_science_revision": 0.5}, None),
         ("project.open_example", {"name": "biphenyl-synthetic", "expected_science_revision": True}, None),
         ("project.open_example", {"name": "biphenyl-synthetic", "expected_science_revision": 2**53}, None),
         ("view.select", {"ids": "cpl_000001"}, "ids"),
@@ -151,6 +151,46 @@ def test_no_type_coercion(operation: str, args: dict[str, object], field: str | 
     assert env["ok"] is False and env["error"]["code"] == "INVALID_ARGUMENT", env
     assert env["error"]["offending_field"] == (field or "expected_science_revision")
     assert c.call("render.describe_view")["result"]["science_revision"] == 1
+
+
+def test_integral_numbers_are_integers() -> None:
+    """Round 10, finding 6: JSON has one number type and the published schema's "integer" accepts
+    1.0, so the runtime does too. Float fields accept integers."""
+    c = client(new_session())
+    assert c.call("project.open_example", {"name": "biphenyl-synthetic", "expected_science_revision": 0.0})["ok"]
+    preview = c.call("fit.preview", phi_args(37))
+    assert preview["ok"] and preview["result"]["phi"]["value"] == 37.0
+    assert isinstance(preview["result"]["phi"]["value"], float)
+
+
+def nested(depth: int) -> object:
+    value: object = 1
+    for _ in range(depth):
+        value = [value]
+    return value
+
+
+@pytest.mark.parametrize(
+    ("args", "problem"),
+    [
+        ({"phi": {"value": 37.0, "unit": "\ud800"}}, "not valid Unicode"),
+        ({"\udfff": 1}, "not valid Unicode"),
+        ({"phi": nested(70)}, "nested deeper"),
+    ],
+)
+def test_python_adapter_refuses_what_json_cannot_carry(args: dict[str, object], problem: str) -> None:
+    c = client(new_session())
+    c.call("project.open_example", OPEN)
+    env = c.call("fit.preview", args)
+    assert env["ok"] is False and env["error"]["code"] == "INVALID_ARGUMENT"
+    assert problem in env["error"]["message"]
+
+
+def test_python_adapter_refuses_cycles() -> None:
+    cyclic: dict[str, object] = {}
+    cyclic["self"] = cyclic
+    env = client(new_session()).call("render.describe_view", cyclic)
+    assert env["ok"] is False and env["error"]["code"] == "INVALID_ARGUMENT"
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])

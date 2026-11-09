@@ -107,6 +107,10 @@ def test_body_limit_and_bad_json(server: Server) -> None:
         (b'{"args": {"phi": {"value": -Infinity, "unit": "deg"}}}', "-Infinity is not JSON"),
         (b'{"args": {"phi": {"value": 37, "unit": "deg"}}, "args": {}}', "duplicate key 'args'"),
         ('{"args": {}}'.encode("utf-16"), "not UTF-8"),
+        (b'{"args": {}, "\\ud800": 1}', "not valid Unicode"),
+        (b'{"args": {"phi": {"value": 37, "unit": "\\udfff"}}}', "not valid Unicode"),
+        (b"[" * 10000 + b"]" * 10000, "nested deeper"),
+        (b'{"args": ' + b"[" * 70 + b"]" * 70 + b"}", "nested deeper"),
     ],
 )
 def test_http_json_is_strict(server: Server, body: bytes, reason: str) -> None:

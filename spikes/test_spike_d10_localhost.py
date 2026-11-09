@@ -28,6 +28,7 @@ import os
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -206,6 +207,55 @@ def test_only_the_human_launch_credential_mints_codes(inst: Instance) -> None:
     assert (robot.status, robot.json()["error"]["code"]) == (403, "CAPABILITY_DENIED")
     get = inst.raw("GET", path, headers={"Authorization": f"Bearer {inst.token('user')}"})
     assert get.status in (404, 405) and b"code" not in get.body  # GET has no side effects
+
+
+def test_a_tab_token_cannot_mint_codes(inst: Instance) -> None:
+    """Round 10, finding 3: a tab acts as the user but cannot mint further launch codes."""
+    tab = inst.exchange(launch_code(inst)).json()["token"]
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {tab}"}
+    minted = inst.raw("POST", "/api/v1/auth/launch-code", headers=headers, body=b"{}")
+    assert (minted.status, minted.json()["error"]["code"]) == (403, "CAPABILITY_DENIED")
+
+
+@pytest.mark.parametrize(
+    "body", [b'{"code": "\\ud800"}', b'{"code": ' + b"[" * 400 + b"]" * 400 + b"}", b'{"code": 1}']
+)
+def test_malformed_exchanges_get_structured_errors(inst: Instance, body: bytes) -> None:
+    """Round 10, finding 2: no plain 500s from odd Unicode or deep nesting."""
+    headers = {"Content-Type": "application/json", "Origin": f"http://127.0.0.1:{inst.port}"}
+    reply = inst.raw("POST", "/api/v1/auth/session", headers=headers, body=body)
+    assert reply.status == 400 and reply.json()["error"]["code"] == "INVALID_ARGUMENT"
+
+
+RECORDER = """import json, sys
+from pathlib import Path
+Path(sys.argv[1]).write_text(json.dumps(sys.argv[2:]))
+"""
+
+
+def test_the_browser_launcher_never_sees_the_code(inst: Instance, tmp_path: Path) -> None:
+    """Round 10, finding 1. Browser launchers take the URL as an argument, and other local users
+    can read process arguments (ps). ``dipolar open`` therefore gives the launcher only the path of
+    a private redirect page; the code is inside that file (0600, in a 0700 directory)."""
+    recorder, record = tmp_path / "browser.py", tmp_path / "argv.json"
+    recorder.write_text(RECORDER)
+    env = {**os.environ, "BROWSER": f"{sys.executable} {recorder} {record} %s"}
+    cmd = [*BASE_CMD, "open", "--ready-file", str(inst.ready_file)]
+    opened = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=env, check=False)
+    assert opened.returncode == 0, opened
+    argv = json.loads(record.read_text())
+    assert len(argv) == 1 and argv[0].startswith("file://") and argv[0].endswith(".html"), argv
+    assert "launch" not in argv[0].split("/")[-1] and "#" not in argv[0]  # only a path: nothing to steal
+    page = Path(argv[0].removeprefix("file://"))
+    assert stat.S_IMODE(page.stat().st_mode) == 0o600
+    assert stat.S_IMODE(page.parent.stat().st_mode) == 0o700
+    match = re.search(rf'url=http://127\.0\.0\.1:{inst.port}/#launch=([A-Za-z0-9_-]+)"', page.read_text())
+    assert match, page.read_text()
+    code = match.group(1)
+    assert code not in opened.stdout + opened.stderr
+    assert inst.exchange(code).status == 200  # the page that follows the redirect gets the session
+    stop(inst)
+    assert not list(page.parent.glob("open-*.html"))  # redirect pages are removed at shutdown
 
 
 @pytest.mark.skipif(not has_page(), reason="web/dist is not built (cd web && pnpm build)")

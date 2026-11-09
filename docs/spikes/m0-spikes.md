@@ -9,9 +9,9 @@ found something that was then fixed.
 
 | Spike | Verdict | Findings fixed | Decision taken |
 |---|---|---|---|
-| 1. D3 numerical controls | **Pass** | none needed in the code (one M1 method choice) | M1 refines on the residual vector |
-| 2. JSON serialization | **Pass after fixes** | type coercion, NaN handling, lax JSON parser, unsafe integers | strict JSON validation; envelopes published |
-| 3. D10 localhost security | **Pass after fixes** | stale ready file; no instance handshake; no single-instance guard | launch-code hand-off; HTTP transport for the beta |
+| 1. D3 numerical controls | **Pass** | none needed in the code (one M1 method observation) | M1 refines on the residual vector |
+| 2. JSON serialization | **Pass after fixes** | type coercion, NaN handling, lax JSON parser, unsafe integers; in round 10, surrogates and deep nesting | strict JSON validation; envelopes published |
+| 3. D10 localhost security | **Pass after fixes** | stale ready file; no instance handshake; no single-instance guard; in round 10, the code on the launcher's argv and minting by tab tokens | launch-code hand-off through a private redirect page; HTTP transport for the beta |
 | 4. Journal crash recovery | **Pass** | the planned recovery, now implemented | discard a torn tail; fail-stop still needs a restart |
 
 ## 1. D3 numerical controls
@@ -77,14 +77,25 @@ VarPro (profile) optimum:
 
 **Noiseless recovery.** φ, Szz and Δ are recovered within the 10⁻⁸ gate.
 
-### Finding: an M1 method choice
+### Observation: an M1 method choice
 
-The frozen optimum convention minimizes the *scalar* profile χ²(φ). At a zero-residual optimum
-that resolves φ only to 1.5·10⁻⁹ °: inside the 10⁻⁸ gate, but with a thin margin. Refining the
-*residual vector* with bounded TRF, as D3.1 already prescribes, recovers φ exactly.
+*Corrected after validation round 10, finding 5.* Two refiners of the same profile were
+compared. Both results are specific to the algorithm used, and neither shows a fundamental
+precision limit.
 
-**M1 therefore refines with `least_squares` on the residuals.** For the noisy fixture the two
-methods agree to 4·10⁻¹³ °, so the frozen expected values stand.
+- **Scalar refinement** (SciPy's bounded scalar minimizer). This is the frozen optimum convention,
+  and `tools/reference/` uses it too. It stops at its own tolerance: 1.5·10⁻⁹ ° from the noiseless
+  truth, although χ²(φ) still distinguishes offsets of 10⁻¹² °. On the noisy fixture it matches the
+  frozen value to 4·10⁻¹³ °, because the reference used the same algorithm.
+- **Residual-vector refinement** (bounded TRF, as D3.1 prescribes). It recovers the noiseless
+  truth to rounding, and differs from the frozen noisy optimum by 2.3·10⁻⁹ °. That is far inside
+  the 10⁻⁴ ° regression tolerance.
+
+**M1 refines with `least_squares` on the residuals.** It is held to absolute requirements:
+- within 10⁻¹² ° of the noiseless truth;
+- within 10⁻⁸ ° of the frozen noisy optimum.
+
+The frozen expected values stand.
 
 ## 2. JSON serialization
 
@@ -112,11 +123,16 @@ independent validator, rather than Pydantic, which produced the schemas.
 
 1. **Type coercion.** Pydantic's default lax mode accepted:
    - `"37"` and `true` as numbers;
-   - `"1"` and `1.0` as integers;
+   - `"1"` as an integer;
    - `false` as `expected_science_revision: 0`, so a wrong type could pass a revision check.
 
    The fix: the dispatcher now validates every adapter's input in **strict JSON mode**. There are
-   7 regression tests, and they fail if strict mode is removed.
+   regression tests, and they fail if strict mode is removed.
+
+   **Changed in round 10 (finding 6).** JSON has a single number type, and the published schema's
+   "integer" accepts `0.0`. An integral number within ±(2⁵³ − 1) is therefore read as an integer
+   before validation, so runtime acceptance matches the published schema. A test checks this.
+   `0.5`, `true` and `"0"` are still refused.
 2. **NaN through the Python adapter.** `LocalClient` raised `ValueError` on NaN or ±inf instead
    of returning an error. The fix: the dispatcher serializes the arguments itself and returns a
    structured `INVALID_ARGUMENT`.
@@ -128,6 +144,13 @@ independent validator, rather than Pydantic, which produced the schemas.
 
    The fix: strict RFC 8259 parsing. `1e400`, which overflows to infinity, is refused by the
    dispatcher's finite-number check.
+
+   **Round 10 (finding 2)** found two inputs that still produced a plain 500:
+   - unpaired surrogates, for example a `"\ud800"` key or value;
+   - deep nesting, such as 10,000 nested arrays.
+
+   Both adapters now refuse them with `INVALID_ARGUMENT`, using one shared iterative check that
+   allows at most 64 levels of nesting. That check also stops cyclic Python arguments.
 4. **Integers unsafe for JavaScript.** Revision inputs are now bounded to 2⁵³ − 1, and the schema
    says so.
 5. **Unpublished envelopes.** The snapshot now publishes the success and error envelopes,
@@ -136,7 +159,7 @@ independent validator, rather than Pydantic, which produced the schemas.
 
 ## 3. D10 localhost security on a packaged build
 
-`spikes/test_spike_d10_localhost.py` has 24 tests. `packages/dipolar-app/tests/test_app_auth.py`
+`spikes/test_spike_d10_localhost.py` has 29 tests. `packages/dipolar-app/tests/test_app_auth.py`
 covers the credential logic with a fake clock.
 
 **Question.** Can a browser page and scripts use a local `dipolar serve` safely, and does the
@@ -163,24 +186,43 @@ How the chosen hand-off works:
    file and checks the instance handshake. It then asks the server for a **launch code**:
    - single use;
    - valid for 60 s;
-   - minted only for the human launch credential;
+   - minted only with the human *launch* credential from the ready file. A tab token acts as the
+     user but cannot mint (round 10, finding 3);
    - at most 8 pending at a time.
-2. **Open and exchange.** The browser opens `/#launch=<code>`. The fragment never reaches the
-   server. The page removes it from the address bar first, then exchanges the code once, from an
+
+   **The code never appears on a command line** (round 10, finding 1). Browser launchers take
+   their URL as an argument, which other local users can read with `ps`. So `dipolar open` writes
+   the URL into a private redirect page: mode 0600, in the mode-0700 directory
+   `<project>/browser-launch/`, removed at shutdown. It gives the launcher only that file's path.
+   This is the approach Jupyter uses for the same problem.
+2. **Open and exchange.** The redirect page sends the browser to `/#launch=<code>`. The fragment
+   never reaches the server. The page removes it from the address bar first, then exchanges the code once, from an
    allowed `Origin`, for a **tab token**. At most 32 tab tokens are issued per instance.
 3. **Keep.** The tab token lives in `sessionStorage`. That storage is scoped to this origin
    (including the port) and to this tab; it survives a reload and is gone when the tab closes.
 4. **Restart.** After a server restart the page shows the `dipolar open` command again.
 
-A code left in history or in a process list is useless after first use or after a minute. A
-stolen code used first makes the real page fail visibly ("already used; if this page never used
-it, someone else may have").
+**Threat model.**
+- **Processes of the same OS user are trusted.** They can read the ready file and the user's
+  browser profile anyway.
+- **Other local users and other origins are not.** They never see a launch token, and they never
+  see a code: the code is not in any process's arguments, and it lives only in files readable by
+  the user.
+- **If a code is stolen anyway,** whoever uses it first gets a tab token. Single use, the
+  one-minute lifetime and a visible failure on the real page ("already used; if this page never
+  used it, someone else may have") limit the damage. They do not revoke a token that was already
+  issued. Revoking it means restarting `serve`.
+- **`dipolar open --print-url`** prints the URL to the user's own terminal, for headless use only.
 
-Checked by hand in Chromium (Playwright):
-- the fragment was gone on arrival, and the page connected;
+Checked by hand:
+- **headless Chromium** followed the private `file://` redirect page to the app, exchanged the
+  code and connected;
+- **in Chromium (Playwright):**
+  - a malformed `#launch=%` link shows the launch guidance instead of breaking the page;
+  - the fragment was gone on arrival, and the page connected;
 - the token was in `sessionStorage` only (no `localStorage`, no cookie);
-- a reload stayed connected;
-- replaying the used link in an isolated context was refused, with that message.
+  - a reload stayed connected;
+  - replaying the used link in an isolated context was refused, with that message.
 
 ### Evidence (passes on the source tree and on the installed wheel)
 
@@ -202,16 +244,21 @@ registry, the instance check, operations and the launch-code route.
 **The code exchange.**
 - Without an `Origin` it gets 403, and from a foreign Origin 403; neither refusal consumes the code.
 - The first exchange returns a new token. The second gets 401.
-- A robot token cannot mint codes (403), and GET mints nothing.
+- Neither a robot token nor a tab token can mint codes (403), and GET mints nothing.
+- Odd Unicode, deep nesting and wrong types in the exchange body get a structured 400.
+- **The launcher never sees the code.** In a test, the browser is a recorder script standing in
+  for any launcher, and it receives only a `file://` path. The page is mode 0600 in a 0700
+  directory and holds the code, and that code still opens a session.
 
 **Token leakage.** No credential appears in:
 - the server's output, during the run or after shutdown;
-- its process arguments (`ps`);
+- its process arguments (`ps`), or those of the browser launcher;
 - the journal;
 - the page and its assets;
 - any response body or header.
 
-The launch code appears only in `dipolar open --print-url` output, which is single-use by design.
+The launch code appears only in the private redirect page and, when asked for, in
+`dipolar open --print-url` output. Both are single-use by design.
 
 **Instances.**
 - `serve` takes an exclusive lock on the project directory, and the kernel releases it even on
@@ -237,6 +284,18 @@ and the robot completes.
 2. **No instance handshake.** The robot trusted whatever answered on the port. The fix: the
    authenticated instance check, used by the robot and by `dipolar open`.
 3. **No single-instance guard.** Two servers could write one journal. The fix: the project lock.
+4. **Round 10, finding 1 (major): the code was on the launcher's command line.** The reviewer
+   reproduced the attack:
+   - a `BROWSER` launcher exposed the code to `ps`;
+   - another user redeemed it first, forging an allowed `Origin`;
+   - the real page got 401, and the attacker kept a working token.
+
+   The fix: the private redirect page.
+5. **Round 10, finding 3: tab tokens could mint codes.** The fix: tokens now carry their
+   provenance.
+6. **Round 10, finding 7: the page could hang at start.** A failed exchange, or a malformed
+   fragment, left it in the "connecting" state. The fix: the exchange never rejects, and a bad
+   link shows the guidance.
 
 ### Decision: the transport
 

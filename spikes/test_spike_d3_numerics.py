@@ -341,27 +341,41 @@ def test_noiseless_recovery() -> None:
     assert result["sol"].chi2 < 1e-12
 
 
-def test_residual_vector_refinement_is_sharper_than_scalar_refinement() -> None:
-    """Spike finding. A scalar minimiser of χ²(φ) resolves φ only to about √ε of the curvature
-    scale: at a zero-residual optimum that is 1.5e-9°, inside the 1e-8° gate but with a thin margin.
-    Refining the VarPro *residual vector* with bounded TRF (as D3.1 prescribes) recovers φ to
-    rounding. M1 therefore refines with ``least_squares`` on residuals, not ``minimize_scalar``."""
-    problem = Problem.from_fixture("noiseless.json", "D_Hz", "sigma_Hz")
-    exp = json.loads((EXPECTED / "noiseless.json").read_text())["expected"]
-    scalar = fit(problem)
+def reduced_residual_refine(problem: Problem, seed_phi: float) -> float:
+    """Bounded TRF on the VarPro residual vector (the D3.1 refinement), seeded from the grid."""
 
     def reduced_residual(phi: Array) -> Array:
         sol = solve_inner(rigid_design(float(phi[0]), problem.pairs), problem.y, problem.sigma)
         return sol.residuals / problem.sigma
 
-    vector = least_squares(
+    result = least_squares(
         reduced_residual,
-        [scalar["grid_best"]],
+        [seed_phi],
         bounds=([0.0], [90.0]),
         method="trf",
         xtol=1e-15,
         ftol=1e-15,
         gtol=1e-15,
     )
-    assert abs(vector.x[0] - exp["phi_deg"]) < 1e-12
-    assert abs(vector.x[0] - exp["phi_deg"]) < abs(scalar["phi"] - exp["phi_deg"])
+    return float(result.x[0])
+
+
+def test_residual_vector_refinement_meets_absolute_accuracy() -> None:
+    """Spike observation (round 10, finding 5 corrected the first reading). Two refiners of the
+    same profile were compared; both are algorithm-specific, and neither shows a fundamental limit:
+
+    * SciPy's bounded scalar minimiser (the frozen convention, also used by tools/reference) stops at
+      its own tolerance: 1.5e-9° from the noiseless truth here, although χ²(φ) still distinguishes
+      offsets of 1e-12°. On the noisy fixture it matches the frozen value to ~4e-13° because the
+      reference used the same algorithm.
+    * Bounded TRF on the residual vector (D3.1) recovers the noiseless truth to rounding and differs
+      from the frozen noisy optimum by ~2.3e-9°, far inside the 1e-4° regression tolerance.
+
+    M1 uses the residual-vector refinement, held to absolute requirements rather than to a
+    comparison between refiners."""
+    noiseless = Problem.from_fixture("noiseless.json", "D_Hz", "sigma_Hz")
+    truth = json.loads((EXPECTED / "noiseless.json").read_text())["expected"]["phi_deg"]
+    assert abs(reduced_residual_refine(noiseless, fit(noiseless)["grid_best"]) - truth) < 1e-12
+    noisy = Problem.from_fixture("noisy_fixture.json", "y_Hz", "sigma_Hz")
+    frozen = json.loads((EXPECTED / "noisy_fixture.json").read_text())["expected"]["phi_deg"]
+    assert abs(reduced_residual_refine(noisy, fit(noisy)["grid_best"]) - frozen) < 1e-8

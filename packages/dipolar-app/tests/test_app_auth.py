@@ -31,7 +31,7 @@ def test_launch_tokens_authenticate() -> None:
 
 def test_a_code_is_single_use_and_yields_a_new_tab_token() -> None:
     creds, _ = credentials()
-    code = creds.issue_launch_code(USER)
+    code = creds.issue_launch_code("launch-user")
     token, principal = creds.redeem(code)
     assert principal is USER and token not in {"launch-user", "launch-robot"}
     assert creds.authenticate(token) is USER
@@ -42,38 +42,53 @@ def test_a_code_is_single_use_and_yields_a_new_tab_token() -> None:
 
 def test_a_code_expires() -> None:
     creds, clock = credentials()
-    code = creds.issue_launch_code(USER)
+    code = creds.issue_launch_code("launch-user")
     clock.now += LAUNCH_CODE_TTL_S  # expiry is exclusive: at exactly the TTL the code is gone
     with pytest.raises(OperationError) as err:
         creds.redeem(code)
     assert err.value.code is ErrorCode.UNAUTHENTICATED
-    fresh = creds.issue_launch_code(USER)
+    fresh = creds.issue_launch_code("launch-user")
     clock.now += LAUNCH_CODE_TTL_S - 1
     assert creds.redeem(fresh)[1] is USER
 
 
-def test_only_humans_get_codes() -> None:
+def test_only_the_human_launch_token_mints_codes() -> None:
+    """Round 10, finding 3: a robot token and a *tab* token (which acts as the user) cannot mint."""
+    creds, _ = credentials()
+    tab, principal = creds.redeem(creds.issue_launch_code("launch-user"))
+    assert principal is USER
+    for token, code in (("launch-robot", ErrorCode.CAPABILITY_DENIED), (tab, ErrorCode.CAPABILITY_DENIED)):
+        with pytest.raises(OperationError) as err:
+            creds.issue_launch_code(token)
+        assert err.value.code is code
+    with pytest.raises(OperationError) as err:
+        creds.issue_launch_code("unknown")
+    assert err.value.code is ErrorCode.UNAUTHENTICATED
+
+
+@pytest.mark.parametrize("code", ["", "\ud800", "x" * 65, "has space", "é"])
+def test_malformed_codes_are_refused_cleanly(code: str) -> None:
     creds, _ = credentials()
     with pytest.raises(OperationError) as err:
-        creds.issue_launch_code(ROBOT)
-    assert err.value.code is ErrorCode.CAPABILITY_DENIED
+        creds.redeem(code)
+    assert err.value.code is ErrorCode.UNAUTHENTICATED
 
 
 def test_pending_codes_are_bounded_and_expire() -> None:
     creds, clock = credentials()
     for _ in range(MAX_PENDING_CODES):
-        creds.issue_launch_code(USER)
+        creds.issue_launch_code("launch-user")
     with pytest.raises(OperationError):
-        creds.issue_launch_code(USER)
+        creds.issue_launch_code("launch-user")
     clock.now += LAUNCH_CODE_TTL_S
-    creds.issue_launch_code(USER)  # the expired ones no longer count
+    creds.issue_launch_code("launch-user")  # the expired ones no longer count
 
 
 def test_tab_sessions_are_bounded() -> None:
     creds, _ = credentials()
     for _ in range(MAX_TAB_SESSIONS):
-        creds.redeem(creds.issue_launch_code(USER))
-    code = creds.issue_launch_code(USER)
+        creds.redeem(creds.issue_launch_code("launch-user"))
+    code = creds.issue_launch_code("launch-user")
     with pytest.raises(OperationError) as err:
         creds.redeem(code)
     assert err.value.code is ErrorCode.CAPABILITY_DENIED

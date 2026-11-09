@@ -16,10 +16,12 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 import secrets
 import threading
 import time
 from collections.abc import Callable, Mapping
+from typing import Literal
 
 from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.policy import Principal
@@ -27,6 +29,9 @@ from dipolar_app.policy import Principal
 LAUNCH_CODE_TTL_S = 60.0
 MAX_PENDING_CODES = 8
 MAX_TAB_SESSIONS = 32
+_CODE_SHAPE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+Kind = Literal["launch", "tab"]
 
 
 def _digest(secret: str) -> bytes:
@@ -34,35 +39,48 @@ def _digest(secret: str) -> bytes:
 
 
 class Credentials:
-    """The token table (launch tokens plus tab tokens) and the pending launch codes."""
+    """The token table (launch tokens plus tab tokens) and the pending launch codes.
+
+    Each token remembers its provenance. Only a *launch* token of a human principal may mint launch
+    codes: a tab token acts as the user but cannot mint (validation round 10, finding 3)."""
 
     def __init__(self, launch_tokens: Mapping[str, Principal], *, clock: Callable[[], float] = time.monotonic) -> None:
-        self._tokens: dict[str, Principal] = dict(launch_tokens)
+        self._tokens: dict[str, tuple[Principal, Kind]] = {t: (p, "launch") for t, p in launch_tokens.items()}
         self._codes: dict[bytes, tuple[float, Principal]] = {}  # sha256(code) -> (expiry, principal)
         self._tab_sessions = 0
         self._clock = clock
         self._lock = threading.Lock()
 
-    def authenticate(self, token: str) -> Principal | None:
+    def _lookup(self, token: str) -> tuple[Principal, Kind] | None:
         """Constant-time comparison against every known token."""
-        found: Principal | None = None
+        found: tuple[Principal, Kind] | None = None
         with self._lock:
             known = list(self._tokens.items())
-        for candidate, principal in known:
-            if hmac.compare_digest(candidate.encode(), token.encode()):
-                found = principal
+        presented = token.encode("utf-8", "replace")
+        for candidate, entry in known:
+            if hmac.compare_digest(candidate.encode(), presented):
+                found = entry
         return found
+
+    def authenticate(self, token: str) -> Principal | None:
+        entry = self._lookup(token)
+        return entry[0] if entry else None
 
     def _purge(self, now: float) -> None:
         for digest in [d for d, (expiry, _) in self._codes.items() if expiry <= now]:
             del self._codes[digest]
 
-    def issue_launch_code(self, principal: Principal) -> str:
-        if not principal.human:
+    def issue_launch_code(self, token: str) -> str:
+        """Mint a code for the holder of ``token``, which must be the human *launch* credential."""
+        entry = self._lookup(token)
+        if entry is None:
+            raise OperationError(ErrorCode.UNAUTHENTICATED, "missing or invalid bearer token")
+        principal, kind = entry
+        if kind != "launch" or not principal.human:
             raise OperationError(
                 ErrorCode.CAPABILITY_DENIED,
-                "launch codes are issued only to the human launch credential",
-                hint="scripts use their own token from the ready file",
+                "launch codes are issued only to the human launch credential from the ready file",
+                hint="run `dipolar open`; scripts and browser tabs use their own tokens",
             )
         with self._lock:
             now = self._clock()
@@ -79,6 +97,12 @@ class Credentials:
 
     def redeem(self, code: str) -> tuple[str, Principal]:
         """Exchange a launch code (once) for a new tab token with the code's principal."""
+        if not _CODE_SHAPE.fullmatch(code):  # also keeps odd Unicode away from hashing
+            raise OperationError(
+                ErrorCode.UNAUTHENTICATED,
+                "the launch code is invalid, expired or already used",
+                hint="run `dipolar open` for a new one",
+            )
         with self._lock:
             now = self._clock()
             self._purge(now)
@@ -96,6 +120,6 @@ class Credentials:
                     hint="restart dipolar serve to revoke them",
                 )
             token = secrets.token_urlsafe(32)
-            self._tokens[token] = entry[1]
+            self._tokens[token] = (entry[1], "tab")
             self._tab_sessions += 1
             return token, entry[1]

@@ -15,7 +15,7 @@ from pydantic import BaseModel, JsonValue, ValidationError
 
 from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.policy import Capability, Decision, Principal, decide
-from dipolar_app.schemas import Revision, Wire
+from dipolar_app.schemas import MAX_SAFE_INTEGER, Revision, Wire, wire_problem
 from dipolar_app.session import Plan, Session, SessionState
 
 T = TypeVar("T")
@@ -146,12 +146,32 @@ def _field_path(loc: tuple[int | str, ...]) -> str:
     return out
 
 
+def canonical_numbers(value: Any) -> Any:
+    """Integral finite numbers within ±(2⁵³ − 1) become integers before strict validation.
+
+    JSON has one number type, and JSON Schema's "integer" accepts 0.0, so an integer field accepts
+    0.0 exactly as the published schema says, while 0.5, true and "0" stay refused. Float fields
+    accept integers anyway (validation round 10, finding 6).
+    """
+    if isinstance(value, float) and value.is_integer() and abs(value) <= MAX_SAFE_INTEGER:
+        return int(value)
+    if isinstance(value, dict):
+        return {key: canonical_numbers(child) for key, child in value.items()}
+    if isinstance(value, list | tuple):  # Python tuples are JSON arrays
+        return [canonical_numbers(child) for child in value]
+    return value
+
+
 def _wire_json(args: Mapping[str, Any] | None) -> str:
     """The arguments as JSON text. Every adapter's input passes through here, so a Python caller
-    gets exactly the HTTP rules: plain JSON values and finite numbers only."""
+    gets exactly the HTTP rules: values JSON can represent (tuples become arrays), finite numbers,
+    valid Unicode and bounded nesting; anything else is refused."""
+    problem = wire_problem(args)
+    if problem:
+        raise OperationError(ErrorCode.INVALID_ARGUMENT, f"arguments are not valid JSON: {problem}")
     try:
-        return json.dumps(dict(args or {}), allow_nan=False)
-    except (TypeError, ValueError):
+        return json.dumps(canonical_numbers(dict(args or {})), allow_nan=False)
+    except (TypeError, ValueError, RecursionError):
         raise OperationError(
             ErrorCode.INVALID_ARGUMENT,
             "arguments must be plain JSON values with finite numbers",

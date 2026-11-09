@@ -15,10 +15,17 @@
 
 ## Decided in M0 spike 3 (2026-11-08)
 
-- **Browser hand-off.** `dipolar open` or `serve --open` mints a single-use launch code (60 s, human
-  launch credential only) and opens `/#launch=<code>`. The page strips the fragment and exchanges
-  the code once, from an allowed Origin, for a tab token kept in `sessionStorage`. Launch tokens
-  never reach a URL. Rejected: a token in the URL, an HttpOnly cookie (not port-isolated), paste.
+- **Browser hand-off.** `dipolar open` or `serve --open` mints a single-use launch code.
+  - The code is valid for 60 s, and only the human *launch* token can mint it; tab tokens cannot.
+  - The code goes into a private redirect page (mode 0600, in a 0700 directory), and the browser
+    launcher receives only that file's path. The code is never on a command line.
+  - The page strips the fragment and exchanges the code once, from an allowed Origin, for a tab
+    token kept in `sessionStorage`.
+  - Launch tokens never reach a URL.
+  - Rejected: a token in the URL, an HttpOnly cookie (not port-isolated), pasting the token.
+- **Threat model.** Processes of the same OS user are trusted: they can read the ready file. Other
+  local users and other origins are not. A stolen code yields a tab token, revoked only by a
+  restart. Keeping codes out of process arguments and other users' reach is what prevents this.
 - **Instances.** An exclusive project lock makes a second `serve` exit with code 3. A stale ready
   file is removed under the lock. The authenticated `GET /api/v1/instance` handshake lets clients
   detect a stale ready file or a reused port.

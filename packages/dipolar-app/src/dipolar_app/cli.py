@@ -8,19 +8,24 @@ owner (mode 0600). They never appear on the command line, in URLs or in logs. Th
 removed on exit.
 
 ``open`` reads the ready file, checks the instance handshake, asks for a single-use launch code and
-opens the browser at ``/#launch=<code>`` (see ``dipolar_app.auth``).
+opens the browser at ``/#launch=<code>`` (see ``dipolar_app.auth``). The code never appears on a
+command line: browser launchers pass their URL as an argument, which other local users can read with
+``ps``. So the URL goes into a private redirect page (mode 0600, in a mode-0700 directory) and the
+browser is given only that file's path (validation round 10, finding 1).
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import html
 import json
 import os
 import secrets
 import signal
 import socket
 import sys
+import time
 import urllib.error
 import urllib.request
 import webbrowser
@@ -29,7 +34,7 @@ from typing import Any
 
 import uvicorn
 
-from dipolar_app.auth import Credentials
+from dipolar_app.auth import LAUNCH_CODE_TTL_S, Credentials
 from dipolar_app.http import create_app
 from dipolar_app.journal import Journal
 from dipolar_app.operations import build_registry
@@ -52,6 +57,39 @@ EXIT_STALE = 4
 
 class InstanceRunning(Exception):
     pass
+
+
+def launch_dir(project_dir: Path) -> Path:
+    """Private directory for redirect pages (mode 0700)."""
+    path = project_dir / "browser-launch"
+    path.mkdir(mode=0o700, exist_ok=True)
+    os.chmod(path, 0o700)
+    return path
+
+
+def write_redirect_page(url: str, directory: Path) -> Path:
+    """A private page that sends the browser to ``url``; expired ones are removed first."""
+    now = time.time()
+    for old in directory.glob("open-*.html"):
+        with contextlib.suppress(OSError):
+            if now - old.stat().st_mtime > LAUNCH_CODE_TTL_S:
+                old.unlink()
+    target = html.escape(url, quote=True)
+    page = (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        f'<meta http-equiv="refresh" content="0;url={target}"><title>Dipolar Studio</title></head>'
+        f'<body><p><a href="{target}">Open Dipolar Studio</a></p></body></html>\n'
+    )
+    path = directory / f"open-{secrets.token_hex(8)}.html"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(page)
+    return path
+
+
+def open_in_browser(url: str, project_dir: Path) -> bool:
+    """Open ``url`` without putting it on any command line."""
+    return webbrowser.open(write_redirect_page(url, launch_dir(project_dir)).as_uri())
 
 
 def lock_project(project_dir: Path) -> int:
@@ -137,13 +175,16 @@ def serve(project_dir: Path, ready_file: Path, static_dir: Path | None, *, open_
     )
     if open_browser and static_dir is not None:
         # The socket is already listening, so the browser's request waits for uvicorn to accept it.
-        code = credentials.issue_launch_code(PRINCIPALS["user"])
-        webbrowser.open(f"http://127.0.0.1:{port}/#launch={code}")
+        code = credentials.issue_launch_code(by_name["user"])
+        open_in_browser(f"http://127.0.0.1:{port}/#launch={code}", project_dir)
     try:
         server.run(sockets=[sock])
     finally:
         with contextlib.suppress(FileNotFoundError):
             ready_file.unlink()
+        for page in (project_dir / "browser-launch").glob("open-*.html"):  # their codes die with us
+            with contextlib.suppress(OSError):
+                page.unlink()
         os.close(lock_fd)
 
 
@@ -221,8 +262,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"dipolar open: {exc}", file=sys.stderr)
             return EXIT_STALE
         if ns.print_url:
-            print(url, flush=True)  # single use, valid for one minute
-        elif not webbrowser.open(url):
+            print(url, flush=True)  # single use, valid for one minute; shown only to this terminal
+        elif not open_in_browser(url, ready_file.parent):
             print("dipolar open: no browser available; rerun with --print-url", file=sys.stderr)
             return 1
     return 0

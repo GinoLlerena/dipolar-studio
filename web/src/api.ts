@@ -73,18 +73,24 @@ export async function callOperation<T>(name: string, args: object, token: string
 
 // Exchange the launch code from the URL fragment for this tab's token (D10). The code is single
 // use, so this runs at most once per page load.
+// It never rejects: a network failure or a non-JSON reply becomes an error the page can show.
 export async function startTabSession(code: string): Promise<TabSession> {
-  const response = await fetch("/api/v1/auth/session", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code }),
-    cache: "no-store",
-    credentials: "omit",
-  });
-  const body = (await response.json()) as { token?: string; actor?: string; error?: OperationError };
-  if (response.ok && body.token && body.actor) return { ok: true, token: body.token, actor: body.actor };
-  return {
+  const failure = (message: string): TabSession => ({
     ok: false,
-    error: body.error ?? { code: "UNAUTHENTICATED", message: `HTTP ${response.status}`, offending_field: null, hint: null },
-  };
+    error: { code: "UNAUTHENTICATED", message, offending_field: null, hint: "run `dipolar open` for a new link" },
+  });
+  try {
+    const response = await fetch("/api/v1/auth/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+      cache: "no-store",
+      credentials: "omit",
+    });
+    const body = (await response.json()) as { token?: string; actor?: string; error?: OperationError };
+    if (response.ok && body.token && body.actor) return { ok: true, token: body.token, actor: body.actor };
+    return body.error ? { ok: false, error: body.error } : failure(`the server answered HTTP ${response.status}`);
+  } catch {
+    return failure("could not reach dipolar serve to start this tab's session");
+  }
 }

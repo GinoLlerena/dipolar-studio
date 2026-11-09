@@ -1,8 +1,9 @@
 # Status
 
 **Phase 1, milestone M0: all five steps are done.** The spikes (step 4) pass with evidence, and
-the re-baseline (step 5) is a proposal awaiting the owner. Validation round 10 (GPT-6.1-Sol) covers
-step 4.
+the re-baseline (step 5) is a proposal awaiting the owner. Validation round 10 (GPT-6.1-Sol) returned
+NOT READY with one major and six minor findings, all fixed
+([docs/validation/round10-m0-spikes.md](validation/round10-m0-spikes.md)); round 11 confirms.
 
 Earlier stopping points: `m0-step2`, `m0-step3`.
 
@@ -93,7 +94,8 @@ Earlier stopping points: `m0-step2`, `m0-step3`.
   2. **JSON serialization: pass after fixes.** Validation is strict (no type coercion), the HTTP
      JSON parser is strict, and the envelopes are published.
   3. **D10 localhost security: pass after fixes, on the installed wheel.**
-     - The browser hand-off is decided: a single-use launch code is exchanged for a tab token.
+     - The browser hand-off is decided: a single-use launch code, passed through a private
+       redirect page (never on a command line), is exchanged for a tab token.
      - Instance lock, instance handshake, page bundled in the wheel.
      - A new `packaged` CI job.
   4. **Journal crash recovery: pass.** A torn tail is quarantined and discarded; damage is refused.
@@ -115,12 +117,12 @@ See the re-baseline for the remaining steps.
 Check the baseline before resuming:
 
 ```sh
-uv sync --locked && uv run pytest -q -m "not slow"     # 162 passed
+uv sync --locked && uv run pytest -q -m "not slow"     # 181 passed
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 (cd web && pnpm install --frozen-lockfile && pnpm build)
 LEGACY=path/to/NMRApllication tools/legacy-harness/run.sh
 tools/package/build.sh && uv venv /tmp/pkg && uv pip install --python /tmp/pkg/bin/python dist/packages/*.whl \
-  && DIPOLAR_BIN=/tmp/pkg/bin/dipolar uv run pytest spikes/test_spike_d10_localhost.py   # 24 passed
+  && DIPOLAR_BIN=/tmp/pkg/bin/dipolar uv run pytest spikes/test_spike_d10_localhost.py   # 29 passed
 ```
 
 ## Open items for the owner

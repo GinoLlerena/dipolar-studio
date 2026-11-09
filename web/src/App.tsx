@@ -21,11 +21,17 @@ const TOKEN_KEY = "dipolar.tab-token";
 function takeLaunchCode(): string | null {
   const match = /(?:^|&)launch=([^&]+)/.exec(window.location.hash.slice(1));
   if (window.location.hash) history.replaceState(null, "", window.location.pathname + window.location.search);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
+  if (!match?.[1]) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return ""; // a malformed link: the exchange is refused and the page explains what to do
+  }
 }
 
 const launchCode = takeLaunchCode();
-const exchange: Promise<TabSession> | null = launchCode ? startTabSession(launchCode) : null; // once per load
+// Once per load. startTabSession never rejects, so the page always leaves the "connecting" state.
+const exchange: Promise<TabSession> | null = launchCode !== null ? startTabSession(launchCode) : null;
 
 const fmt = (value: number, digits = 3) => value.toFixed(digits);
 

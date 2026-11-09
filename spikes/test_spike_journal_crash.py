@@ -43,26 +43,79 @@ ROOT = HERE.parent
 WRITER = HERE / "crash_writer.py"
 
 
+class Lines:
+    """One unbuffered reader over a pipe with an explicit line buffer (round 10, finding 4):
+    nothing is read ahead out of sight of ``select``, and nothing is lost when draining."""
+
+    def __init__(self, fd: int) -> None:
+        self.fd = fd
+        self.buffer = b""
+        self.eof = False
+
+    def _fill(self, timeout: float) -> None:
+        ready, _, _ = select.select([self.fd], [], [], timeout)
+        if ready:
+            chunk = os.read(self.fd, 65536)
+            self.eof = not chunk
+            self.buffer += chunk
+
+    def next_line(self, timeout: float) -> str | None:
+        """A complete line, or None if none arrived within ``timeout`` (or at EOF)."""
+        if b"\n" not in self.buffer and not self.eof:
+            self._fill(timeout)
+        if b"\n" not in self.buffer:
+            return None
+        line, self.buffer = self.buffer.split(b"\n", 1)
+        return line.decode()
+
+    def drain(self) -> list[str]:
+        """Every remaining complete line, reading until EOF (call after the writer has died)."""
+        while not self.eof:
+            self._fill(10.0)
+        lines = self.buffer.split(b"\n")
+        self.buffer = lines.pop()  # an unterminated last line is not an acknowledgement
+        return [line.decode() for line in lines]
+
+
 def run_until_killed(journal_dir: Path, mode: str, rng: random.Random) -> tuple[dict[str, int], list[int]]:
     """Start the writer, let it acknowledge a few commands, kill it at a random moment."""
-    child = subprocess.Popen(
-        [sys.executable, str(WRITER), str(journal_dir), mode], stdout=subprocess.PIPE, stderr=subprocess.PIPE
-    )
+    errors = journal_dir / "writer.err"
+    with errors.open("ab") as err:
+        child = subprocess.Popen(
+            [sys.executable, str(WRITER), str(journal_dir), mode], stdout=subprocess.PIPE, stderr=err, bufsize=0
+        )
     assert child.stdout is not None
-    header = json.loads(child.stdout.readline())  # recovery has run once this line exists
-    acks: list[int] = []
+    lines = Lines(child.stdout.fileno())
+
+    def fail(reason: str) -> None:
+        child.kill()  # never read diagnostics from a live child: that could block
+        child.wait()
+        pytest.fail(f"{reason}: {errors.read_text()}")
+
     deadline = time.monotonic() + 30
+    header_line = None
+    while header_line is None:  # recovery has run once this line exists
+        if time.monotonic() > deadline or child.poll() is not None:
+            fail("the writer did not start")
+        header_line = lines.next_line(1.0)
+    header = json.loads(header_line)
+    acks: list[int] = []
     wanted = rng.randint(1, 6)
     while len(acks) < wanted:  # wait for a few acknowledgements, so the kill lands during traffic
-        assert time.monotonic() < deadline and child.poll() is None, child.stderr.read() if child.stderr else ""
-        ready, _, _ = select.select([child.stdout], [], [], 1.0)
-        if ready:
-            acks.append(int(child.stdout.readline().split()[1]))
+        if time.monotonic() > deadline or child.poll() is not None:
+            fail("the writer stopped acknowledging")
+        line = lines.next_line(1.0)
+        if line is not None:
+            acks.append(int(line.split()[1]))
     time.sleep(rng.uniform(0.0, 0.05))
     child.send_signal(signal.SIGKILL)
-    rest, _ = child.communicate(timeout=10)
-    acks += [int(line.split()[1]) for line in rest.decode().splitlines() if line.startswith("ack ")]
+    child.wait(timeout=10)
+    acks += [int(line.split()[1]) for line in lines.drain() if line.startswith("ack ")]
+    child.stdout.close()
     assert child.returncode == -signal.SIGKILL
+    # Self-check of the harness: each command advances seq by one, so a run's acknowledgements are
+    # contiguous and start right after the recovered state; a dropped line would show as a gap.
+    assert acks == list(range(header["start_seq"] + 1, header["start_seq"] + 1 + len(acks))), (header, acks)
     return header, acks
 
 

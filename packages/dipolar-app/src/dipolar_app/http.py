@@ -35,6 +35,7 @@ from dipolar_app.auth import LAUNCH_CODE_TTL_S, Credentials
 from dipolar_app.errors import HTTP_STATUS, ErrorCode, OperationError
 from dipolar_app.policy import Principal
 from dipolar_app.registry import Registry, dispatch
+from dipolar_app.schemas import MAX_JSON_DEPTH, wire_problem
 from dipolar_app.session import Session
 
 LOG = logging.getLogger("dipolar_app.http")
@@ -101,8 +102,16 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def parse_json_body(body: bytes) -> Any:
-    """Strict RFC 8259 parsing: UTF-8 only, no NaN or Infinity tokens, no duplicate keys."""
-    return json.loads(body.decode("utf-8"), parse_constant=_reject_constant, object_pairs_hook=_unique_object)
+    """Strict RFC 8259 parsing: UTF-8 only, no NaN or Infinity tokens, no duplicate keys, valid
+    Unicode in every string, and bounded nesting. Every failure is a ``ValueError``."""
+    try:
+        value = json.loads(body.decode("utf-8"), parse_constant=_reject_constant, object_pairs_hook=_unique_object)
+    except RecursionError:
+        raise ValueError(f"nested deeper than {MAX_JSON_DEPTH} levels") from None
+    problem = wire_problem(value)
+    if problem:
+        raise ValueError(problem)
+    return value
 
 
 def _error(
@@ -212,11 +221,11 @@ def create_app(
         return JSONResponse({"instance_id": instance_id, "pid": pid, "contract_version": contract})
 
     async def issue_launch_code(request: Request) -> Response:
-        principal = authenticate(request)
-        if principal is None:
+        scheme, _, token = request.headers.get("authorization", "").partition(" ")
+        if scheme.lower() != "bearer" or not token:
             return unauthenticated()
         try:
-            code = credentials.issue_launch_code(principal)
+            code = credentials.issue_launch_code(token)
         except OperationError as err:
             return JSONResponse({"ok": False, "operation": None, "error": err.to_json()}, HTTP_STATUS[err.code])
         return JSONResponse({"code": code, "expires_in_s": LAUNCH_CODE_TTL_S})

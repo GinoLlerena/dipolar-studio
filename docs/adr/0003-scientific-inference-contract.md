@@ -22,8 +22,12 @@
 ## M0 spike 1 (2026-11-08)
 
 The D3 controls pass on dipolar-core (`spikes/test_spike_d3_numerics.py`). M1 refines with bounded
-TRF on the residual vector: minimizing the scalar profile χ² resolves φ only to ~1.5·10⁻⁹ ° at a
-zero-residual optimum. The frozen expected values are unchanged.
+TRF on the residual vector, held to absolute accuracy:
+- within 10⁻¹² ° of the noiseless truth;
+- within 10⁻⁸ ° of the frozen noisy optimum.
+
+SciPy's bounded scalar minimizer stopped 1.5·10⁻⁹ ° from the noiseless truth. That is where its
+own tolerance stops it, not a limit of the profile. The frozen expected values are unchanged.
 
 ## Changelog of frozen fixtures
 
