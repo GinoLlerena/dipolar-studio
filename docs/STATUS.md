@@ -163,7 +163,7 @@ major problems that the round-13 fixes introduced, plus two minor issues; all ar
 
 **Tests:**
 - `test_core_fit.py`: 16 tests.
-- `test_core_fit_adversarial.py`: 42 tests, made from the round-13 counterexamples, plus GLS
+- `test_core_fit_adversarial.py`: 41 tests, made from the round-13 counterexamples, plus GLS
   controls for correlated errors.
 
 The `test_core_fit.py` tests:
