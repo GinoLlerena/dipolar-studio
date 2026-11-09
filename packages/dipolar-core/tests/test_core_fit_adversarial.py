@@ -257,19 +257,20 @@ def test_a_narrow_lower_well_is_not_hidden() -> None:
 
 
 def test_a_stop_at_a_non_stationary_point_is_not_convergence() -> None:
-    """TRF reports ftol convergence inside the narrow well, where the gradient is still large; the
-    predicted Gauss–Newton reduction exposes it."""
-    from dipolar_core.fit import _refine
+    """The certificate, tested directly: TRF claiming a tolerance stop (status 2) at a point where
+    χ² can still clearly fall is not converged; at the true optimum it is."""
+    from types import SimpleNamespace
 
-    def design(x: Array) -> Array:
-        v1 = 1 + 100 * (x[0] - 0.25) ** 2
-        v2 = 2 + 100 * (x[0] - 0.8) ** 2 - 1.9 * np.exp(-(((x[0] - 0.8) / 0.0001) ** 2))
-        v = -np.logaddexp(-50 * v1, -50 * v2) / 50
-        return np.array([[100.0], [np.sqrt(v)], [0.1 * (x[1] - 0.5)], [0.0]])
+    from dipolar_core.fit import _converged, _whole
 
-    q = problem(design, [100.0, 0.0, 0.0, 0.0], [0.0, 0.0], [1.0, 1.0])
-    trial = _refine(q, np.array([0.80192721, 0.75542786]), Settings())
-    assert not trial.converged and "non-stationary" in trial.message
+    q = problem(lambda x: np.array([[1.0], [x[0]], [0.0]]), [1.0, 0.5, 0.0], [0.0], [1.0], sigma=[0.01] * 3)
+
+    def claimed(x: float) -> SimpleNamespace:
+        return SimpleNamespace(status=2, x=np.array([x]), active_mask=np.array([0]), message="`ftol` satisfied")
+
+    ok, message = _converged(q, _whole(q), claimed(0.9), q.lower, q.upper, 1e-15)
+    assert not ok and "non-stationary" in message
+    assert _converged(q, _whole(q), claimed(0.5), q.lower, q.upper, 1e-15)[0]
 
 
 # --------------------------------------------------------------------------- finding 9: bounds on their own scale
@@ -285,6 +286,47 @@ def test_labels_state_one_parameter_coverage() -> None:
     assert coverage_label(3.84) == "95.0% one-parameter (Δχ² = 3.84)"
     assert coverage_label(2.3) == "87.1% one-parameter (Δχ² = 2.3)"  # not a joint two-parameter region
     assert coverage_label(float(np.float32(3.84))).startswith("95.0%")
+
+
+@pytest.mark.parametrize("scale", [1e3, 1e5, 1e7])
+def test_large_misfits_converge_and_stay_regular(scale: float) -> None:
+    """The certificate differentiates the model, never the data, so its error grows like ‖r‖, not
+    ‖r‖⁴ (round 14). At very large misfits the optimum is resolved to a Δχ² far below the interval
+    scale, not to rounding."""
+    a, b = np.array([1.0, 2.0, 3.0, 4.0]), np.array([2.0, -1.0, 0.5, 1.0])
+    n = np.array([2.0, 0.0, 14.0, -11.0]) / np.sqrt(321.0)
+    q = problem(lambda x: (a + x[0] * b)[:, None], list(a + scale * n), [-1.0], [1.0])
+    result = fit(q)
+    assert result.validity.converged and result.validity.regular and result.nu == 2
+    excess = result.chi2 - q.inner(np.array([0.0])).chi2
+    assert excess <= 1e-12 * scale**2 + 1e-9  # Δχ² from the exact optimum, at the χ² rounding scale
+
+
+def test_a_nonlinear_fit_with_a_huge_misfit_is_finished() -> None:
+    """Biphenyl couplings with a 1e6 σ misfit (χ² ≈ 6e13), interior optimum: the predicted
+    reduction left (about 1e-4) exceeds DECREMENT_ATOL but lies below what TRF can resolve
+    (tolerance·χ²), so the fit is finished, not unconverged."""
+    pairs = biphenyl_pairs()
+    y = np.array(json.loads((EXPECTED / "noisy_fixture.json").read_text())["y_Hz"])
+    noisy = y + 1e6 * np.random.default_rng(6).normal(size=len(y))
+    result = fit(rigid(pairs, noisy, None))
+    assert result.chi2 > 1e13 and result.validity.at_bound == () and result.validity.converged
+
+
+def test_the_varpro_jacobian_is_exact_golub_pereyra() -> None:
+    """At a sizeable misfit the second Golub–Pereyra term matters; the Jacobian must equal the
+    derivative of the profile residual (a careful central difference, trustworthy at this scale)."""
+    from dipolar_core.fit import _varpro_jacobian, _whole
+
+    pairs = biphenyl_pairs()
+    y = np.array(json.loads((EXPECTED / "noisy_fixture.json").read_text())["y_Hz"])
+    q = rigid(pairs, y + 300.0 * np.random.default_rng(1).normal(size=len(y)), None)
+    for phi in (20.0, 37.0, 60.0):
+        x = np.array([phi])
+        _, jac, _ = _varpro_jacobian(q, _whole(q), x, q.lower, q.upper)
+        h = 1e-4
+        reference = (q.profile_residual(x + h) - q.profile_residual(x - h)) / (2 * h)
+        assert np.linalg.norm(jac[:, 0] - reference) <= 1e-6 * np.linalg.norm(reference)
 
 
 @pytest.mark.parametrize("threshold", [0.0, -1.0, float("nan"), float("inf")])
@@ -320,3 +362,65 @@ def test_the_default_grid_spacing_is_at_most_half_a_unit() -> None:
     assert np.max(np.diff(points)) <= 0.5 and points[0] == 0.0 and points[-1] == 90.1
     biphenyl = problem(lambda x: np.array([[1.0], [x[0]], [0.0]]), [1.0, 0.25, 0.0], [0.0], [90.0])
     np.testing.assert_allclose(np.diff(scan(biphenyl, Settings()).points[:, 0]), 0.5)  # the frozen convention
+
+
+# --------------------------------------------------------------------------- validation round 14
+def test_a_narrow_bound_range_is_differentiable() -> None:
+    """Bounds [0, 1e-5]: the default scan starts on a bound where no fixed-step stencil fits."""
+    q = problem(lambda x: np.array([[1.0], [x[0]], [0.0]]), [1.0, 5e-6, 0.0], [0.0], [1e-5])
+    result = fit(q)
+    assert result.theta[0] == pytest.approx(5e-6, abs=1e-15) and result.validity.regular
+
+
+def test_an_exact_optimum_with_a_large_misfit_is_converged() -> None:
+    """y = a + 1000 n with n ⟂ a, b: the optimum is exactly x = 0, t = 1, χ² = 1e6, ν = 2. A poor
+    fit is not a failed fit: convergence and adequacy are separate (D3.5)."""
+    a, b = np.array([1.0, 2.0, 3.0, 4.0]), np.array([2.0, -1.0, 0.5, 1.0])
+    n = np.array([2.0, 0.0, 14.0, -11.0]) / np.sqrt(321.0)
+    q = problem(lambda x: (a + x[0] * b)[:, None], list(a + 1000 * n), [-1.0], [1.0])
+    result = fit(q)
+    assert result.validity.converged and result.validity.regular and result.nu == 2
+    assert result.chi2 == pytest.approx(1e6, rel=1e-12) and abs(result.theta[0]) < 1e-9
+    assert result.p_value is not None and result.p_value < 1e-100  # adequacy says "inadequate", separately
+
+
+def test_a_bound_is_binding_only_if_the_gradient_points_outward() -> None:
+    """KKT: TRF stopping at x ≈ 0 with the gradient pointing into the domain is not an optimum."""
+    inward = problem(lambda x: np.array([[1.0], [x[0]], [0.0]]), [1.0, 0.5, 0.0], [0.0], [1.0], sigma=[0.1] * 3)
+    stuck = fit(inward, Settings(grid=np.array([0.0]), tolerance=1e-8))
+    assert stuck.basins == () and not stuck.validity.converged and not stuck.validity.regular
+    # The genuine bound optimum (data pull below the bound) is accepted, and flagged as at the bound.
+    outward = problem(lambda x: np.array([[1.0], [x[0]], [0.0]]), [1.0, -0.5, 0.0], [0.0], [1.0], sigma=[0.1] * 3)
+    pinned = fit(outward)
+    assert pinned.validity.converged and pinned.validity.at_bound == ("x0",) and not pinned.validity.regular
+    assert pinned.theta[0] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_basins_inside_the_interval_do_not_split_the_region() -> None:
+    """Two minima at (0, ±1) differ only in the nuisance parameter: the x profile's level set is one
+    interval, ±1/√99.99."""
+    q = problem(
+        lambda z: np.array([[100.0], [10 * z[0]], [0.5 * (z[1] ** 2 - 1)], [0.0]]),
+        [100.0, 0.0, 0.0, 0.0],
+        [-3.0, -2.0],
+        [3.0, 2.0],
+    )
+    result = fit(q)
+    assert len(result.basins) == 2
+    interval = profile_interval(q, result, "x0")
+    assert interval.supported
+    np.testing.assert_allclose([interval.lower, interval.upper], [-1 / np.sqrt(99.99), 1 / np.sqrt(99.99)], atol=1e-9)
+
+
+def test_a_tall_problem_does_not_allocate_n_by_n() -> None:
+    import tracemalloc
+
+    rng = np.random.default_rng(3)
+    n = 3000
+    base, slope = rng.normal(size=n), rng.normal(size=n)
+    q = problem(lambda x: (base + x[0] * slope)[:, None], list(base + 0.3 * slope), [-1.0], [1.0])
+    tracemalloc.start()
+    fit(q, Settings(grid=np.array([0.0, 0.5])))
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    assert peak < 20 * 2**20, f"peak {peak / 2**20:.1f} MiB"  # an N × N float64 matrix would be 69 MiB

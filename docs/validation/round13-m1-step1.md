@@ -87,3 +87,43 @@ restoring the old behaviour makes its test fail.
 - **Irregular optima.** At an inner-rank-deficient optimum the result is irregular and the
   direction is named. ν = 0 gives no p-value, and `chdtrc` is used correctly.
 - **The import guard** runs in a fresh process.
+
+## Round 14: confirmation
+
+- **Reviewer and date:** the same reviewer, read-only, 2026-11-09.
+- **Scope:** commit 375d79c.
+- **Verdict: NOT READY.** Nine round-13 findings were resolved and two partially resolved. Three
+  new major problems were introduced by the round-13 fixes. There were also two minor findings and
+  one nit.
+
+**New findings, all fixed** (`test_core_fit_adversarial.py`, each mutation-checked):
+
+1. **Major. Narrow bounds crashed the scan.** With bounds [0, 1e-5], no fixed-step stencil fits.
+   The fix: one shared stencil, `_derivative`. It is centred when it fits; otherwise it is
+   second-order one-sided toward the roomier side, with its step shrunk to fit.
+2. **Major. Finite-difference noise rejected an exact optimum with a large χ².**
+   - **The root cause.** The residual contains the constant −W·y. Differencing it costs ε·‖r‖ of
+     rounding, so the noise in the certificate grew like ‖r‖⁴.
+   - **The fix.** `_varpro_jacobian` differentiates only the model and the design, never the data,
+     and builds the **exact Golub–Pereyra Jacobian**, J = (I − QQᵀ)·∂m − (A⁺)ᵀ(∂Aᵀ r). Its gradient
+     Jᵀr = ∂mᵀr is exact (envelope theorem). TRF uses this Jacobian too.
+   - **A floor.** A certificate floor of 10 · tolerance · χ² stands for TRF's attainable resolution:
+     its relative `ftol` ignores smaller improvements. Without it, interior optima with large
+     misfits were rejected.
+   - **Tests.** Exact misfits at 1e3, 1e5 and 1e7 σ, ν = 2; a nonlinear biphenyl misfit at 1e6 σ;
+     and the Jacobian against a careful finite difference. Mutation checks show that both the floor
+     and the second Golub–Pereyra term are needed.
+3. **Major. Active columns were dropped without the bound's gradient sign.** The fix: a bound
+   binds only if the gradient points out of the domain (KKT). A TRF stop on a bound with an inward
+   gradient is unfinished, and a genuine bound optimum is accepted and flagged.
+4. **Minor. The full SVD allocated N × N.** The fix: full matrices only when N < p_free. Peak
+   memory on N = 3000 is now below 20 MiB.
+5. **Minor. "Several components" was claimed without proof.** The fix: another basin inside the
+   threshold refuses the interval only if its value of the profiled parameter lies *outside* the
+   interval. That proves a second component of the profile's level set. The reviewer's connected
+   two-basin case now gets its analytic interval, ±1/√99.99.
+6. **Nit. STATUS anticipated the verdict.** The fix: STATUS gives the actual verdicts and test
+   counts, and notes the 16-start cap.
+
+**Measured.** A fit of the fixture takes 0.18 s. The profiles take 0.02 s for φ, 1.8 s for Szz and
+1.5 s for Δ.

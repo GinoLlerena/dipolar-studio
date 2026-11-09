@@ -22,11 +22,13 @@ The error covariance Σ is known and never rescaled (``dipolar_core.problem``). 
    (θ, t). Its rank is the joint rank, reported separately from the inner rank. A complete basis of
    the directions the data do not determine is named, and those directions never get finite error
    bars.
-5. **Intervals.** Profile intervals (the other parameters re-minimized from every known basin)
+5. **Intervals.** Profile intervals (the other parameters re-minimized from each known basin, up
+   to MAX_PROFILE_STARTS)
    and slice intervals (the other parameters held fixed) are distinct functions with labelled
    results. The interval is not supported, and no number is invented, when:
    - the optimum is irregular;
-   - another basin lies inside the threshold;
+   - another basin inside the threshold has this parameter outside the interval (that proves a
+     second component of the profile's level set);
    - a side reaches a bound;
    - the region continues beyond an endpoint;
    - a constrained re-minimization fails.
@@ -44,6 +46,7 @@ Otherwise ν and the p-value are None.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 
@@ -59,17 +62,25 @@ from dipolar_core.problem import Problem as Problem
 Array = NDArray[np.float64]
 
 #: Version of this stack's numerical choices (enters the numerical context when an operation uses it).
-FIT_VERSION: Final = "varpro-trf.2"
+FIT_VERSION: Final = "varpro-trf.3"
 #: Relative distance (in units of the bound range) under which two refined optima are one basin.
 BASIN_RTOL: Final = 1e-6
 #: A geometry parameter is at a bound if TRF reports the bound active, or if it lies within
 #: BOUND_ATOL · max(1, |bound|) of it (an absolute scale, independent of the opposite bound).
 BOUND_ATOL: Final = 1e-9
-#: A refinement converged only if TRF stopped on a tolerance (status > 0) *and* the predicted
-#: Gauss–Newton reduction of χ² over the free parameters, ‖P_J r‖², is at most DECREMENT_ATOL. This
-#: is in χ² units, so it is negligible next to the Δχ² = 1 interval scale and independent of the
-#: units of θ. It catches TRF stopping on ftol at a point that is not stationary (round 13).
+#: A refinement converged only if TRF stopped on a tolerance (status > 0) *and* a first-order
+#: certificate holds at the result:
+#: - J is our own second-order Jacobian of the residual, not TRF's two-point estimate (round 14);
+#: - the free parameters are those not at a bound, plus those at a bound whose gradient points
+#:   back into the domain (the KKT sign test);
+#: - the predicted Gauss–Newton reduction over the free parameters, ‖P_J r‖², must be at most
+#:   DECREMENT_ATOL + ATTAINABLE_FACTOR · tolerance · χ².
+#: The second term is the resolution TRF can reach: it ignores improvements below tolerance·χ²/2
+#: (its relative ftol), so a large but finished misfit is not mistaken for non-convergence (round
+#: 14). Above χ² ≈ 1e13 that floor approaches the Δχ² = 1 interval scale; double precision limits
+#: such fits. The measure is in χ² units and independent of the units of θ.
 DECREMENT_ATOL: Final = 1e-8
+ATTAINABLE_FACTOR: Final = 10.0
 #: Constrained re-minimizations in a profile start from at most this many known basins.
 MAX_PROFILE_STARTS: Final = 16
 #: Outward sampling for interval crossings: first distance = Gauss–Newton step · 2^FIRST_EXPONENT;
@@ -278,10 +289,11 @@ def scan(problem: Problem, settings: Settings) -> Scan:
     )
 
 
-def _least_squares(fun: Any, x0: Array, lower: Array, upper: Array, settings: Settings) -> Any:
+def _least_squares(fun: Any, x0: Array, lower: Array, upper: Array, settings: Settings, jac: Any = "2-point") -> Any:
     return least_squares(
         fun,
         np.clip(x0, lower, upper),
+        jac=jac,
         bounds=(lower, upper),
         method="trf",
         x_scale="jac",
@@ -292,27 +304,103 @@ def _least_squares(fun: Any, x0: Array, lower: Array, upper: Array, settings: Se
     )
 
 
-def _converged(result: Any) -> tuple[bool, str]:
-    """Status > 0 and a negligible predicted Gauss–Newton reduction (see DECREMENT_ATOL)."""
+#: A VarPro sub-problem in its free coordinates x: model(x) = (D_free, F) with prediction
+#: D_free · t + F, where t is re-solved for every x. F holds any fixed order contribution.
+Model = Callable[[Array], tuple[Array, Array]]
+
+
+def _whole(problem: Problem) -> Model:
+    return lambda x: (problem.checked_design(x), np.zeros(len(problem.y)))
+
+
+def _varpro_jacobian(
+    problem: Problem, model: Model, x: Array, lower: Array, upper: Array
+) -> tuple[Array, Array, Array]:
+    """(r, J, ∂m) at x for a VarPro sub-problem: the exact Golub–Pereyra Jacobian.
+
+    With A = W·D, t* = A⁺·W(y − F) and r = W·(D t* + F − y):
+
+        J = (I − QQᵀ)·∂m − (A⁺)ᵀ·(∂Aᵀ·r)
+
+    where Q spans A and ∂m = W·(∂D·t* + ∂F) is the derivative of the model part with t* held
+    fixed. Only the model and the design are differenced, never the data. The residual holds the
+    constant −W·y, and differencing it would cost ε·‖r‖ of rounding (round 14). The gradient
+    Jᵀr = ∂mᵀ·r is exact, by the envelope theorem, because A⁺·r = 0. TRF and the convergence
+    certificate both use this J.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    d_free, fixed = model(x)
+    p_free = d_free.shape[1]
+    t = problem.solve(d_free, problem.y - fixed).params if p_free else np.empty(0)
+    r = problem.whiten(d_free @ t + fixed - problem.y)
+    a = problem.whiten(d_free)
+    if p_free:
+        u, sv, vt = np.linalg.svd(a, full_matrices=False)
+        keep = sv > RANK_RTOL * sv[0] if sv[0] > 0 else np.zeros_like(sv, dtype=bool)
+        q, pinv_t = u[:, keep], u[:, keep] @ (vt[keep] / sv[keep, None])  # (A⁺)ᵀ = Q S⁻¹ Vᵀ
+    else:
+        q, pinv_t = np.empty((len(r), 0)), np.empty((len(r), 0))
+    n = len(r)
+    dm_columns, j_columns = [], []
+    for i in range(len(x)):
+
+        def stacked(v: float, i: int = i) -> Array:
+            shifted = x.copy()
+            shifted[i] = v
+            d, f = model(shifted)
+            return np.concatenate([problem.whiten(d @ t + f), problem.whiten(d).ravel()])
+
+        derivative = _derivative(stacked, float(x[i]), float(lower[i]), float(upper[i]))
+        dm = derivative[:n]
+        da = derivative[n:].reshape(n, p_free)
+        dm_columns.append(dm)
+        j_columns.append(dm - q @ (q.T @ dm) - pinv_t @ (da.T @ r))
+    if not dm_columns:
+        empty = np.empty((n, 0))
+        return r, empty, empty
+    return r, np.column_stack(j_columns), np.column_stack(dm_columns)
+
+
+def _converged(
+    problem: Problem, model: Model, result: Any, lower: Array, upper: Array, tolerance: float
+) -> tuple[bool, str]:
+    """TRF stopped on a tolerance, and the first-order certificate holds (see DECREMENT_ATOL and
+    ``_varpro_jacobian``)."""
     if result.status <= 0:
         return False, str(result.message)
-    jac = np.asarray(result.jac)[:, np.asarray(result.active_mask) == 0]
-    if jac.size:
-        u, s, _ = np.linalg.svd(jac, full_matrices=False)
-        keep = s > RANK_RTOL * s[0] if s[0] > 0 else np.zeros_like(s, dtype=bool)
-        projected = u[:, keep].T @ np.asarray(result.fun)
+    x = np.asarray(result.x, dtype=np.float64)
+    r, jac, dm = _varpro_jacobian(problem, model, x, lower, upper)
+    gradient = dm.T @ r  # of ½‖r‖² (envelope theorem)
+    active_mask = np.asarray(result.active_mask)
+    free = []
+    for i in range(len(x)):
+        at_lower = active_mask[i] < 0 or _near(float(x[i]), float(lower[i]))
+        at_upper = active_mask[i] > 0 or _near(float(x[i]), float(upper[i]))
+        binding = (at_lower and gradient[i] >= 0) or (at_upper and gradient[i] <= 0)  # KKT: points outward
+        if not binding:
+            free.append(i)
+    if free:
+        u, sv, _ = np.linalg.svd(jac[:, free], full_matrices=False)
+        keep = sv > RANK_RTOL * sv[0] if sv.size and sv[0] > 0 else np.zeros_like(sv, dtype=bool)
+        projected = u[:, keep].T @ r
         decrement = float(projected @ projected)
-        if decrement > DECREMENT_ATOL:
+        floor = ATTAINABLE_FACTOR * tolerance * float(r @ r)
+        if decrement > DECREMENT_ATOL + floor:
             why = f"predicted χ² reduction {decrement:.3g}"
             return False, f"stopped ({result.message}) at a non-stationary point: {why}"
     return True, str(result.message)
 
 
 def _refine(problem: Problem, start: Array, settings: Settings) -> Basin:
-    result = _least_squares(problem.profile_residual, start, problem.lower, problem.upper, settings)
+    model, lo, hi = _whole(problem), problem.lower, problem.upper
+
+    def jac(x: Array) -> Array:
+        return _varpro_jacobian(problem, model, x, lo, hi)[1]
+
+    result = _least_squares(problem.profile_residual, start, lo, hi, settings, jac)
     theta = np.asarray(result.x, dtype=np.float64)
     active = tuple(bool(a) for a in result.active_mask)
-    converged, message = _converged(result)
+    converged, message = _converged(problem, model, result, lo, hi, settings.tolerance)
     return Basin(theta, problem.inner(theta).chi2, 0.0, converged, message, active)
 
 
@@ -325,40 +413,54 @@ def _dedupe(problem: Problem, trials: list[Basin], best: float) -> tuple[Basin, 
     return tuple(Basin(b.theta, b.chi2, b.chi2 - best, b.converged, b.message, b.active) for b in kept)
 
 
-# --------------------------------------------------------------------------- the full Jacobian
-def full_jacobian(problem: Problem, theta: Array, t: Array) -> Array:
-    """Whitened J of the joint residual in (θ, t).
+# --------------------------------------------------------------------------- derivatives
+def _derivative(fun: Callable[[float], Array], x: float, lo: float, hi: float) -> Array:
+    """d fun / dx at x without evaluating outside [lo, hi].
 
-    Order columns are exact. Geometry columns use a stencil that never leaves the bounds:
-    - a centred difference when it fits;
-    - a second-order one-sided difference at or very near a bound.
-    An off-centre secant would invent a derivative at a stationary point (validation round 13).
-    The base step is ε^(1/3)·max(1, |θᵢ|).
+    - A centred difference when it fits.
+    - Otherwise a second-order one-sided difference toward the roomier side, with its step shrunk
+      to fit inside the range.
+
+    An off-centre secant would invent a derivative at a stationary point (round 13), and a fixed
+    one-sided step fails on narrow ranges (round 14). The base step is ε^(1/3)·max(1, |x|).
     """
-    j = np.empty((len(problem.y), problem.k + problem.p))
+    h = float(np.cbrt(np.finfo(float).eps)) * max(1.0, abs(x))
+    room_lo, room_hi = x - lo, hi - x
+    centred = min(h, room_lo, room_hi)
+    if centred >= h / 16:
+        return (fun(x + centred) - fun(x - centred)) / (2 * centred)
+    room, sign = (room_hi, 1.0) if room_hi >= room_lo else (room_lo, -1.0)
+    step = min(h, room / 2)
+    if not step > 0:
+        raise ValueError("a zero-width range cannot be differentiated")
+    return sign * (-3 * fun(x) + 4 * fun(x + sign * step) - fun(x + 2 * sign * step)) / (2 * step)
+
+
+def _jacobian(residual: Callable[[Array], Array], x: Array, lower: Array, upper: Array) -> Array:
+    x = np.asarray(x, dtype=np.float64)
+    columns = []
+    for i in range(len(x)):
+
+        def along(v: float, i: int = i) -> Array:
+            shifted = x.copy()
+            shifted[i] = v
+            return residual(shifted)
+
+        columns.append(_derivative(along, float(x[i]), float(lower[i]), float(upper[i])))
+    return np.column_stack(columns) if columns else np.empty((len(residual(x)), 0))
+
+
+def full_jacobian(problem: Problem, theta: Array, t: Array) -> Array:
+    """Whitened J of the joint residual in (θ, t): geometry columns from ``_derivative``, order
+    columns exact."""
     theta = np.asarray(theta, dtype=np.float64)
+    geometry = _jacobian(lambda th: problem.joint_residual(th, t), theta, problem.lower, problem.upper)
+    return np.column_stack([geometry, problem.whiten(problem.checked_design(theta))])
 
-    def at(i: int, offset: float) -> Array:
-        shifted = theta.copy()
-        shifted[i] = theta[i] + offset
-        return problem.joint_residual(shifted, t)
 
-    for i in range(problem.k):
-        h = float(np.cbrt(np.finfo(float).eps)) * max(1.0, abs(float(theta[i])))
-        room_lo, room_hi = float(theta[i] - problem.lower[i]), float(problem.upper[i] - theta[i])
-        centred = min(h, room_lo, room_hi)
-        if centred >= h / 16:
-            j[:, i] = (at(i, centred) - at(i, -centred)) / (2 * centred)
-        elif room_hi >= 2 * h:
-            j[:, i] = (-3 * at(i, 0.0) + 4 * at(i, h) - at(i, 2 * h)) / (2 * h)
-        elif room_lo >= 2 * h:
-            j[:, i] = (3 * at(i, 0.0) - 4 * at(i, -h) + at(i, -2 * h)) / (2 * h)
-        else:  # a bound range narrower than the step: the widest centred stencil that fits
-            if centred <= 0:
-                raise ValueError(f"the bounds of {problem.theta_names[i]} are too narrow to differentiate")
-            j[:, i] = (at(i, centred) - at(i, -centred)) / (2 * centred)
-    j[:, problem.k :] = problem.whiten(problem.checked_design(theta))
-    return j
+def _near(value: float, bound: float) -> bool:
+    """At a bound: within BOUND_ATOL · max(1, |bound|), on the bound's own scale (round 13)."""
+    return abs(value - bound) <= BOUND_ATOL * max(1.0, abs(bound))
 
 
 # --------------------------------------------------------------------------- the fit
@@ -373,22 +475,20 @@ def fit(problem: Problem, settings: Settings | None = None) -> FitResult:
     best = basins[0] if basins else unfinished[0]
     sol = problem.inner(best.theta)
     j = full_jacobian(problem, best.theta, sol.params)
-    _, s, vt = np.linalg.svd(j, full_matrices=True)  # full: a complete null basis even when N < p_free
+    # A complete right basis: the reduced SVD gives it when N ≥ p_free; full matrices only when N < p_free.
+    _, s, vt = np.linalg.svd(j, full_matrices=j.shape[0] < j.shape[1])
     joint_rank = int(np.count_nonzero(s > RANK_RTOL * s[0])) if s.size and s[0] > 0 else 0
     names = problem.names
     unidentified = tuple(
         {n: float(v) for n, v in zip(names, row, strict=True) if abs(v) > 1e-12} for row in vt[joint_rank:]
     )
 
-    def near(value: float, bound: float) -> bool:  # each bound on its own scale (round 13, finding 9)
-        return abs(value - bound) <= BOUND_ATOL * max(1.0, abs(bound))
-
     at_bound = tuple(
         name
         for i, name in enumerate(problem.theta_names)
         if best.active[i]
-        or near(float(best.theta[i]), float(problem.lower[i]))
-        or near(float(best.theta[i]), float(problem.upper[i]))
+        or _near(float(best.theta[i]), float(problem.lower[i]))
+        or _near(float(best.theta[i]), float(problem.upper[i]))
     )
     p_free = problem.k + problem.p
     resolved = best.converged and all(u.chi2 >= best.chi2 for u in unfinished)
@@ -452,15 +552,21 @@ def _profile_chi2(
 
         if not free:
             return problem.inner(theta_of(np.empty(0))).chi2, True
+
+        def free_residual(f: Array) -> Array:
+            return problem.profile_residual(theta_of(f))
+
+        def free_model(f: Array) -> tuple[Array, Array]:
+            return problem.checked_design(theta_of(f)), np.zeros(len(problem.y))
+
+        lo, hi = problem.lower[free], problem.upper[free]
+
+        def free_jac(f: Array) -> Array:
+            return _varpro_jacobian(problem, free_model, f, lo, hi)[1]
+
         for start in starts:
-            res = _least_squares(
-                lambda f: problem.profile_residual(theta_of(f)),
-                start[free],
-                problem.lower[free],
-                problem.upper[free],
-                settings,
-            )
-            if _converged(res)[0]:
+            res = _least_squares(free_residual, start[free], lo, hi, settings, free_jac)
+            if _converged(problem, free_model, res, lo, hi, settings.tolerance)[0]:
                 best, ok = min(best, problem.inner(theta_of(np.asarray(res.x))).chi2), True
         return best, ok
 
@@ -474,9 +580,16 @@ def _profile_chi2(
             return problem.whiten(-target)
         return problem.whiten(-problem.solve(d[:, others], target).residuals)
 
+    def reduced_model(theta: Array) -> tuple[Array, Array]:
+        d = problem.checked_design(theta)
+        return d[:, others], d[:, column] * value
+
+    def reduced_jac(theta: Array) -> Array:
+        return _varpro_jacobian(problem, reduced_model, theta, problem.lower, problem.upper)[1]
+
     for start in starts:
-        res = _least_squares(reduced, start, problem.lower, problem.upper, settings)
-        if _converged(res)[0]:
+        res = _least_squares(reduced, start, problem.lower, problem.upper, settings, reduced_jac)
+        if _converged(problem, reduced_model, res, problem.lower, problem.upper, settings.tolerance)[0]:
             r = reduced(np.asarray(res.x))
             best, ok = min(best, float(r @ r)), True
     return best, ok
@@ -516,14 +629,16 @@ def _interval(
 
     if not result.validity.regular or result.covariance is None:
         return unsupported("the optimum is not regular (bound, rank, convergence or an unresolved search)")
+    # Other basins inside the threshold, with this parameter's value there. The profile at that
+    # value is at most the basin's χ², so the value belongs to the profile's level set.
+    rivals = []
     if kind == "profile":
         for basin in (*result.basins[1:], *result.unfinished):
             if basin.chi2 - result.chi2 <= delta_chi2:
-                where = ", ".join(f"{n} = {v:.6g}" for n, v in zip(problem.theta_names, basin.theta, strict=True))
-                return unsupported(
-                    f"another basin ({where}, Δχ² = {basin.chi2 - result.chi2:.3g}) lies inside the threshold, "
-                    "so the region has several components"
+                value = (
+                    basin.theta[index] if index < problem.k else problem.inner(basin.theta).params[index - problem.k]
                 )
+                rivals.append((float(value), basin))
 
     def excess(value: float) -> float:
         if kind == "profile":
@@ -562,6 +677,16 @@ def _interval(
 
     try:
         lower, upper = endpoint(-1.0), endpoint(1.0)
+        for value, basin in rivals:
+            if not lower <= value <= upper:  # in the level set but not in this interval: a second component
+                if not basin.converged:
+                    raise _Unsupported(
+                        f"an unfinished refinement reached Δχ² = {basin.chi2 - result.chi2:.3g} at {name} = {value:.6g}"
+                    )
+                raise _Unsupported(
+                    f"another basin has {name} = {value:.6g} at Δχ² = {basin.chi2 - result.chi2:.3g}, outside "
+                    f"[{lower:.6g}, {upper:.6g}]: the region has several components"
+                )
         width = upper - lower
         for direction, end in ((-1.0, lower), (1.0, upper)):
             for factor in COMPONENT_PROBES:
