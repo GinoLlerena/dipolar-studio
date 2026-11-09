@@ -153,7 +153,7 @@ problems. All are fixed ([docs/validation/round13-m1-step1.md](validation/round1
 
 **Tests:**
 - `test_core_fit.py`: 16 tests.
-- `test_core_fit_adversarial.py`: 30 tests, made from the round-13 counterexamples, plus GLS
+- `test_core_fit_adversarial.py`: 31 tests, made from the round-13 counterexamples, plus GLS
   controls for correlated errors.
 
 The `test_core_fit.py` tests:
