@@ -142,6 +142,20 @@ consider two options. One is analytic geometry derivatives for the biphenyl temp
 remove the finite-difference questions. The other is scoping step 1 to the regular problems D3
 targets, with documented limits.
 
+### Plan agreed with the owner on 2026-11-10 ("medium plan")
+
+- **A cap of two review rounds per step.** If the second round still finds problems, fix them,
+  document the remaining limits, and move on. For M1 step 1, rounds 17 and 18 count as the final
+  pair.
+- **Target for this week** (the usage window resets on Nov 13): push M1 step 1, then complete and
+  push M1 step 2. Then decide on the rest of M1 from real usage.
+- **Start each step in a fresh session** (`/clear`), resuming from this file and from memory.
+  Long sessions re-read their whole context on every message.
+- **Analytic derivatives.** Step 2 should give the biphenyl template analytic geometry derivatives.
+  That removes the finite-difference issues behind rounds 13–17.
+- **Small items** go in one batch: the Node 24 action bump, a licence file in the wheels, and a
+  Windows CI job.
+
 ## M1, the scientific core: in progress
 
 The owner approved the re-baseline on 2026-11-09.
