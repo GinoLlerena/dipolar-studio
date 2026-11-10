@@ -268,9 +268,9 @@ def test_a_stop_at_a_non_stationary_point_is_not_convergence() -> None:
     def claimed(x: float) -> SimpleNamespace:
         return SimpleNamespace(status=2, x=np.array([x]), active_mask=np.array([0]), message="`ftol` satisfied")
 
-    ok, message = _converged(q, _whole(q), claimed(0.9), q.lower, q.upper, 1e-15)
+    ok, message = _converged(q, _whole(q), q.profile_residual, claimed(0.9), q.lower, q.upper, 1e-15)
     assert not ok and "non-stationary" in message
-    assert _converged(q, _whole(q), claimed(0.5), q.lower, q.upper, 1e-15)[0]
+    assert _converged(q, _whole(q), q.profile_residual, claimed(0.5), q.lower, q.upper, 1e-15)[0]
 
 
 # --------------------------------------------------------------------------- finding 9: bounds on their own scale
@@ -444,7 +444,7 @@ def test_the_full_jacobian_never_differences_the_data() -> None:
     result = fit(q, Settings(grid=np.array([c])))
     assert result.validity.joint_rank == 1 and not result.validity.regular
     assert result.covariance is None and result.nu is None and result.p_value is None
-    assert len(result.unidentified) == 1 and set(result.unidentified[0]) == {"x0"}
+    assert len(result.unidentified) == 1 and abs(result.unidentified[0]["x0"]) == pytest.approx(1.0, abs=1e-9)
 
 
 def test_a_barrier_between_the_estimate_and_a_rival_is_not_hidden() -> None:
@@ -496,3 +496,94 @@ def test_a_noisy_zero_gradient_at_a_bound_is_binding() -> None:
     assert result.validity.converged and result.validity.at_bound == ("x0",)
     assert result.theta[0] == pytest.approx(0.0, abs=1e-6)
     assert result.chi2 == pytest.approx(q.inner(np.array([0.0])).chi2, rel=1e-12)
+
+
+# --------------------------------------------------------------------------- validation round 16
+@pytest.mark.parametrize("grid", [None, np.array([0.0])])
+def test_truncation_error_never_invents_a_joint_rank(grid: Array | None) -> None:
+    """D = (1, 3x³, 0): the derivative at the optimum x = 0 is exactly 0, so the joint rank is 1.
+    A plain central difference gives 3h² ≈ 1e-10, enough to look like information."""
+    q = problem(lambda x: np.array([[1.0], [3 * x[0] ** 3], [0.0]]), [10.0, 0.0, 0.0], [-1.0], [1.0])
+    result = fit(q, Settings(grid=grid))
+    assert result.theta[0] == pytest.approx(0.0, abs=1e-6)
+    assert result.validity.joint_rank == 1 and not result.validity.regular
+    assert result.covariance is None and result.nu is None and result.p_value is None
+    assert not profile_interval(q, result, "x0").supported
+
+
+@pytest.mark.parametrize(
+    ("y", "sigma", "upper"),
+    [([1.0, 1.0, 0.0], [1.0] * 3, 90.0), ([1.0, 1e-9, 0.0], [1e-9] * 3, 10.0)],
+)
+def test_a_small_genuine_inward_gradient_is_not_mistaken_for_noise(
+    y: list[float], sigma: list[float], upper: float
+) -> None:
+    """D = (1, 3e-10 x, 0): at the bound x = 0 the gradient is small but real, and moving inward
+    lowers χ² (to zero with precise data). A stop at the bound must not be certified."""
+    q = problem(lambda x: np.array([[1.0], [3e-10 * x[0]], [0.0]]), y, [0.0], [upper], sigma=sigma)
+    result = fit(q, Settings(grid=np.array([0.0]), tolerance=1e-8))
+    best_possible = min(q.inner(np.array([v])).chi2 for v in np.linspace(0.0, upper, 201))
+    if result.validity.converged:
+        assert result.chi2 <= best_possible + 1e-6
+    else:
+        assert result.basins == () and not result.validity.regular
+
+
+def test_coupled_bound_moves_are_seen() -> None:
+    """D = (1, 1e5 (x − z), x + z): at (0, 0) each coordinate alone barely helps, but moving both
+    together lowers χ² from 1 to 0. A stop at (0, 0) must not be certified."""
+    from dipolar_core.fit import _refine
+
+    q = problem(
+        lambda x: np.array([[1.0], [1e5 * (x[0] - x[1])], [x[0] + x[1]]]),
+        [1.0, 0.0, 1.0],
+        [0.0, 0.0],
+        [1.0, 1.0],
+    )
+    trial = _refine(q, np.array([0.0, 0.0]), Settings(tolerance=1e-8))
+    assert (not trial.converged) or trial.chi2 < 1e-6
+
+
+def test_named_null_directions_are_the_numerical_basis() -> None:
+    """Order columns a and 5e-10·a with |a| ~ 1e9: the null direction (−5e-10, 1) must be kept as
+    computed. Rounding it to (0, 1) is no longer a null direction (‖J v‖ ≈ 1.9)."""
+    a = 1e9 * np.array([1.0, 2.0, 3.0])
+    q = Problem(
+        design=lambda x: np.column_stack([a, 5e-10 * a]),
+        y=a.copy(),
+        sigma=np.ones(3),
+        lower=np.array([0.0]),
+        upper=np.array([1.0]),
+        theta_names=("x0",),
+        order_names=("t0", "t1"),
+    )
+    result = fit(q, Settings(grid=np.array([0.5])))
+    j = full_jacobian(q, result.theta, result.order)
+    assert len(result.unidentified) == result.p_free - result.validity.joint_rank == 2
+    for direction in result.unidentified:
+        v = np.array([direction[n] for n in result.names])
+        assert np.linalg.norm(j @ v) <= 1e-6 * np.linalg.norm(j)
+
+
+def test_a_singular_value_inside_the_jacobian_error_is_not_rank() -> None:
+    """The trust rule itself: a singular value no larger than the Jacobian's own error estimate
+    carries no information, whatever the rank policy alone would say."""
+    from dipolar_core.fit import _trusted_rank
+
+    s = np.array([1.0, 1e-9])
+    assert _trusted_rank(s, np.zeros((3, 2))) == 2  # no error: the rank policy decides
+    assert _trusted_rank(s, np.full((3, 2), 1e-9)) == 1  # inside the error: not information
+
+
+def test_a_noise_only_prediction_does_not_block_convergence() -> None:
+    """D = (1, 1e-9 sin(1e9 x), 0): the wiggle makes the finite-difference derivative of order 1,
+    so the linear model promises a reduction, yet χ² cannot really move by more than ~1e-12. The
+    certificate tries the step, sees no real reduction, and certifies the point."""
+    from types import SimpleNamespace
+
+    from dipolar_core.fit import _converged, _whole
+
+    q = problem(lambda x: np.array([[1.0], [1e-9 * np.sin(1e9 * x[0])], [0.0]]), [1.0, 1e-3, 0.0], [0.0], [1.0])
+    claimed = SimpleNamespace(status=2, x=np.array([0.5]), active_mask=np.array([0]), message="`xtol` satisfied")
+    ok, message = _converged(q, _whole(q), q.profile_residual, claimed, q.lower, q.upper, 1e-15)
+    assert ok and "not realised" in message

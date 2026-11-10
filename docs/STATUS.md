@@ -112,7 +112,7 @@ The owner approved the re-baseline on 2026-11-09.
 
 | M1 step | Status | Owner hours (owner fills in) |
 |---|---|---|
-| 1. The D3 stack in dipolar-core | rounds 13–15 NOT READY, all findings fixed; round 16 reviews | |
+| 1. The D3 stack in dipolar-core | rounds 13–16 NOT READY, all findings fixed; round 17 reviews | |
 | 2. Frame contract, C2(z) and C1 | — | |
 | 3. Four-site jump model | — | |
 | 4. CSV/XYZ import, JSON v1 | — | |
@@ -169,9 +169,18 @@ fixed:
 - a failed run that goes lower makes the profile unresolved;
 - a noisy near-zero gradient at a bound counts as binding.
 
+**Validation round 16** returned NOT READY on three more major problems and one minor one. The
+fragile mechanisms were replaced:
+- geometry derivatives use Richardson extrapolation with an error estimate, and the joint rank
+  counts only singular values above that error;
+- convergence is certified by a bounded linear least-squares step over all coordinates. That step
+  is then *tried* on the real χ², so noise can neither hide a real improvement nor block a real
+  optimum;
+- named null directions are the numerical basis, unfiltered.
+
 **Tests:**
 - `test_core_fit.py`: 16 tests.
-- `test_core_fit_adversarial.py`: 45 tests, made from the round-13 counterexamples, plus GLS
+- `test_core_fit_adversarial.py`: 53 tests, made from the round-13 counterexamples, plus GLS
   controls for correlated errors.
 
 The `test_core_fit.py` tests:
@@ -198,7 +207,7 @@ The fitter is not yet an operation. Operations come in M2, as the beta UI needs 
 Check the baseline before resuming:
 
 ```sh
-uv sync --locked && uv run pytest -q -m "not slow"     # 252 passed
+uv sync --locked && uv run pytest -q -m "not slow"     # 260 passed
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 (cd web && pnpm install --frozen-lockfile && pnpm build)
 LEGACY=path/to/NMRApllication tools/legacy-harness/run.sh

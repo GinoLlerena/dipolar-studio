@@ -173,7 +173,7 @@ def test_unidentified_directions_are_named_and_get_no_error_bar() -> None:
     )
     result = fit(blind, Settings(grid=np.linspace(0.0, 1.0, 11)))
     assert result.validity.joint_rank == 2 and result.covariance is None
-    assert len(result.unidentified) == 1 and set(result.unidentified[0]) == {"blind"}
+    assert len(result.unidentified) == 1 and abs(result.unidentified[0]["blind"]) == pytest.approx(1.0, abs=1e-9)
     assert not result.validity.regular and result.nu is None
     assert not profile_interval(blind, result, "Szz").supported
 

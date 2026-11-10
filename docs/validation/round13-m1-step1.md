@@ -159,9 +159,51 @@ restoring the old behaviour makes its test fail.
      achieve within the feasible step. A tiny column can no longer promise a large reduction.
 
 **Also:**
-- named null directions drop components below 10⁻⁹, which is rounding on a unit vector;
+- named null directions dropped components below 10⁻⁹. Round 16 showed that this was wrong:
+  such components can be genuine. The filter has been removed;
 - a redundant segment-sampling pass was removed, because no test needed it once intervals were
   verified.
 
 **Measured.** A fit of the fixture takes 0.18 s. The profiles take 0.03 s for φ, 4.3 s for Szz and
 2.6 s for Δ; the verification doubles their cost.
+
+## Round 16: confirmation
+
+- **Reviewer and date:** the same reviewer, read-only, 2026-11-10.
+- **Scope:** commit dc88681.
+- **Verdict: NOT READY.** The four round-15 reproductions passed. There were three new major
+  findings and one minor finding. Round 13 onward had each patched a specific counterexample, and
+  each time the next round found a sibling, so this round replaced the two fragile mechanisms with
+  principled ones.
+
+**Findings, all fixed** (`test_core_fit_adversarial.py`, each mutation-checked):
+
+1. **Major. Truncation error still invented a joint rank.** For D = (1, 3x³, 0) the derivative at
+   the optimum is exactly zero, but the central difference gave 3h², which was counted as rank,
+   with an interval, ν and a p-value.
+   - **Richardson extrapolation.** Every geometry derivative is now (4·D(h/2) − D(h))/3, with the
+     componentwise error estimate |D(h/2) − D(h)|.
+   - **A trusted rank.** A singular value counts toward the joint rank only above 10 times the
+     Frobenius norm of that error, both in the scan and at the optimum.
+   - **Result.** The cubic now gets rank 1. The rule itself has a direct test.
+2. **Major. The gradient-noise allowance hid genuine improvement.** For example, a stop at a bound
+   was accepted although a feasible move reached χ² = 0.
+3. **Major. Summing bound reductions independently missed coupled moves.**
+   - **The fix for 2 and 3.** One certificate replaces both the noise allowance and the
+     per-coordinate KKT logic.
+     - It solves the **bounded linear least-squares step** over all coordinates (`lsq_linear`,
+       BVLS) with the exact Golub–Pereyra J, so bounds, signs and cross terms are included.
+     - If the predicted reduction exceeds the tolerance, it **tries the step**, halving it up to 40
+       times. A step that really lowers χ² means "not converged".
+     - A prediction that no step realises came from derivative noise, and the point is certified.
+   - **Tests:** the reviewer's small-gradient cases, at unit precision and with precise data; the
+     coupled-bounds case; and a direct test with a 10⁻⁹-amplitude, high-frequency model whose
+     derivative promises a reduction that cannot happen.
+4. **Minor. The null-vector filter removed genuine components.** The fix: named null directions are
+   the numerical basis, unfiltered. A test checks ‖J v‖ ≈ 0 for every reported direction.
+
+**Measured.** A fit of the fixture takes 0.20 s. The profiles take 0.03 s for φ, 4.4 s for Szz and
+2.6 s for Δ.
+
+**Accepted limitation.** A barrier narrower than the interval verification's sampling, such as the
+reviewer's width-0.001 variant, can still be missed. The docs state this.
