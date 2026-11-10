@@ -218,6 +218,7 @@ class FitResult:
     uncertain: tuple[dict[str, float], ...]  # directions the derivatives cannot resolve (not data)
     validity: Validity
     names: tuple[str, ...] = field(default=())
+    notes: tuple[str, ...] = field(default=())  # model-specific labels (``Problem.notes``)
 
 
 @dataclass(frozen=True)
@@ -315,13 +316,31 @@ def _least_squares(fun: Any, x0: Array, lower: Array, upper: Array, settings: Se
     )
 
 
-#: A VarPro sub-problem in its free coordinates x: model(x) = (D_free, F) with prediction
-#: D_free · t + F, where t is re-solved for every x. F holds any fixed order contribution.
-Model = Callable[[Array], tuple[Array, Array]]
+@dataclass(frozen=True)
+class Model:
+    """A VarPro sub-problem in its free coordinates x: model(x) = (D_free, F), with prediction
+    D_free · t + F, where t is re-solved for every x. F holds any fixed order contribution.
+
+    ``derivative``, when known analytically, returns (∂D_free, ∂F) as (m × N × p_free, m × N)
+    arrays for the m coordinates of x. Otherwise the model is differenced (``_derivative``).
+    """
+
+    value: Callable[[Array], tuple[Array, Array]]
+    derivative: Callable[[Array], tuple[Array, Array]] | None = None
+
+    def __call__(self, x: Array) -> tuple[Array, Array]:
+        return self.value(x)
 
 
 def _whole(problem: Problem) -> Model:
-    return lambda x: (problem.checked_design(x), np.zeros(len(problem.y)))
+    n = len(problem.y)
+    derivative = None
+    if problem.design_derivative is not None:
+
+        def derivative(x: Array) -> tuple[Array, Array]:
+            return problem.checked_design_derivative(x), np.zeros((problem.k, n))
+
+    return Model(lambda x: (problem.checked_design(x), np.zeros(n)), derivative)
 
 
 def _varpro_jacobian(
@@ -353,7 +372,16 @@ def _varpro_jacobian(
         q, pinv_t = np.empty((len(r), 0)), np.empty((len(r), 0))
     n = len(r)
     dm_columns, j_columns, error_columns = [], [], []
-    for i in range(len(x)):
+    if model.derivative is not None:
+        # Analytic: no truncation error. Rounding stays far below RANK_RTOL and the certificate's
+        # tolerance, so the error estimate is zero.
+        d_design, d_fixed = model.derivative(x)
+        for i in range(len(x)):
+            dm = problem.whiten(d_design[i] @ t + d_fixed[i])
+            dm_columns.append(dm)
+            error_columns.append(np.zeros(n))
+            j_columns.append(dm - q @ (q.T @ dm) - pinv_t @ (problem.whiten(d_design[i]).T @ r))
+    for i in range(len(x) if model.derivative is None else 0):
 
         def stacked(v: float, i: int = i) -> Array:
             shifted = x.copy()
@@ -524,12 +552,16 @@ def _full_jacobian(problem: Problem, theta: Array, t: Array) -> tuple[Array, Arr
     """Whitened J of the joint residual in (θ, t): geometry columns from ``_derivative``, order
     columns exact."""
     theta = np.asarray(theta, dtype=np.float64)
+    order = problem.whiten(problem.checked_design(theta))
+    if problem.design_derivative is not None:
+        d_design = problem.checked_design_derivative(theta)
+        geometry = problem.whiten(np.einsum("knp,p->nk", d_design, t))
+        return np.column_stack([geometry, order]), np.zeros((len(problem.y), problem.k + problem.p))
     # Differentiate the whitened prediction W·D(θ)·t only, never the data: the constant −W·y would
     # cost ε·‖r‖ of rounding and can invent a derivative, and with it a joint rank (round 15).
     geometry, error = _jacobian(
         lambda th: problem.whiten(problem.checked_design(th) @ t), theta, problem.lower, problem.upper
     )
-    order = problem.whiten(problem.checked_design(theta))
     return np.column_stack([geometry, order]), np.column_stack([error, np.zeros_like(order)])
 
 
@@ -632,10 +664,39 @@ def fit(problem: Problem, settings: Settings | None = None) -> FitResult:
         uncertain=uncertain,
         validity=validity,
         names=names,
+        notes=problem.notes(best.theta) if problem.notes is not None else (),
     )
 
 
 # --------------------------------------------------------------------------- profiles and slices
+def _free_model(problem: Problem, theta_of: Callable[[Array], Array], free: list[int]) -> Model:
+    """The sub-problem in the free geometry coordinates, one geometry parameter held fixed."""
+    n = len(problem.y)
+
+    def value(f: Array) -> tuple[Array, Array]:
+        return problem.checked_design(theta_of(f)), np.zeros(n)
+
+    def derivative(f: Array) -> tuple[Array, Array]:
+        return problem.checked_design_derivative(theta_of(f))[free], np.zeros((len(free), n))
+
+    return Model(value, derivative if problem.design_derivative is not None else None)
+
+
+def _reduced_model(problem: Problem, column: int, value: float) -> Model:
+    """The sub-problem with order parameter ``column`` held at ``value``: its column moves to F."""
+    others = [c for c in range(problem.p) if c != column]
+
+    def design(theta: Array) -> tuple[Array, Array]:
+        d = problem.checked_design(theta)
+        return d[:, others], d[:, column] * value
+
+    def derivative(theta: Array) -> tuple[Array, Array]:
+        d = problem.checked_design_derivative(theta)
+        return d[:, :, others], d[:, :, column] * value
+
+    return Model(design, derivative if problem.design_derivative is not None else None)
+
+
 def _profile_chi2(
     problem: Problem, result: FitResult, index: int, value: float, settings: Settings
 ) -> tuple[float, bool]:
@@ -659,8 +720,7 @@ def _profile_chi2(
         def free_residual(f: Array) -> Array:
             return problem.profile_residual(theta_of(f))
 
-        def free_model(f: Array) -> tuple[Array, Array]:
-            return problem.checked_design(theta_of(f)), np.zeros(len(problem.y))
+        free_model = _free_model(problem, theta_of, free)
 
         lo, hi = problem.lower[free], problem.upper[free]
 
@@ -688,9 +748,7 @@ def _profile_chi2(
             return problem.whiten(-target)
         return problem.whiten(-problem.solve(d[:, others], target).residuals)
 
-    def reduced_model(theta: Array) -> tuple[Array, Array]:
-        d = problem.checked_design(theta)
-        return d[:, others], d[:, column] * value
+    reduced_model = _reduced_model(problem, column, value)
 
     def reduced_jac(theta: Array) -> Array:
         return _varpro_jacobian(problem, reduced_model, theta, problem.lower, problem.upper)[1]

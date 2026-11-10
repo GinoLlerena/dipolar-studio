@@ -1,26 +1,67 @@
 """Biphenyl template geometry (plan D4: fixed template coordinates with one permitted torsion).
 
-Frame: the *bisector frame* of the synthetic dataset.
+**The frozen frame contract (plan D12, M1).**
 
-* z runs along the inter-ring axis C4–C1–C1′–C4′; ring A is on the z < 0 side.
-* x bisects the two ring planes, and y = z × x.
-* Ring A spans z and u_A = (cos φ/2, +sin φ/2, 0); ring B spans z and u_B = (cos φ/2, −sin φ/2, 0).
-  The inter-ring dihedral is therefore φ.
+1. *Rotation.* Building the geometry turns the rings *actively*. Changing frame is *passive*
+   (``dipolar_core.forward.frame_change``): coordinates and S are re-expressed together, and the
+   couplings do not change (contraction invariance).
+2. *Axes.* Two frames are declared:
+   - ``"bisector"`` (the frame of the frozen fixture): z runs along the inter-ring axis
+     C4–C1–C1′–C4′ with ring A on the z < 0 side; x bisects the two ring planes; y = z × x. Ring A
+     spans z and u_A = (cos φ/2, +sin φ/2, 0), ring B spans z and u_B = (cos φ/2, −sin φ/2, 0).
+   - ``"ring-a"``: the same z; x = u_A, which lies in ring A's plane on the C2 side; y = z × x.
+     Ring A is fixed in this frame, and the bisector sits at angle −φ/2 from its x axis.
+3. *Torsion sign.* φ is the inter-ring dihedral. The signed IUPAC dihedral τ(C2–C1–C1′–C2′) of
+   this template is −φ. The reflection y → −y maps φ to −φ at fixed labels. It flips the signs of
+   Sxy and Syz and leaves the diagonal components unchanged. The fitted domain is folded to
+   φ ∈ [0°, 90°]. At fixed labels, (φ, S) ≡ (−φ, S with Sxy and Syz negated). (180° ± φ) is
+   reached only together with the ring-B relabelling H2′↔H6′, H3′↔H5′.
+4. *Constraint basis C(g)*, in ``ORDER_MODELS``. Each maps the free order parameters t onto the
+   five ``ORDER_BASIS`` components in the declared frame:
+   - ``"bisector-diagonal"`` (legacy alias "D4"): S is diagonal in the bisector frame, with
+     t = (Szz, Δ′) and Δ′ = Sxx − Syy there. In the bisector frame C is constant. In the ring-A
+     frame it is the moving-bisector form with δ = −φ = τ: Δ = Δ′ cos δ and Sxy = ½Δ′ sin δ.
+     That form is regular for every δ. Its δ-derivative is part of the analytic Jacobian.
+   - ``"c2z"`` (legacy alias "D2"): t = (Szz, Delta, Sxy) in the declared frame, with
+     Delta = Sxx − Syy.
+   - ``"c1"``: all five components in the declared frame.
+
+**Scale anchor.** The template's bond lengths are fixed, so the scale freedom r → λr, S → λ³S of
+plan D12 is already removed.
+
+**The D2d endpoint (labelled, not enforced).** At φ = 90° the two identical rings have D2d
+symmetry, and S4 about z forces S to be uniaxial about z. The data still constrain Δ′ (and Sxy,
+Sxz, Syz) there through the individual couplings. So a fit that lands at φ = 90° reports them,
+with a note (``D2D_NOTE``) that a nonzero value is phenomenological. The note applies to this
+declared identical-ring template only, never to arbitrary imported geometry.
 
 The rings are regular hexagons. Protons sit on C2…C6 of each ring, on the ray from the ring
 centre through the carbon, at distance r_cc + r_ch from the centre.
+
+The observations must be independent under the model's own symmetry. The fixture's equivalence
+classes (``couplings.csv``, ``equivalent_pairs``) are those of a D2-symmetric molecule and tensor.
+They are valid for ``"bisector-diagonal"`` and not for ``"c2z"`` or ``"c1"``.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Literal
 
 import numpy as np
 from numpy.typing import NDArray
 
-from dipolar_core.forward import constraint_diagonal, design_rows
+from dipolar_core.forward import (
+    constraint_c1,
+    constraint_c2z,
+    constraint_diagonal,
+    constraint_moving_bisector,
+    constraint_moving_bisector_derivative,
+    design_rows,
+    design_rows_derivative,
+    frame_change,
+)
 from dipolar_core.nuclides import dipolar_constant_hz_a3
 from dipolar_core.problem import Problem
 
@@ -28,6 +69,23 @@ Array = NDArray[np.float64]
 
 #: Display labels of the ten protons, in template order (ring A, then ring B).
 PROTON_LABELS: Final = ("H2", "H3", "H4", "H5", "H6", "H2'", "H3'", "H4'", "H5'", "H6'")
+
+OrderModel = Literal["bisector-diagonal", "c2z", "c1"]
+Frame = Literal["bisector", "ring-a"]
+ORDER_MODELS: Final = ("bisector-diagonal", "c2z", "c1")
+FRAMES: Final = ("bisector", "ring-a")
+#: The 1998 names, accepted as aliases only (plan D12).
+LEGACY_ALIASES: Final = {"D4": "bisector-diagonal", "D2": "c2z"}
+ORDER_NAMES: Final = {
+    "bisector-diagonal": ("Szz", "Delta"),
+    "c2z": ("Szz", "Delta", "Sxy"),
+    "c1": ("Szz", "Delta", "Sxy", "Sxz", "Syz"),
+}
+D2D_NOTE: Final = (
+    "D2d endpoint: at phi = 90 deg the identical rings have D2d symmetry, which forces S to be "
+    "uniaxial about z; nonzero Delta, Sxy, Sxz or Syz there is phenomenological"
+)
+_DEG: Final = math.pi / 180.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,14 +121,93 @@ def proton_positions(phi_deg: float, geometry: BiphenylGeometry | None = None) -
     return coords
 
 
+def proton_positions_derivative(phi_deg: float, geometry: BiphenylGeometry | None = None) -> Array:
+    """∂ ``proton_positions`` / ∂φ, per degree, in the bisector frame (10 × 3, analytic)."""
+    if not math.isfinite(phi_deg):
+        raise ValueError("phi_deg must be finite")
+    g = geometry or BiphenylGeometry()
+    half = math.radians(phi_deg) / 2.0
+    out = np.empty((10, 3), dtype=np.float64)
+    ring_angles = np.radians(60.0 * np.arange(1, 6))
+    for ring, side in enumerate((-1.0, +1.0)):
+        d_in_plane = 0.5 * _DEG * np.array([-math.sin(half), -side * math.cos(half), 0.0])
+        out[5 * ring : 5 * ring + 5] = (g.r_cc + g.r_ch) * np.outer(np.sin(ring_angles), d_in_plane)
+    return out
+
+
+def frame_axes(phi_deg: float, frame: Frame) -> tuple[Array, Array]:
+    """(axes, ∂axes/∂φ per degree): the rows are the declared frame's axes in bisector coordinates."""
+    if frame == "bisector":
+        return np.eye(3), np.zeros((3, 3))
+    if frame != "ring-a":
+        raise ValueError(f"unknown frame {frame!r}; expected one of {FRAMES}")
+    half = math.radians(phi_deg) / 2.0
+    c, s = math.cos(half), math.sin(half)
+    axes = np.array([[c, s, 0.0], [-s, c, 0.0], [0.0, 0.0, 1.0]])
+    d_axes = 0.5 * _DEG * np.array([[-s, c, 0.0], [-c, -s, 0.0], [0.0, 0.0, 0.0]])
+    return axes, d_axes
+
+
+def resolve_order_model(order: str) -> OrderModel:
+    """The canonical model name; the legacy names "D4" and "D2" are aliases only."""
+    name = LEGACY_ALIASES.get(order, order)
+    if name not in ORDER_MODELS:
+        raise ValueError(f"unknown order model {order!r}; expected one of {ORDER_MODELS} or {tuple(LEGACY_ALIASES)}")
+    return name  # type: ignore[return-value]
+
+
+def constraint(phi_deg: float, order: OrderModel, frame: Frame) -> tuple[Array, Array]:
+    """(C, ∂C/∂φ per degree) of an order model in a declared frame (the constraint basis C(g))."""
+    if order == "c2z":
+        c = constraint_c2z()
+    elif order == "c1":
+        c = constraint_c1()
+    elif frame == "ring-a":  # the moving bisector: δ = −φ
+        delta = -math.radians(phi_deg)
+        return constraint_moving_bisector(delta), -_DEG * constraint_moving_bisector_derivative(delta)
+    else:
+        c = constraint_diagonal()
+    return c, np.zeros_like(c)
+
+
 def rigid_design(
     phi_deg: float,
     pairs: tuple[tuple[int, int], ...],
     geometry: BiphenylGeometry | None = None,
+    *,
+    order: OrderModel = "bisector-diagonal",
+    frame: Frame = "bisector",
 ) -> Array:
-    """Design A·C of the rigid model: one conformer, S diagonal in the bisector frame (Szz, Δ)."""
+    """Design A·C of the rigid model (one conformer) for an order model in a declared frame."""
+    axes, _ = frame_axes(phi_deg, frame)
+    c, _ = constraint(phi_deg, order, frame)
     k = dipolar_constant_hz_a3("1H", "1H")
-    return design_rows(proton_positions(phi_deg, geometry), pairs, k) @ constraint_diagonal()
+    return design_rows(frame_change(axes, proton_positions(phi_deg, geometry)), pairs, k) @ c
+
+
+def rigid_design_derivative(
+    phi_deg: float,
+    pairs: tuple[tuple[int, int], ...],
+    geometry: BiphenylGeometry | None = None,
+    *,
+    order: OrderModel = "bisector-diagonal",
+    frame: Frame = "bisector",
+) -> Array:
+    """∂(A·C)/∂φ per degree, analytic: ∂A·C + A·∂C, including the frame's own rotation."""
+    axes, d_axes = frame_axes(phi_deg, frame)
+    c, d_c = constraint(phi_deg, order, frame)
+    k = dipolar_constant_hz_a3("1H", "1H")
+    positions = proton_positions(phi_deg, geometry)
+    framed = frame_change(axes, positions)
+    d_framed = frame_change(axes, proton_positions_derivative(phi_deg, geometry)) + frame_change(d_axes, positions)
+    d_rows = design_rows_derivative(framed, d_framed[None], pairs, k)[0]
+    out: Array = d_rows @ c + design_rows(framed, pairs, k) @ d_c
+    return out
+
+
+def at_d2d_endpoint(phi_deg: float) -> bool:
+    """True at the D2d endpoint φ = 90°, within 1e-9 relative (the fitter's bound tolerance)."""
+    return abs(phi_deg - 90.0) <= 1e-9 * 90.0
 
 
 def rigid_problem(
@@ -78,16 +215,29 @@ def rigid_problem(
     y: Array,
     sigma: Array,
     geometry: BiphenylGeometry | None = None,
+    *,
+    order: str = "bisector-diagonal",
+    frame: Frame = "bisector",
 ) -> Problem:
-    """The rigid model as a D3 problem: φ in [0°, 90°] (the folded domain), (Szz, Δ) linear."""
+    """The rigid model as a D3 problem: φ in [0°, 90°] (the folded domain), the order parameters
+    of ``order`` linear, with the analytic φ-derivative of the design."""
     g = geometry or BiphenylGeometry()
+    model = resolve_order_model(order)
+    frame_axes(0.0, frame)  # validates the frame name
+    s5_map = {"bisector-diagonal": constraint_diagonal(), "c2z": constraint_c2z(), "c1": constraint_c1()}[model]
     return Problem(
-        design=lambda theta: rigid_design(float(theta[0]), pairs, g),
+        design=lambda theta: rigid_design(float(theta[0]), pairs, g, order=model, frame=frame),
+        design_derivative=lambda theta: rigid_design_derivative(float(theta[0]), pairs, g, order=model, frame=frame)[
+            None
+        ],
+        notes=lambda theta: (D2D_NOTE,) if at_d2d_endpoint(float(theta[0])) else (),
         y=np.asarray(y, dtype=np.float64),
         sigma=np.asarray(sigma, dtype=np.float64),
         lower=np.array([0.0]),
         upper=np.array([90.0]),
         theta_names=("phi_deg",),
-        order_names=("Szz", "Delta"),
-        s5_map=constraint_diagonal(),
+        order_names=ORDER_NAMES[model],
+        # The tensor in *some* frame suffices: admissibility depends only on the eigenvalues. For
+        # "bisector-diagonal", t gives S in the bisector frame whatever the declared frame.
+        s5_map=s5_map,
     )

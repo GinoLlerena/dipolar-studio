@@ -1,9 +1,11 @@
 # Status
 
+**M1 step 2 (the frame contract, C2(z) and C1, analytic derivatives) is built and under review
+(round 19).** It is committed locally and not pushed until the review passes.
+
 **M1 step 1 (the D3 stack) is done: tag `m1-step1`, pushed.** Validation rounds 13–17 each
 returned NOT READY, and every finding was fixed. Round 18, the second round under the two-round
-cap, returned READY WITH MINOR CHANGES, and its one class-(B) limit is documented. **Next: M1
-step 2, in a fresh session.**
+cap, returned READY WITH MINOR CHANGES, and its one class-(B) limit is documented.
 
 **Phase 1, milestone M0: all five steps are done.** The spikes (step 4) pass with evidence, and
 the owner approved the re-baseline (step 5) on 2026-11-09. Validation round 10 (GPT-6.1-Sol) returned
@@ -172,7 +174,7 @@ The owner approved the re-baseline on 2026-11-09.
 | M1 step | Status | Owner hours (owner fills in) |
 |---|---|---|
 | 1. The D3 stack in dipolar-core | **done** (tag `m1-step1`); rounds 13–18, READY WITH MINOR CHANGES at round 18 | |
-| 2. Frame contract, C2(z) and C1 | — | |
+| 2. Frame contract, C2(z) and C1 | built; review round 19 pending | |
 | 3. Four-site jump model | — | |
 | 4. CSV/XYZ import, JSON v1 | — | |
 | 5. Gates (a)–(e), coverage, 8CB | — | |
@@ -273,13 +275,61 @@ The fitter is not yet an operation. Operations come in M2, as the beta UI needs 
 Check the baseline before resuming:
 
 ```sh
-uv sync --locked && uv run pytest -q -m "not slow"     # 264 passed
+uv sync --locked && uv run pytest -q -m "not slow"     # 302 passed
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 (cd web && pnpm install --frozen-lockfile && pnpm build)
 LEGACY=path/to/NMRApllication tools/legacy-harness/run.sh
 tools/package/build.sh && uv venv /tmp/pkg && uv pip install --python /tmp/pkg/bin/python dist/packages/*.whl \
   && DIPOLAR_BIN=/tmp/pkg/bin/dipolar uv run pytest spikes/test_spike_d10_localhost.py   # 32 passed
 ```
+
+### Step 2: the frame contract, C2(z) and C1
+
+The frame contract is frozen in the `dipolar_core.biphenyl` module docstring and summarized in
+ADR-0012. It covers four things:
+1. **Rotation:** geometry is built by active rotations, and frame changes are passive
+   (`forward.frame_change`).
+2. **Axes:** the frozen fixture's bisector frame, plus a ring-A frame.
+3. **Torsion sign:** the IUPAC dihedral τ(C2–C1–C1′–C2′) is −φ.
+4. **Constraint basis C(g):** one per order model.
+
+What was built:
+- **Order models** (`rigid_problem(..., order=, frame=)`):
+  - `bisector-diagonal`, legacy alias "D4";
+  - `c2z` (Szz, Δ, Sxy), legacy alias "D2";
+  - `c1` (all five components).
+- **The moving-bisector form.** In the ring-A frame, the bisector-diagonal model is
+  Δ = Δ′cos δ and Sxy = ½Δ′sin δ, with δ = −φ = τ. It is regular for every δ, and its
+  δ-derivative is part of the Jacobian.
+- **Analytic geometry derivatives:**
+  - `forward.design_rows_derivative` works for any geometry;
+  - `biphenyl.rigid_design_derivative` includes the frame's own rotation and ∂C;
+  - `Problem.design_derivative` makes the fitter use them in place of finite differences, in
+    TRF, the certificate, the full Jacobian and every profile sub-model.
+
+  On the fixture, the intervals are identical and the profiles run about 1.6× faster
+  (Szz 3.4 s, down from 5.3 s).
+- **The D2d endpoint is labelled, not enforced.** At φ = 90°, S4 symmetry forces a uniaxial
+  tensor, but the individual couplings still constrain Δ′. A fit that lands there carries
+  `FitResult.notes = (D2D_NOTE,)`.
+
+The tests are in `packages/dipolar-core/tests/test_core_frames.py` (38 tests):
+- the analytic derivatives against an independent sixth-order stencil, and every sub-model;
+- contraction invariance under random rotations, and in both frames;
+- the ring-A frame holds ring A still, and the δ sign;
+- the IUPAC torsion sign, and the reflection equivalence;
+- legacy D4 against the moving-bisector form away from the pole (with Δ_L = Δ′cos δ), and
+  legacy D2 against c2z;
+- the S4 invariance at the D2d endpoint, and the label;
+- noiseless recovery with c2z and c1 in both frames;
+- analytic against differenced fits and profiles.
+
+Every new piece was mutation-checked; two survivors led to new sub-model tests.
+
+**Limits:**
+- Legacy D4 parity of the *reported tensor* (B55) still needs the thesis.
+- The fixture's equivalence classes are D2 classes, so they are valid only for
+  `bisector-diagonal`.
 
 ## Open items for the owner
 

@@ -27,6 +27,7 @@ from dipolar_core.inference import InnerSolution, solve_inner
 
 Array = NDArray[np.float64]
 DesignFunction = Callable[[Array], Array]
+NotesFunction = Callable[[Array], tuple[str, ...]]
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,10 @@ class Problem:
 
     ``s5_map`` maps t onto the five ``ORDER_BASIS`` components (the constraint C), so that the
     admissibility of the fitted order matrix can be checked; None skips that check.
+
+    ``design_derivative``, when given, returns the analytic ∂D/∂θ as a k × N × p array, and the
+    fitter uses it in place of finite differences. ``notes`` returns model-specific labels for a
+    fitted θ, for example the D2d endpoint of the biphenyl template.
     """
 
     design: DesignFunction
@@ -46,6 +51,8 @@ class Problem:
     order_names: tuple[str, ...]
     s5_map: Array | None = None
     covariance: Array | None = None
+    design_derivative: DesignFunction | None = None
+    notes: NotesFunction | None = None
     _whitener: Array | None = field(init=False, repr=False, compare=False, default=None)
 
     def __post_init__(self) -> None:
@@ -122,6 +129,14 @@ class Problem:
             condition=whitened.condition,
             singular_values=whitened.singular_values,
         )
+
+    def checked_design_derivative(self, theta: Array) -> Array:
+        if self.design_derivative is None:
+            raise ValueError("this problem has no analytic design derivative")
+        d = np.asarray(self.design_derivative(np.asarray(theta, dtype=np.float64)), dtype=np.float64)
+        if d.shape != (self.k, len(self.y), self.p) or not np.all(np.isfinite(d)):
+            raise ValueError(f"design_derivative returned shape {d.shape}, expected {(self.k, len(self.y), self.p)}")
+        return d
 
     def inner(self, theta: Array) -> InnerSolution:
         return self.solve(self.checked_design(theta), self.y)
