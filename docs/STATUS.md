@@ -112,7 +112,7 @@ The owner approved the re-baseline on 2026-11-09.
 
 | M1 step | Status | Owner hours (owner fills in) |
 |---|---|---|
-| 1. The D3 stack in dipolar-core | rounds 13–14 NOT READY, all findings fixed; round 15 reviews | |
+| 1. The D3 stack in dipolar-core | rounds 13–15 NOT READY, all findings fixed; round 16 reviews | |
 | 2. Frame contract, C2(z) and C1 | — | |
 | 3. Four-site jump model | — | |
 | 4. CSV/XYZ import, JSON v1 | — | |
@@ -139,9 +139,10 @@ The owner approved the re-baseline on 2026-11-09.
 **Validation round 13** returned NOT READY: six major findings and six minor ones on adversarial
 problems. All are fixed ([docs/validation/round13-m1-step1.md](validation/round13-m1-step1.md)):
 - the derivative stencil stays inside the bounds;
-- the first crossing is found, and multi-component regions are refused;
+- crossings are searched outward and every interval is verified by sampling, so multi-component
+  regions are refused (sampling can still miss a feature narrower than its spacing);
 - profiles search every known basin (up to 16 starts);
-- an interval is refused when a re-minimization fails;
+- an interval is refused when a re-minimization fails, or when a failed run went lower;
 - the null space is complete;
 - a **full covariance Σ** is accepted;
 - every scan point records its own diagnostics;
@@ -161,9 +162,16 @@ major problems that the round-13 fixes introduced, plus two minor issues; all ar
 - a reduced SVD is used unless N < p_free;
 - another basin refuses the interval only if it lies outside it.
 
+**Validation round 15** returned NOT READY on three more major problems and one minor one, all
+fixed:
+- `full_jacobian` no longer differences the data;
+- every interval is verified by even sampling before it is accepted;
+- a failed run that goes lower makes the profile unresolved;
+- a noisy near-zero gradient at a bound counts as binding.
+
 **Tests:**
 - `test_core_fit.py`: 16 tests.
-- `test_core_fit_adversarial.py`: 41 tests, made from the round-13 counterexamples, plus GLS
+- `test_core_fit_adversarial.py`: 45 tests, made from the round-13 counterexamples, plus GLS
   controls for correlated errors.
 
 The `test_core_fit.py` tests:
@@ -190,7 +198,7 @@ The fitter is not yet an operation. Operations come in M2, as the beta UI needs 
 Check the baseline before resuming:
 
 ```sh
-uv sync --locked && uv run pytest -q -m "not slow"     # 248 passed
+uv sync --locked && uv run pytest -q -m "not slow"     # 252 passed
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 (cd web && pnpm install --frozen-lockfile && pnpm build)
 LEGACY=path/to/NMRApllication tools/legacy-harness/run.sh

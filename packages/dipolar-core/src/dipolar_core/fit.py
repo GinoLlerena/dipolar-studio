@@ -33,9 +33,9 @@ The error covariance Σ is known and never rescaled (``dipolar_core.problem``). 
    - the region continues beyond an endpoint;
    - a constrained re-minimization fails.
 
-   Crossings are searched by geometric sampling outward from the optimum, so a feature narrower
-   than the sampling can still be missed. The label states the one-parameter coverage of the raw
-   Δχ² threshold under regular asymptotics.
+   Crossings are searched by geometric sampling outward from the optimum, and every interval is
+   then verified by sampling it evenly. A feature narrower than the sampling can still be missed.
+   The label states the one-parameter coverage of the raw Δχ² threshold under regular asymptotics.
 6. **Validity.** The flags are independent of each other: inner rank and condition number, joint
    rank, convergence, admissibility, bounds and interval support.
 
@@ -62,7 +62,7 @@ from dipolar_core.problem import Problem as Problem
 Array = NDArray[np.float64]
 
 #: Version of this stack's numerical choices (enters the numerical context when an operation uses it).
-FIT_VERSION: Final = "varpro-trf.3"
+FIT_VERSION: Final = "varpro-trf.4"
 #: Relative distance (in units of the bound range) under which two refined optima are one basin.
 BASIN_RTOL: Final = 1e-6
 #: A geometry parameter is at a bound if TRF reports the bound active, or if it lies within
@@ -81,6 +81,10 @@ BOUND_ATOL: Final = 1e-9
 #: such fits. The measure is in χ² units and independent of the units of θ.
 DECREMENT_ATOL: Final = 1e-8
 ATTAINABLE_FACTOR: Final = 10.0
+#: At a bound, an inward gradient no larger than its own rounding noise counts as zero (binding).
+#: Differencing the model part m costs about ε·‖m‖/h, so the gradient's noise is about
+#: GRADIENT_NOISE_FACTOR · ε^(2/3) · ‖m‖ · ‖r‖ / max(1, |xᵢ|) (round 15).
+GRADIENT_NOISE_FACTOR: Final = 10.0
 #: Constrained re-minimizations in a profile start from at most this many known basins.
 MAX_PROFILE_STARTS: Final = 16
 #: Outward sampling for interval crossings: first distance = Gauss–Newton step · 2^FIRST_EXPONENT;
@@ -88,6 +92,10 @@ MAX_PROFILE_STARTS: Final = 16
 FIRST_EXPONENT: Final = -10
 MAX_DOUBLINGS: Final = 60
 SUBDIVISIONS: Final = 8
+#: Every interval is verified before it is accepted: the profile is sampled at this many evenly
+#: spaced interior points (plus any known grid values inside). A sample above the threshold means
+#: the region has a gap, which the outward search stepped over (round 15).
+INTERVAL_SAMPLES: Final = 64
 #: Beyond each endpoint, the profile is probed at these multiples of the interval width.
 COMPONENT_PROBES: Final = (0.25, 0.5, 1.0, 2.0, 4.0)
 
@@ -371,19 +379,34 @@ def _converged(
     x = np.asarray(result.x, dtype=np.float64)
     r, jac, dm = _varpro_jacobian(problem, model, x, lower, upper)
     gradient = dm.T @ r  # of ½‖r‖² (envelope theorem)
+    model_norm = float(np.linalg.norm(r + problem.whiten(problem.y)))  # ‖W·(D t* + F)‖
     active_mask = np.asarray(result.active_mask)
-    free = []
+    interior, inward = [], 0.0
     for i in range(len(x)):
         at_lower = active_mask[i] < 0 or _near(float(x[i]), float(lower[i]))
         at_upper = active_mask[i] > 0 or _near(float(x[i]), float(upper[i]))
-        binding = (at_lower and gradient[i] >= 0) or (at_upper and gradient[i] <= 0)  # KKT: points outward
-        if not binding:
-            free.append(i)
-    if free:
-        u, sv, _ = np.linalg.svd(jac[:, free], full_matrices=False)
+        if not (at_lower or at_upper):
+            interior.append(i)
+            continue
+        # KKT: a bound binds when the gradient points out of the domain. Otherwise the predicted
+        # reduction along this coordinate is limited by the feasible step (the room to the other
+        # bound), so a tiny, noisy column cannot promise a huge reduction (round 15).
+        g = float(gradient[i])
+        noise = GRADIENT_NOISE_FACTOR * np.finfo(float).eps ** (2 / 3) * model_norm * float(np.linalg.norm(r))
+        noise /= max(1.0, abs(float(x[i])))
+        if (at_lower and g >= -noise) or (at_upper and g <= noise):
+            continue
+        curvature = float(jac[:, i] @ jac[:, i])
+        room = float(upper[i] - x[i]) if at_lower else float(x[i] - lower[i])
+        step_len = min(abs(g) / curvature, room) if curvature > 0 else room
+        inward += 2 * (abs(g) * step_len - 0.5 * curvature * step_len**2)  # in χ² units (χ² = 2·cost)
+    decrement = inward
+    if interior:
+        u, sv, _ = np.linalg.svd(jac[:, interior], full_matrices=False)
         keep = sv > RANK_RTOL * sv[0] if sv.size and sv[0] > 0 else np.zeros_like(sv, dtype=bool)
         projected = u[:, keep].T @ r
-        decrement = float(projected @ projected)
+        decrement += float(projected @ projected)
+    if decrement > 0:
         floor = ATTAINABLE_FACTOR * tolerance * float(r @ r)
         if decrement > DECREMENT_ATOL + floor:
             why = f"predicted χ² reduction {decrement:.3g}"
@@ -454,7 +477,9 @@ def full_jacobian(problem: Problem, theta: Array, t: Array) -> Array:
     """Whitened J of the joint residual in (θ, t): geometry columns from ``_derivative``, order
     columns exact."""
     theta = np.asarray(theta, dtype=np.float64)
-    geometry = _jacobian(lambda th: problem.joint_residual(th, t), theta, problem.lower, problem.upper)
+    # Differentiate the whitened prediction W·D(θ)·t only, never the data: the constant −W·y would
+    # cost ε·‖r‖ of rounding and can invent a derivative, and with it a joint rank (round 15).
+    geometry = _jacobian(lambda th: problem.whiten(problem.checked_design(th) @ t), theta, problem.lower, problem.upper)
     return np.column_stack([geometry, problem.whiten(problem.checked_design(theta))])
 
 
@@ -480,7 +505,7 @@ def fit(problem: Problem, settings: Settings | None = None) -> FitResult:
     joint_rank = int(np.count_nonzero(s > RANK_RTOL * s[0])) if s.size and s[0] > 0 else 0
     names = problem.names
     unidentified = tuple(
-        {n: float(v) for n, v in zip(names, row, strict=True) if abs(v) > 1e-12} for row in vt[joint_rank:]
+        {n: float(v) for n, v in zip(names, row, strict=True) if abs(v) > 1e-9} for row in vt[joint_rank:]
     )
 
     at_bound = tuple(
@@ -564,11 +589,16 @@ def _profile_chi2(
         def free_jac(f: Array) -> Array:
             return _varpro_jacobian(problem, free_model, f, lo, hi)[1]
 
+        failed = math.inf
         for start in starts:
             res = _least_squares(free_residual, start[free], lo, hi, settings, free_jac)
+            chi2 = problem.inner(theta_of(np.asarray(res.x))).chi2
             if _converged(problem, free_model, res, lo, hi, settings.tolerance)[0]:
-                best, ok = min(best, problem.inner(theta_of(np.asarray(res.x))).chi2), True
-        return best, ok
+                best, ok = min(best, chi2), True
+            else:
+                failed = min(failed, chi2)
+        # A failed run that went lower disproves the accepted minimum (round 15): unresolved.
+        return (failed, False) if failed < best else (best, ok)
 
     column = index - k
     others = [c for c in range(problem.p) if c != column]
@@ -587,12 +617,15 @@ def _profile_chi2(
     def reduced_jac(theta: Array) -> Array:
         return _varpro_jacobian(problem, reduced_model, theta, problem.lower, problem.upper)[1]
 
+    failed = math.inf
     for start in starts:
         res = _least_squares(reduced, start, problem.lower, problem.upper, settings, reduced_jac)
+        r = reduced(np.asarray(res.x))
         if _converged(problem, reduced_model, res, problem.lower, problem.upper, settings.tolerance)[0]:
-            r = reduced(np.asarray(res.x))
             best, ok = min(best, float(r @ r)), True
-    return best, ok
+        else:
+            failed = min(failed, float(r @ r))
+    return (failed, False) if failed < best else (best, ok)
 
 
 def _slice_chi2(problem: Problem, result: FitResult, index: int, value: float) -> tuple[float, bool]:
@@ -653,6 +686,35 @@ def _interval(
     bound_hi = float(problem.upper[index]) if index < problem.k else math.inf
     step = float(result.covariance.stderr[index]) * math.sqrt(delta_chi2)
 
+    # For one geometry parameter the profile *is* the scan objective: reuse the grid values.
+    known: list[tuple[float, float]] = []
+    if kind == "profile" and index < problem.k and problem.k == 1:
+        known = [
+            (float(pt[0]), float(c) - result.chi2 - delta_chi2)
+            for pt, c in zip(result.scan.points, result.scan.chi2, strict=True)
+        ]
+
+    def first_crossing(direction: float, inner_d: float, outer_d: float) -> float | None:
+        """The first point in (inner_d, outer_d] above the threshold, located by sampling: the
+        known grid values inside the segment (one geometry parameter), and its outer end."""
+        marks = {outer_d}
+        for value, _ in known:
+            d = (value - estimate) * direction
+            if inner_d < d <= outer_d:
+                marks.add(d)
+        previous = inner_d
+        for mark in sorted(marks):
+            if excess(estimate + direction * mark) > 0:
+                # Refine within (previous, mark] to the first positive subsample, then the root.
+                sub_prev = previous
+                for sub in np.linspace(previous, mark, SUBDIVISIONS + 1)[1:]:
+                    if excess(estimate + direction * float(sub)) > 0:
+                        lo, hi = sorted((estimate + direction * sub_prev, estimate + direction * float(sub)))
+                        return float(brentq(excess, lo, hi, xtol=1e-14, rtol=1e-14, maxiter=200))
+                    sub_prev = float(sub)
+            previous = mark
+        return None
+
     def endpoint(direction: float) -> float:
         side = "lower" if direction < 0 else "upper"
         bound = bound_lo if direction < 0 else bound_hi
@@ -662,14 +724,9 @@ def _interval(
             hit_bound = (estimate + direction * outer_d - bound) * direction >= 0
             if hit_bound:
                 outer_d = abs(bound - estimate)
-            if excess(estimate + direction * outer_d) > 0:
-                # The first crossing lies in (inner_d, outer_d]: subdivide to find the first positive sample.
-                previous = inner_d
-                for mark in np.linspace(inner_d, outer_d, SUBDIVISIONS + 1)[1:]:
-                    if excess(estimate + direction * float(mark)) > 0:
-                        lo, hi = sorted((estimate + direction * previous, estimate + direction * float(mark)))
-                        return float(brentq(excess, lo, hi, xtol=1e-14, rtol=1e-14, maxiter=200))
-                    previous = float(mark)
+            crossing = first_crossing(direction, inner_d, outer_d)
+            if crossing is not None:
+                return crossing
             if hit_bound:
                 raise _Unsupported(f"the {side} side reaches the bound {bound:g}")
             inner_d = outer_d
@@ -686,6 +743,14 @@ def _interval(
                 raise _Unsupported(
                     f"another basin has {name} = {value:.6g} at Δχ² = {basin.chi2 - result.chi2:.3g}, outside "
                     f"[{lower:.6g}, {upper:.6g}]: the region has several components"
+                )
+        interior = np.linspace(lower, upper, INTERVAL_SAMPLES + 2)[1:-1].tolist()
+        interior += [v for v, _ in known if lower < v < upper]
+        for point in sorted(interior):
+            if excess(float(point)) > 0:
+                raise _Unsupported(
+                    f"the profile rises above the threshold at {name} = {point:.6g}, inside "
+                    f"[{lower:.6g}, {upper:.6g}]: the region has a gap (several components)"
                 )
         width = upper - lower
         for direction, end in ((-1.0, lower), (1.0, upper)):

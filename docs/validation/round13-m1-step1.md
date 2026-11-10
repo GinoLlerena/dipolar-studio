@@ -127,3 +127,41 @@ restoring the old behaviour makes its test fail.
 
 **Measured.** A fit of the fixture takes 0.18 s. The profiles take 0.02 s for φ, 1.8 s for Szz and
 1.5 s for Δ.
+
+## Round 15: confirmation
+
+- **Reviewer and date:** the same reviewer, read-only, 2026-11-09.
+- **Scope:** commit 5542447.
+- **Verdict: NOT READY.**
+  - Every frozen tolerance still passed, and the Golub–Pereyra Jacobian agreed with independent
+    finite differences (relative error below 2.5·10⁻¹⁰).
+  - Three earlier fixes held only for their original reproductions: the derivatives, the crossing
+    search and the handling of failed profiles.
+
+**Findings, all fixed** (`test_core_fit_adversarial.py`, each mutation-checked):
+
+1. **Major. `full_jacobian` still differenced the data.** At a stationary point it reported joint
+   rank 2, a finite error bar and ν = 1. The fix: the geometry columns differentiate W·D(θ)·t only.
+   A test checks that the column is identical for three very different y.
+2. **Major. A rival inside the interval hid a gap.** Two zero-cost basins were separated by a
+   barrier at χ² ≈ 4.8, and the search stepped over it.
+   - **The fix.** Every interval is now **verified before it is accepted**: the profile is sampled
+     at 64 evenly spaced interior points, plus any known grid values. A sample above the threshold
+     refuses the interval as having a gap.
+   - **The test** also covers a search that never found the second basin.
+3. **Major. A lower failed nuisance trial was discarded.** The fix: if a failed re-minimization
+   reaches a lower χ² than every converged one, the profile point is unresolved, never reported.
+   This applies to geometry and order profiles alike.
+4. **Minor. Rounding noise flipped a near-zero KKT gradient.**
+   - **The fix, part one.** At a bound, an inward gradient within its own rounding noise counts as
+     zero. That noise is about 10·ε^(2/3)·‖m‖·‖r‖.
+   - **The fix, part two.** A real inward gradient is credited only with the reduction it can
+     achieve within the feasible step. A tiny column can no longer promise a large reduction.
+
+**Also:**
+- named null directions drop components below 10⁻⁹, which is rounding on a unit vector;
+- a redundant segment-sampling pass was removed, because no test needed it once intervals were
+  verified.
+
+**Measured.** A fit of the fixture takes 0.18 s. The profiles take 0.03 s for φ, 4.3 s for Szz and
+2.6 s for Δ; the verification doubles their cost.

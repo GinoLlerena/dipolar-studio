@@ -424,3 +424,75 @@ def test_a_tall_problem_does_not_allocate_n_by_n() -> None:
     peak = tracemalloc.get_traced_memory()[1]
     tracemalloc.stop()
     assert peak < 20 * 2**20, f"peak {peak / 2**20:.1f} MiB"  # an N × N float64 matrix would be 69 MiB
+
+
+# --------------------------------------------------------------------------- validation round 15
+def test_the_full_jacobian_never_differences_the_data() -> None:
+    """At a stationary point the geometry column is exactly zero whatever the data. Differencing
+    the residual (which holds −W·y) invented a joint rank of 2 and a finite error bar."""
+    c = 1e-7
+
+    def design(x: Array) -> Array:
+        return np.array([[1.0], [(x[0] - c) ** 2], [0.0]])
+
+    columns = []
+    for y in ([1.0, 0.0, 0.0], [1.0, -10.0, 0.0], [1.0, -1e6, 0.0]):
+        q = problem(design, y, [0.0], [0.1])
+        columns.append(full_jacobian(q, np.array([c]), np.array([1.0]))[:, 0])
+    assert all(np.array_equal(columns[0], col) for col in columns[1:])  # independent of y
+    q = problem(design, [1.0, -10.0, 0.0], [0.0], [0.1])
+    result = fit(q, Settings(grid=np.array([c])))
+    assert result.validity.joint_rank == 1 and not result.validity.regular
+    assert result.covariance is None and result.nu is None and result.p_value is None
+    assert len(result.unidentified) == 1 and set(result.unidentified[0]) == {"x0"}
+
+
+def test_a_barrier_between_the_estimate_and_a_rival_is_not_hidden() -> None:
+    """Two zero-cost basins at x = 0 and 0.75 separated by a narrow barrier at 0.375 (χ² ≈ 4.8):
+    the Δχ² = 1 region has two components, so no single interval may be reported."""
+
+    def g(x: float) -> float:
+        return x * (0.75 - x) / 0.75 + 2.0 * np.exp(-(((x - 0.375) / 0.025) ** 2))
+
+    q = problem(lambda x: np.array([[100.0], [g(float(x[0]))], [0.0]]), [100.0, 0.0, 0.0], [-2.0], [2.0])
+    result = fit(q)
+    assert sorted(round(float(b.theta[0]), 6) for b in result.basins)[:2] == [0.0, 0.75]
+    assert q.inner(np.array([0.375])).chi2 > 4.0
+    interval = profile_interval(q, result, "x0")
+    assert not interval.supported and "several components" in interval.note
+    # Even when the search never finds the second basin, the interval is verified before it is
+    # accepted, so the barrier is seen.
+    alone = fit(q, Settings(grid=np.array([0.0])))
+    assert len(alone.basins) == 1
+    blind = profile_interval(q, alone, "x0")
+    assert not blind.supported and "gap" in blind.note
+
+
+def test_a_lower_failed_nuisance_trial_makes_the_profile_unresolved() -> None:
+    """With a starved budget one nuisance trial stops early *below* the converged one; the
+    converged value is then disproved, so the profile point is unresolved, never reported."""
+    from dipolar_core.fit import _profile_chi2
+
+    q = problem(
+        lambda x: np.array([[100.0], [2 * (x[1] ** 2 - 1)], [x[0] - (x[1] + 1)], [0.1 * (x[1] + 1)]]),
+        [100.0, 0.0, 0.0, 0.0],
+        [-1.0, -2.0],
+        [3.0, 2.0],
+    )
+    result = fit(q)
+    full, ok_full = _profile_chi2(q, result, 0, 0.75, Settings())
+    assert ok_full
+    starved, ok = _profile_chi2(q, result, 0, 0.75, Settings(max_nfev=10))
+    assert (not ok) or starved <= full + 1e-6  # never a converged value that a failed run beats
+
+
+def test_a_noisy_zero_gradient_at_a_bound_is_binding() -> None:
+    """D = a + 0.01 x² n, y = a − 100 n: the optimum is on the bound x = 0 with an exactly zero
+    gradient there. Rounding gives a tiny inward gradient; it must not count as a large reduction."""
+    a = np.array([1.0, 2.0, 3.0])
+    n = np.array([-1.0, 2.0, -1.0]) / np.sqrt(6.0)
+    q = problem(lambda x: (a + 0.01 * x[0] ** 2 * n)[:, None], list(a - 100 * n), [0.0], [1.0])
+    result = fit(q)
+    assert result.validity.converged and result.validity.at_bound == ("x0",)
+    assert result.theta[0] == pytest.approx(0.0, abs=1e-6)
+    assert result.chi2 == pytest.approx(q.inner(np.array([0.0])).chi2, rel=1e-12)
