@@ -19,10 +19,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 from dipolar_core.biphenyl import (
+    ACUTE_BOUND_NOTE,
     D2D_NOTE,
     FRAMES,
     ORDER_MODELS,
     PROTON_LABELS,
+    RELABELLING_MAPS,
+    RING_B_RELABELLING,
     at_d2d_endpoint,
     constraint,
     frame_axes,
@@ -36,6 +39,7 @@ from dipolar_core.biphenyl import (
 from dipolar_core.fit import (
     Model,
     Problem,
+    Settings,
     _free_model,
     _reduced_model,
     _varpro_jacobian,
@@ -284,7 +288,7 @@ def test_a_fit_at_the_d2d_endpoint_is_labelled_and_others_are_not() -> None:
     truth = rigid_design(90.0, ALL_PAIRS) @ [0.25, 0.0]
     at_pole = fit(rigid_problem(ALL_PAIRS, truth, np.full(len(truth), 0.5)))
     assert at_d2d_endpoint(float(at_pole.theta[0]))
-    assert at_pole.notes == (D2D_NOTE,)
+    assert at_pole.notes == (D2D_NOTE, ACUTE_BOUND_NOTE)
     assert "phi_deg" in at_pole.validity.at_bound
     inside = fit(rigid_problem(ALL_PAIRS, rigid_design(37.0, ALL_PAIRS) @ [0.25, 0.03], np.full(len(truth), 0.5)))
     assert inside.notes == ()
@@ -384,7 +388,8 @@ def test_the_analytic_varpro_jacobian_is_the_profile_residual_jacobian(make: str
         y = rigid_design(37.0, ALL_PAIRS, order="c1") @ [0.25, 0.03, 0.02, -0.01, 0.015]
         problem, x = rigid_problem(ALL_PAIRS, y, np.full(len(y), 0.5), order="c1"), np.array([55.0])
     r, jac, _, error = _varpro_jacobian(problem, _whole(problem), x, problem.lower, problem.upper)
-    assert np.linalg.norm(r) > 10 and not np.any(error)
+    assert np.linalg.norm(r) > 10
+    assert np.all(error <= 1e-10 * np.abs(jac).max())  # a rounding allowance only (round 19)
     for i in range(len(x)):
 
         def along(v: float, i: int = i) -> np.ndarray:
@@ -404,3 +409,112 @@ def test_profiles_agree_with_analytic_and_differenced_derivatives_for_two_parame
         ia, id_ = profile_interval(analytic, a, name), profile_interval(differenced, d, name)
         assert ia.supported and id_.supported
         assert ia.lower == pytest.approx(id_.lower, abs=1e-7) and ia.upper == pytest.approx(id_.upper, abs=1e-7)
+
+
+# --------------------------------------------------------------------------- round 19 counterexamples
+def test_analytic_rounding_never_invents_a_joint_rank() -> None:
+    """Round 19, finding 1: D(x)·[1, 1] = y for every x, so x is unidentified (joint rank 2).
+
+    The ∂D columns cancel on the exact t, but the computed t carries rounding, which the large ∂D
+    amplifies into a spurious singular value of about 1e-7. A zero error estimate counted it,
+    gave joint rank 3 and a finite stderr of about 8e6.
+    """
+    a = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    c = np.array([0.0, 1.0, -1.0, 2.0, -2.0, 3.0])
+    b = np.array([-5.0, 1.0, 1.0, 0.0, 0.0, 0.0])
+    scale = 1e8
+
+    def design(theta: np.ndarray) -> np.ndarray:
+        return np.column_stack([a + scale * theta[0] * b, c - scale * theta[0] * b])
+
+    problem = Problem(
+        design=design,
+        design_derivative=lambda theta: np.column_stack([scale * b, -scale * b])[None],
+        y=a + c,
+        sigma=np.ones(6),
+        lower=np.array([-1 / scale]),
+        upper=np.array([1 / scale]),
+        theta_names=("x",),
+        order_names=("u", "v"),
+    )
+    for p in (problem, dataclasses.replace(problem, design_derivative=None)):
+        result = fit(p, Settings(grid=np.array([0.0])))
+        assert result.validity.joint_rank == 2 and not result.validity.regular
+        assert result.covariance is None and result.nu is None
+
+
+@pytest.mark.parametrize("frame", FRAMES)
+def test_the_ring_b_relabelling_maps(frame: str) -> None:
+    """Round 19, finding 2: (180° ∓ φ) ≡ φ only with the ring-B relabelling and the tensor map."""
+    s5 = np.array([0.25, 0.03, 0.02, -0.01, 0.015])
+    images = tuple((RING_B_RELABELLING[i], RING_B_RELABELLING[j]) for i, j in ALL_PAIRS)
+    for phi in (12.0, 37.0, 80.0):
+        reference = rigid_design(phi, ALL_PAIRS, order="c1", frame=frame) @ s5  # type: ignore[arg-type]
+        for kind, angle in (("180-phi", 180.0 - phi), ("180+phi", 180.0 + phi)):
+            m = RELABELLING_MAPS[frame][kind]
+            mapped = rigid_design(angle, images, order="c1", frame=frame) @ (m @ s5)  # type: ignore[arg-type]
+            np.testing.assert_allclose(mapped, reference, rtol=0, atol=1e-9 * np.abs(reference).max())
+
+
+@pytest.mark.parametrize("order", ORDER_MODELS)
+def test_an_obtuse_torsion_needs_the_fixed_label_domain(order: str) -> None:
+    """Round 19, finding 2: with fixed labels, a 143° torsion is out of reach of the acute domain;
+    the fit sits at the 90° bound with a note, and the fixed-label domain recovers it."""
+    s5 = np.array([0.25, 0.03, 0.02, -0.01, 0.015])
+    p = len(rigid_problem(((0, 1),), np.ones(1), np.ones(1), order=order).order_names)
+    y = rigid_design(143.0, ALL_PAIRS, order=order) @ s5[:p]  # type: ignore[arg-type]
+    sigma = np.full(len(y), 0.5)
+    acute = fit(rigid_problem(ALL_PAIRS, y, sigma, order=order))
+    assert acute.theta[0] == pytest.approx(90.0) and acute.chi2 > 1e3
+    assert ACUTE_BOUND_NOTE in acute.notes
+    fixed = fit(rigid_problem(ALL_PAIRS, y, sigma, order=order, domain="fixed-labels"))
+    assert fixed.theta[0] == pytest.approx(143.0, abs=1e-8) and fixed.chi2 < 1e-12
+    np.testing.assert_allclose(fixed.order, s5[:p], rtol=0, atol=1e-8)
+    assert fixed.validity.regular and fixed.notes == ()
+
+
+def test_wider_order_models_break_the_template_d2_symmetry() -> None:
+    """Round 19, finding 3 (documented): Sxy alone gives D2-related pairs opposite couplings."""
+    index = {label: i for i, label in enumerate(PROTON_LABELS)}
+    pairs = ((index["H2"], index["H6"]), (index["H2'"], index["H6'"]))
+    d = rigid_design(37.0, pairs, order="c2z") @ [0.0, 0.0, 0.02]
+    assert d[0] == pytest.approx(-d[1]) and abs(d[0]) > 1.0
+
+
+def test_an_unknown_domain_is_rejected() -> None:
+    with pytest.raises(ValueError, match="unknown domain"):
+        rigid_problem(((0, 1),), np.ones(1), np.ones(1), domain="obtuse")  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(("gap", "residual"), [(1e-6, 0.0), (1e-7, 0.0), (1e-8, 0.0), (1e-5, 100.0), (1e-6, 100.0)])
+@pytest.mark.parametrize("analytic", [True, False])
+def test_the_inner_solve_error_never_invents_a_joint_rank(gap: float, residual: float, analytic: bool) -> None:
+    """Round 19 follow-up: the same unidentified x, now with an ill-conditioned inner design.
+
+    Here ∂D is small, so the contraction's own rounding is negligible. But t* carries an error of
+    about ε·κ along t₁ − t₂, exactly the direction the ∂D columns read. Without the inner-solve
+    allowance, both derivative paths reported joint rank 3 and regular = True. That included the
+    finite-difference path of step 1. A residual orthogonal to every column (x stays unidentified)
+    adds the κ²‖r‖ part of the error.
+    """
+    a = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    c = np.array([0.0, 1.0, -1.0, 2.0, -2.0, 3.0])
+    b = np.array([-5.0, 1.0, 1.0, 0.0, 0.0, 0.0])
+    perpendicular = np.linalg.qr(np.column_stack([a, b, c]), mode="complete")[0][:, 3]
+
+    def design(theta: np.ndarray) -> np.ndarray:
+        return np.column_stack([a + theta[0] * b, a + gap * c - theta[0] * b])
+
+    problem = Problem(
+        design=design,
+        design_derivative=(lambda theta: np.column_stack([b, -b])[None]) if analytic else None,
+        y=design(np.zeros(1)) @ np.ones(2) + residual * perpendicular,
+        sigma=np.ones(6),
+        lower=np.array([-1e-3]),
+        upper=np.array([1e-3]),
+        theta_names=("x",),
+        order_names=("u", "v"),
+    )
+    result = fit(problem, Settings(grid=np.array([0.0])))
+    assert result.validity.inner_rank == 2
+    assert result.validity.joint_rank == 2 and not result.validity.regular and result.covariance is None

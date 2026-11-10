@@ -20,7 +20,10 @@
 `tests/test_expected_fixtures.py` (frozen answers). M1 step 1 (`FIT_VERSION` varpro-trf.5: full Σ, exact Golub–Pereyra
 Jacobian, Richardson derivatives with a trusted rank, a bounded trial-step convergence certificate): `dipolar_core.fit` passes gates (a)
 and (b) and the irregular-case tests in `packages/dipolar-core/tests/test_core_fit.py`, and the round-13
-adversarial controls in `test_core_fit_adversarial.py`. Coverage,
+adversarial controls in `test_core_fit_adversarial.py`. M1 step 2 (`FIT_VERSION` varpro-trf.6) adds
+analytic design derivatives (`Problem.design_derivative`). It also adds an error allowance for the
+inner solution's own error in every geometry column of the full Jacobian, on both derivative
+paths (round 19). Coverage,
 gate (c), comes in M1 step 5.
 
 ## M0 spike 1 (2026-11-08)

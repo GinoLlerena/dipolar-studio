@@ -62,7 +62,7 @@ from dipolar_core.problem import Problem as Problem
 Array = NDArray[np.float64]
 
 #: Version of this stack's numerical choices (enters the numerical context when an operation uses it).
-FIT_VERSION: Final = "varpro-trf.5"
+FIT_VERSION: Final = "varpro-trf.6"
 #: Relative distance (in units of the bound range) under which two refined optima are one basin.
 BASIN_RTOL: Final = 1e-6
 #: A geometry parameter is at a bound if TRF reports the bound active, or if it lies within
@@ -81,6 +81,8 @@ ATTAINABLE_FACTOR: Final = 10.0
 #: A singular value of the joint Jacobian counts toward the rank only above TRUST_FACTOR times the
 #: Frobenius norm of the Jacobian's own error estimate (see ``_trusted_rank``).
 TRUST_FACTOR: Final = 10.0
+#: Multiplier of the rounding allowances of derivative columns (``_solve_error``, ``_analytic_error``).
+ROUNDING_FACTOR: Final = 8.0
 #: Backtracking halvings of the certificate's trial step (see ``_converged``).
 TRIAL_HALVINGS: Final = 40
 #: Constrained re-minimizations in a profile start from at most this many known basins.
@@ -373,13 +375,14 @@ def _varpro_jacobian(
     n = len(r)
     dm_columns, j_columns, error_columns = [], [], []
     if model.derivative is not None:
-        # Analytic: no truncation error. Rounding stays far below RANK_RTOL and the certificate's
-        # tolerance, so the error estimate is zero.
         d_design, d_fixed = model.derivative(x)
         for i in range(len(x)):
-            dm = problem.whiten(d_design[i] @ t + d_fixed[i])
+            wd, wf = problem.whiten(d_design[i]), problem.whiten(d_fixed[i])
+            dm = wd @ t + wf
             dm_columns.append(dm)
-            error_columns.append(np.zeros(n))
+            # Only the contraction's rounding: this error feeds the certificate's gradient test, and
+            # the gradient ∂mᵀr is insensitive to first order to the error of t because Aᵀr = 0.
+            error_columns.append(_analytic_error(wd, wf, t, 0.0))
             j_columns.append(dm - q @ (q.T @ dm) - pinv_t @ (problem.whiten(d_design[i]).T @ r))
     for i in range(len(x) if model.derivative is None else 0):
 
@@ -390,15 +393,43 @@ def _varpro_jacobian(
             return np.concatenate([problem.whiten(d @ t + f), problem.whiten(d).ravel()])
 
         derivative, error = _derivative(stacked, float(x[i]), float(lower[i]), float(upper[i]))
-        error_columns.append(error[:n])
         dm = derivative[:n]
         da = derivative[n:].reshape(n, p_free)
+        error_columns.append(error[:n])
         dm_columns.append(dm)
         j_columns.append(dm - q @ (q.T @ dm) - pinv_t @ (da.T @ r))
     if not dm_columns:
         empty = np.empty((n, 0))
         return r, empty, empty, empty
     return r, np.column_stack(j_columns), np.column_stack(dm_columns), np.column_stack(error_columns)
+
+
+def _solve_error(singular: Array, t: Array, r: Array) -> float:
+    """A bound on each component of the inner solution's own error δt (round 19).
+
+    Least-squares perturbation theory gives about ε·(κ‖t‖ + κ²‖r‖/s_max), with κ the condition
+    number of A = W·D on its numerical rank and r the whitened residual. Every derivative column
+    W·∂D·t inherits ∂D·δt, however ∂D is computed. A large or ill-conditioned problem amplifies
+    it, and counting it as information can invent a joint rank and a finite covariance. One
+    example is ∂D columns that cancel exactly on the true t.
+    """
+    if not (t.size and singular.size and singular[0] > 0):
+        return 0.0
+    kept = singular[singular > RANK_RTOL * singular[0]]
+    kappa = float(kept[0] / kept[-1])
+    eps = float(np.finfo(np.float64).eps)
+    return eps * (kappa * float(np.linalg.norm(t)) + kappa**2 * float(np.linalg.norm(r)) / float(kept[0]))
+
+
+def _analytic_error(wd: Array, wf: Array, t: Array, dt: float) -> Array:
+    """Componentwise error allowance of an analytic column W·(∂D·t + ∂F) (round 19).
+
+    An analytic derivative has no truncation error, but it is not exact. The contraction rounds by
+    about ε·(|W∂D|·|t| + |W∂F|), and t carries its own error δt (``_solve_error``).
+    """
+    eps = float(np.finfo(np.float64).eps)
+    out: Array = ROUNDING_FACTOR * (eps * (np.abs(wd) @ np.abs(t) + np.abs(wf)) + dt * np.abs(wd).sum(axis=1))
+    return out
 
 
 def _converged(
@@ -553,15 +584,29 @@ def _full_jacobian(problem: Problem, theta: Array, t: Array) -> tuple[Array, Arr
     columns exact."""
     theta = np.asarray(theta, dtype=np.float64)
     order = problem.whiten(problem.checked_design(theta))
+    n, k, p = len(problem.y), problem.k, problem.p
+    singular = np.linalg.svd(order, compute_uv=False) if p else np.empty(0)
+    dt = _solve_error(singular, t, order @ t - problem.whiten(problem.y))
     if problem.design_derivative is not None:
         d_design = problem.checked_design_derivative(theta)
-        geometry = problem.whiten(np.einsum("knp,p->nk", d_design, t))
-        return np.column_stack([geometry, order]), np.zeros((len(problem.y), problem.k + problem.p))
+        columns = [problem.whiten(d_design[i]) for i in range(k)]
+        geometry = np.column_stack([w @ t for w in columns]).reshape(n, k)
+        error = np.column_stack([_analytic_error(w, np.zeros(n), t, dt) for w in columns]).reshape(n, k)
+        return np.column_stack([geometry, order]), np.column_stack([error, np.zeros_like(order)])
     # Differentiate the whitened prediction W·D(θ)·t only, never the data: the constant −W·y would
     # cost ε·‖r‖ of rounding and can invent a derivative, and with it a joint rank (round 15).
-    geometry, error = _jacobian(
-        lambda th: problem.whiten(problem.checked_design(th) @ t), theta, problem.lower, problem.upper
+    # W·D is differenced alongside, so that the error of t can be carried through |W∂D| (round 19).
+    stacked, stacked_error = _jacobian(
+        lambda th: np.concatenate(
+            [problem.whiten(problem.checked_design(th) @ t), problem.whiten(problem.checked_design(th)).ravel()]
+        ),
+        theta,
+        problem.lower,
+        problem.upper,
     )
+    geometry = stacked[:n]
+    d_order = np.abs(stacked[n:]).reshape(n, p, k).sum(axis=1)  # Σ_j |W ∂D|_{·j} per geometry column
+    error = stacked_error[:n] + ROUNDING_FACTOR * dt * d_order
     return np.column_stack([geometry, order]), np.column_stack([error, np.zeros_like(order)])
 
 

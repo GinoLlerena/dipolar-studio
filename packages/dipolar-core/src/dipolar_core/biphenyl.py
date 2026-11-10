@@ -11,11 +11,20 @@
      spans z and u_A = (cos φ/2, +sin φ/2, 0), ring B spans z and u_B = (cos φ/2, −sin φ/2, 0).
    - ``"ring-a"``: the same z; x = u_A, which lies in ring A's plane on the C2 side; y = z × x.
      Ring A is fixed in this frame, and the bisector sits at angle −φ/2 from its x axis.
-3. *Torsion sign.* φ is the inter-ring dihedral. The signed IUPAC dihedral τ(C2–C1–C1′–C2′) of
-   this template is −φ. The reflection y → −y maps φ to −φ at fixed labels. It flips the signs of
-   Sxy and Syz and leaves the diagonal components unchanged. The fitted domain is folded to
-   φ ∈ [0°, 90°]. At fixed labels, (φ, S) ≡ (−φ, S with Sxy and Syz negated). (180° ± φ) is
-   reached only together with the ring-B relabelling H2′↔H6′, H3′↔H5′.
+3. *Torsion sign and domain.* φ is the inter-ring dihedral. The signed IUPAC dihedral
+   τ(C2–C1–C1′–C2′) of this template is −φ.
+   - The reflection y → −y maps φ to −φ at fixed labels. It negates Sxy and Syz and leaves the
+     other components unchanged. So ``domain="fixed-labels"``, φ ∈ [0°, 180°], is complete for
+     every order model.
+   - (180° ± φ) is equivalent to φ only together with the ring-B relabelling
+     ``RING_B_RELABELLING`` (H2′↔H6′, H3′↔H5′, applied to both ends of every pair) *and* the
+     tensor map ``RELABELLING_MAPS[frame][...]`` (round 19). In the bisector frame, with
+     s = (Szz, Δ, Sxy, Sxz, Syz): 180° − φ gives (Szz, −Δ, Sxy, Syz, Sxz), and 180° + φ gives
+     (Szz, −Δ, −Sxy, −Syz, Sxz).
+   - ``domain="acute"``, φ ∈ [0°, 90°], is the frozen fixture's domain and the default. It is
+     complete only when ring B's labels have been assigned so that the torsion is acute (a
+     precondition on the input). Otherwise the best fit sits at the 90° bound, with the note
+     ``ACUTE_BOUND_NOTE``.
 4. *Constraint basis C(g)*, in ``ORDER_MODELS``. Each maps the free order parameters t onto the
    five ``ORDER_BASIS`` components in the declared frame:
    - ``"bisector-diagonal"`` (legacy alias "D4"): S is diagonal in the bisector frame, with
@@ -41,6 +50,12 @@ centre through the carbon, at distance r_cc + r_ch from the centre.
 The observations must be independent under the model's own symmetry. The fixture's equivalence
 classes (``couplings.csv``, ``equivalent_pairs``) are those of a D2-symmetric molecule and tensor.
 They are valid for ``"bisector-diagonal"`` and not for ``"c2z"`` or ``"c1"``.
+
+``"c2z"`` and ``"c1"`` are reference models. They do not impose the D2 symmetry (C2 about x, y
+and z) of the identical-ring template. With this template, a nonzero Sxy, Sxz or Syz at *any*
+torsion describes a tensor less symmetric than the molecule. For example, Sxy alone gives H2–H6
+and H2′–H6′ couplings of opposite sign, although D2 relates those pairs. Such values are
+phenomenological, just as Δ′ is at the D2d endpoint (round 19).
 """
 
 from __future__ import annotations
@@ -81,6 +96,28 @@ ORDER_NAMES: Final = {
     "c2z": ("Szz", "Delta", "Sxy"),
     "c1": ("Szz", "Delta", "Sxy", "Sxz", "Syz"),
 }
+Domain = Literal["acute", "fixed-labels"]
+DOMAINS: Final = {"acute": (0.0, 90.0), "fixed-labels": (0.0, 180.0)}
+#: H2′↔H6′, H3′↔H5′: the ring-B relabelling, as a permutation of template indices.
+RING_B_RELABELLING: Final = (0, 1, 2, 3, 4, 9, 8, 7, 6, 5)
+#: The 5 × 5 maps on ORDER_BASIS that go with RING_B_RELABELLING. D at (φ, pairs, s) equals D at
+#: (180° ∓ φ, relabelled pairs, M·s) for M = RELABELLING_MAPS[frame]["180-phi" or "180+phi"].
+RELABELLING_MAPS: Final = {
+    "bisector": {
+        "180-phi": np.array(
+            [[1, 0, 0, 0, 0], [0, -1, 0, 0, 0], [0, 0, 1, 0, 0], [0, 0, 0, 0, 1], [0, 0, 0, 1, 0]], float
+        ),
+        "180+phi": np.array(
+            [[1, 0, 0, 0, 0], [0, -1, 0, 0, 0], [0, 0, -1, 0, 0], [0, 0, 0, 0, -1], [0, 0, 0, 1, 0]], float
+        ),
+    },
+    "ring-a": {"180-phi": np.diag([1.0, 1.0, -1.0, 1.0, -1.0]), "180+phi": np.eye(5)},
+}
+ACUTE_BOUND_NOTE: Final = (
+    "at the 90 deg bound of the acute domain: this domain assumes ring-B labels assigned so that "
+    "the torsion is acute; with fixed labels refit with domain='fixed-labels', or relabel "
+    "H2'<->H6', H3'<->H5'"
+)
 D2D_NOTE: Final = (
     "D2d endpoint: at phi = 90 deg the identical rings have D2d symmetry, which forces S to be "
     "uniaxial about z; nonzero Delta, Sxy, Sxz or Syz there is phenomenological"
@@ -218,23 +255,33 @@ def rigid_problem(
     *,
     order: str = "bisector-diagonal",
     frame: Frame = "bisector",
+    domain: Domain = "acute",
 ) -> Problem:
-    """The rigid model as a D3 problem: φ in [0°, 90°] (the folded domain), the order parameters
-    of ``order`` linear, with the analytic φ-derivative of the design."""
+    """The rigid model as a D3 problem: φ in ``DOMAINS[domain]``, the order parameters of
+    ``order`` linear, with the analytic φ-derivative of the design."""
     g = geometry or BiphenylGeometry()
     model = resolve_order_model(order)
     frame_axes(0.0, frame)  # validates the frame name
+    if domain not in DOMAINS:
+        raise ValueError(f"unknown domain {domain!r}; expected one of {tuple(DOMAINS)}")
+    lower, upper = DOMAINS[domain]
+
+    def notes(theta: Array) -> tuple[str, ...]:
+        phi = float(theta[0])
+        out = (D2D_NOTE,) if at_d2d_endpoint(phi) else ()
+        return out + ((ACUTE_BOUND_NOTE,) if domain == "acute" and at_d2d_endpoint(phi) else ())
+
     s5_map = {"bisector-diagonal": constraint_diagonal(), "c2z": constraint_c2z(), "c1": constraint_c1()}[model]
     return Problem(
         design=lambda theta: rigid_design(float(theta[0]), pairs, g, order=model, frame=frame),
         design_derivative=lambda theta: rigid_design_derivative(float(theta[0]), pairs, g, order=model, frame=frame)[
             None
         ],
-        notes=lambda theta: (D2D_NOTE,) if at_d2d_endpoint(float(theta[0])) else (),
+        notes=notes,
         y=np.asarray(y, dtype=np.float64),
         sigma=np.asarray(sigma, dtype=np.float64),
-        lower=np.array([0.0]),
-        upper=np.array([90.0]),
+        lower=np.array([lower]),
+        upper=np.array([upper]),
         theta_names=("phi_deg",),
         order_names=ORDER_NAMES[model],
         # The tensor in *some* frame suffices: admissibility depends only on the eigenvalues. For

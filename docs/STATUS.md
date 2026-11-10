@@ -1,7 +1,10 @@
 # Status
 
-**M1 step 2 (the frame contract, C2(z) and C1, analytic derivatives) is built and under review
-(round 19).** It is committed locally and not pushed until the review passes.
+**M1 step 2 (the frame contract, C2(z) and C1, analytic derivatives) is built and under review.**
+Round 19 returned NOT READY with two class-(A) findings, both fixed. One of them also fixed a
+sibling defect in step 1's finite-difference path. See
+[docs/validation/round19-m1-step2.md](validation/round19-m1-step2.md). Round 20 is the last
+round under the cap. The step is committed locally and not pushed until the review passes.
 
 **M1 step 1 (the D3 stack) is done: tag `m1-step1`, pushed.** Validation rounds 13–17 each
 returned NOT READY, and every finding was fixed. Round 18, the second round under the two-round
@@ -174,7 +177,7 @@ The owner approved the re-baseline on 2026-11-09.
 | M1 step | Status | Owner hours (owner fills in) |
 |---|---|---|
 | 1. The D3 stack in dipolar-core | **done** (tag `m1-step1`); rounds 13–18, READY WITH MINOR CHANGES at round 18 | |
-| 2. Frame contract, C2(z) and C1 | built; review round 19 pending | |
+| 2. Frame contract, C2(z) and C1 | built; round 19 NOT READY (fixed), round 20 pending | |
 | 3. Four-site jump model | — | |
 | 4. CSV/XYZ import, JSON v1 | — | |
 | 5. Gates (a)–(e), coverage, 8CB | — | |
@@ -275,7 +278,7 @@ The fitter is not yet an operation. Operations come in M2, as the beta UI needs 
 Check the baseline before resuming:
 
 ```sh
-uv sync --locked && uv run pytest -q -m "not slow"     # 302 passed
+uv sync --locked && uv run pytest -q -m "not slow"     # 320 passed
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 (cd web && pnpm install --frozen-lockfile && pnpm build)
 LEGACY=path/to/NMRApllication tools/legacy-harness/run.sh
@@ -313,7 +316,7 @@ What was built:
   tensor, but the individual couplings still constrain Δ′. A fit that lands there carries
   `FitResult.notes = (D2D_NOTE,)`.
 
-The tests are in `packages/dipolar-core/tests/test_core_frames.py` (38 tests):
+The tests are in `packages/dipolar-core/tests/test_core_frames.py` (56 tests after round 19):
 - the analytic derivatives against an independent sixth-order stencil, and every sub-model;
 - contraction invariance under random rotations, and in both frames;
 - the ring-A frame holds ring A still, and the δ sign;
@@ -326,7 +329,16 @@ The tests are in `packages/dipolar-core/tests/test_core_frames.py` (38 tests):
 
 Every new piece was mutation-checked; two survivors led to new sub-model tests.
 
+**Round 19 fixes:**
+- Derivative columns carry an allowance for the inner solution's own error, on both paths.
+- A `domain=` option: `"acute"` (the default, which needs acute ring-B labels) or
+  `"fixed-labels"` (0–180°).
+- The ring-B relabelling maps are published.
+- An acute fit at the 90° bound gets a note.
+
 **Limits:**
+- c2z and c1 do not impose the template's D2 symmetry, so with identical rings nonzero
+  off-diagonal components are phenomenological.
 - Legacy D4 parity of the *reported tensor* (B55) still needs the thesis.
 - The fixture's equivalence classes are D2 classes, so they are valid only for
   `bisector-diagonal`.
