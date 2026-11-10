@@ -192,7 +192,10 @@ class Validity:
     physically_admissible: bool | None
     at_bound: tuple[str, ...]
     search_resolved: bool  # no unfinished refinement reached a lower χ² than the best basin
-    derivatives_resolved: bool  # no joint singular value is hidden by the Jacobian's own error
+    # No joint singular value is hidden by the Jacobian's own error. This expresses agreement of the
+    # derivative estimates at the sampling scales used, not guaranteed accuracy: an oscillation
+    # finer than the stencils can alias every level alike (round 18, a documented limit).
+    derivatives_resolved: bool
     regular: bool  # converged, resolved, interior, full inner and joint rank: the conditions for ν and intervals
 
 
@@ -469,6 +472,10 @@ def _derivative(fun: Callable[[float], Array], x: float, lo: float, hi: float) -
     is R(h/2), and |R(h/2) − R(h)| estimates its remaining truncation and rounding error. That
     estimate decides which derivatives can be trusted (rounds 16 and 17). The base step is
     ε^(1/3)·max(1, |x|).
+
+    Limit (round 18): the estimate measures agreement between the sampling scales h, h/2 and h/4.
+    A model that oscillates faster than those scales can alias all of them alike, giving a wrong
+    derivative with a small error estimate. Smooth models, which D3 targets, are not affected.
     """
     h = float(np.cbrt(np.finfo(float).eps)) * max(1.0, abs(x))
     room_lo, room_hi = x - lo, hi - x

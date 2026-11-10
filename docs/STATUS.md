@@ -1,11 +1,9 @@
 # Status
 
-**Paused on 2026-11-10 at local tag `m1-step1-wip`, which is not pushed.** M1 step 1 (the D3 stack)
-is built. Validation rounds 13–17 each returned NOT READY, and every finding is fixed. The round-17
-fixes have not yet been confirmed by a reviewer, so **these commits are not on GitHub**. `main` on
-GitHub still ends at `c807271` (M0 complete, tag `m0-complete`). Everything since is local: the
-owner's approval of the re-baseline, and M1 step 1 with its rounds 13–17 fixes. To resume, see
-"Resume here" below.
+**M1 step 1 (the D3 stack) is done: tag `m1-step1`, pushed.** Validation rounds 13–17 each
+returned NOT READY, and every finding was fixed. Round 18, the second round under the two-round
+cap, returned READY WITH MINOR CHANGES, and its one class-(B) limit is documented. **Next: M1
+step 2, in a fresh session.**
 
 **Phase 1, milestone M0: all five steps are done.** The spikes (step 4) pass with evidence, and
 the owner approved the re-baseline (step 5) on 2026-11-09. Validation round 10 (GPT-6.1-Sol) returned
@@ -15,7 +13,7 @@ those fixes but returned NOT READY on a new major problem in the redirect-page c
 directory) and three minor ones, all fixed. **Round 12: READY WITH MINOR CHANGES**; both minor
 changes are applied. M0 is the baseline at tag `m0-complete`.
 
-Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete` (pushed).
+Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` (all pushed; `m1-step1-wip` is local).
 
 ## Done
 
@@ -113,7 +111,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete` (pushed).
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: M1 step 1, validation round 18
+## Resume here: M1 step 2, the frame contract and the C2(z)/C1 constraints
 
 1. Check the baseline:
 
@@ -121,12 +119,23 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete` (pushed).
    uv sync --locked && uv run pytest -q -m "not slow"   # 264 passed
    ```
 
-2. Ask GPT-6.1-Sol for round 18, a confirmation of the round-17 fixes. Give it the brief from
-   rounds 13–17 in `docs/validation/round13-m1-step1.md`. The reviewer's earlier probes are
-   permanent tests in `packages/dipolar-core/tests/test_core_fit_adversarial.py`.
-3. If the verdict is READY or READY WITH MINOR CHANGES, apply any minor changes, then push `main`
-   and tag `m1-step1`.
-4. Then continue with M1 step 2: the frame contract and the C2(z)/C1 constraints.
+2. Read the frozen frame contract in plan D12 (docs/03-redesign-plan.md, "Frozen frame contract
+   (M1)"). It covers four things: active versus passive rotation, the ring axes, the torsion sign
+   convention, and the constraint basis C(g).
+3. Build:
+   - **Analytic geometry derivatives** for the biphenyl template, so that the stack no longer
+     relies on finite differences there (see the plan agreed below).
+   - **The C2(z) constraint**, which keeps zz, xx − yy and xy.
+   - **The C1 constraint** (all five components).
+   - **The moving-bisector diagonal form**, Δ = Δ′ cos δ and Sxy = ½Δ′ sin δ.
+   - **The D2d endpoint**, either enforced or labelled.
+4. Write tests for:
+   - contraction invariance;
+   - the ideal D2d endpoint;
+   - equivalence with the legacy model away from the pole.
+
+   Legacy D4 parity (B55) needs the thesis.
+5. Review: at most two rounds (first at high effort). Then push and tag `m1-step2`.
 
 **What the review loop has taught.** Rounds 13–17 found real defects in the general numerics,
 which the frozen fixture never exercises:
@@ -162,7 +171,7 @@ The owner approved the re-baseline on 2026-11-09.
 
 | M1 step | Status | Owner hours (owner fills in) |
 |---|---|---|
-| 1. The D3 stack in dipolar-core | rounds 13–17 NOT READY; round-17 fixes committed locally, **round 18 pending** | |
+| 1. The D3 stack in dipolar-core | **done** (tag `m1-step1`); rounds 13–18, READY WITH MINOR CHANGES at round 18 | |
 | 2. Frame contract, C2(z) and C1 | — | |
 | 3. Four-site jump model | — | |
 | 4. CSV/XYZ import, JSON v1 | — | |

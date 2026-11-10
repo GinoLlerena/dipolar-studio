@@ -216,7 +216,7 @@ reviewer's width-0.001 variant, can still be missed. The docs state this.
 - **Verdict: NOT READY.** The four round-16 findings were resolved, but there were two new major
   findings.
 
-**Findings, both fixed and not yet confirmed by a reviewer** (`test_core_fit_adversarial.py`,
+**Findings, both fixed** (confirmed in round 18) (`test_core_fit_adversarial.py`,
 each mutation-checked):
 
 1. **Major. A failed trial step was taken as derivative noise.** Nonlinearity can make the joint
@@ -241,3 +241,34 @@ each mutation-checked):
 
 **Cost.** A fit of the fixture takes 0.31 s. The profiles take 0.03 s for φ, 6.7 s for Szz and
 3.9 s for Δ. The third Richardson level costs about 1.5×.
+
+## Round 18: final confirmation (second round under the two-round cap)
+
+- **Reviewer and date:** the same reviewer, read-only, 2026-11-10.
+- **Scope:** commits d133cbb and a4279ec.
+- **Verdict: READY WITH MINOR CHANGES.** There is no class-(A) defect, meaning no wrong result on
+  a regular, well-scaled problem.
+
+**Confirmed:**
+- **Failed backtracking.** It is no longer certified: the predicted reduction of about 2 is now
+  rejected, with an error allowance of about 10⁻¹⁴.
+- **The aliased sine and the cusp.** The aliased sine is rejected, and the cusp is accepted as
+  derivative noise.
+- **The cubic rank cases.** At coefficients from 10⁸ to 10¹¹ they give joint rank 2, are regular,
+  and have no unidentified or uncertain directions.
+
+**Extra controls by the reviewer:**
+- 100 affine GLS cases;
+- 30 smooth nonlinear cases with two geometry parameters, checked against analytic objectives,
+  Jacobians and joint covariance.
+
+All of them pass.
+
+**The one finding: class (B), documented.** An oscillation finer than the stencils, for example
+D = (1, sin(ωx)/ω, 0) with ω = 8π/h, aliases all three Richardson levels alike. The derivative
+then comes out wrong with a zero error estimate. The docstrings of `_derivative` and of
+`Validity.derivatives_resolved` now say that the estimate expresses agreement at the sampling
+scales used, not guaranteed accuracy.
+
+**D3 status for step 1:** items 1–6 pass. Item 7's step-1 controls pass; the full M1 gate is still
+pending coverage (step 5).
