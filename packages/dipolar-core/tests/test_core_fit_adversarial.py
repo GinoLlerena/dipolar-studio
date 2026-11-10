@@ -323,7 +323,7 @@ def test_the_varpro_jacobian_is_exact_golub_pereyra() -> None:
     q = rigid(pairs, y + 300.0 * np.random.default_rng(1).normal(size=len(y)), None)
     for phi in (20.0, 37.0, 60.0):
         x = np.array([phi])
-        _, jac, _ = _varpro_jacobian(q, _whole(q), x, q.lower, q.upper)
+        _, jac, _, _ = _varpro_jacobian(q, _whole(q), x, q.lower, q.upper)
         h = 1e-4
         reference = (q.profile_residual(x + h) - q.profile_residual(x - h)) / (2 * h)
         assert np.linalg.norm(jac[:, 0] - reference) <= 1e-6 * np.linalg.norm(reference)
@@ -575,10 +575,11 @@ def test_a_singular_value_inside_the_jacobian_error_is_not_rank() -> None:
     assert _trusted_rank(s, np.full((3, 2), 1e-9)) == 1  # inside the error: not information
 
 
-def test_a_noise_only_prediction_does_not_block_convergence() -> None:
-    """D = (1, 1e-9 sin(1e9 x), 0): the wiggle makes the finite-difference derivative of order 1,
-    so the linear model promises a reduction, yet χ² cannot really move by more than ~1e-12. The
-    certificate tries the step, sees no real reduction, and certifies the point."""
+def test_an_unverifiable_prediction_is_not_certified() -> None:
+    """D = (1, 1e-9 sin(1e9 x), 0): the wiggle is far below the differencing step, so every stencil
+    aliases it alike and the derivative's error estimate stays small. The linear model then
+    promises a reduction that no step delivers and the estimate cannot explain. That point is not
+    certified (round 17): failed trials alone prove nothing."""
     from types import SimpleNamespace
 
     from dipolar_core.fit import _converged, _whole
@@ -586,4 +587,53 @@ def test_a_noise_only_prediction_does_not_block_convergence() -> None:
     q = problem(lambda x: np.array([[1.0], [1e-9 * np.sin(1e9 * x[0])], [0.0]]), [1.0, 1e-3, 0.0], [0.0], [1.0])
     claimed = SimpleNamespace(status=2, x=np.array([0.5]), active_mask=np.array([0]), message="`xtol` satisfied")
     ok, message = _converged(q, _whole(q), q.profile_residual, claimed, q.lower, q.upper, 1e-15)
-    assert ok and "not realised" in message
+    assert not ok and "could not be realised or explained" in message
+
+
+def test_a_prediction_explained_by_derivative_error_is_noise() -> None:
+    """D = (1, 1e-3 + c·max(x − ½, 0)^1.5, 0): at the weak minimum x = ½ the central difference
+    gives c·h^0.5/2, and Richardson cannot remove an h^0.5 error, so the error estimate is as large
+    as the derivative. The prediction it drives is explained by that error, and no step lowers χ²:
+    the point is certified."""
+    from types import SimpleNamespace
+
+    from dipolar_core.fit import _converged, _whole
+
+    q = problem(lambda x: np.array([[1.0], [1e-3 + max(x[0] - 0.5, 0.0) ** 1.5], [0.0]]), [1.0, 0.0, 0.0], [0.0], [1.0])
+    claimed = SimpleNamespace(status=2, x=np.array([0.5]), active_mask=np.array([0]), message="`xtol` satisfied")
+    ok, message = _converged(q, _whole(q), q.profile_residual, claimed, q.lower, q.upper, 1e-15)
+    assert ok and "derivative noise" in message
+
+
+def test_another_direction_is_tried_when_the_joint_step_fails() -> None:
+    """D = (100, 1e-6 x, 1e-7 z, z², 0), y = (100, 1, 1, 0, 0): the joint Gauss–Newton step is
+    useless (the z² term), but moving x alone halves χ². A stop at (0, 0) is not certified."""
+    from dipolar_core.fit import _refine
+
+    q = problem(
+        lambda x: np.array([[100.0], [1e-6 * x[0]], [1e-7 * x[1]], [x[1] ** 2], [0.0]]),
+        [100.0, 1.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0],
+        [2e6, 2e7],
+    )
+    trial = _refine(q, np.array([0.0, 0.0]), Settings())
+    assert (not trial.converged) or trial.chi2 <= 1.0 + 1e-6
+
+
+def test_exact_order_columns_keep_their_rank_and_derivatives_are_refined() -> None:
+    """D = (1, x + 1e10 x³, 0) at x = 0: J = [[0, 1], [1, 0], [0, 0]], rank 2 and condition 1. The
+    cubic term made the error estimate of a two-step extrapolation large enough to erase both
+    directions; the three-step estimate resolves it."""
+    q = problem(lambda x: np.array([[1.0], [x[0] + 1e10 * x[0] ** 3], [0.0]]), [1.0, 0.0, 0.0], [-1.0], [1.0])
+    result = fit(q, Settings(grid=np.array([0.0])))
+    assert result.validity.joint_rank == 2 and result.validity.derivatives_resolved
+    assert result.unidentified == () and result.uncertain == ()
+    assert result.validity.regular and result.covariance is not None
+
+
+def test_the_joint_rank_never_drops_below_the_inner_rank() -> None:
+    from dipolar_core.fit import _rank_split
+
+    s = np.array([1.0, 1.0])
+    assert _rank_split(s, np.full((3, 2), 1.0), floor=1) == (1, 2)  # uncertain, not unidentified
+    assert _rank_split(s, np.zeros((3, 2)), floor=1) == (2, 2)

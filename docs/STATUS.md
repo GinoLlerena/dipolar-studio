@@ -1,14 +1,21 @@
 # Status
 
+**Paused on 2026-11-10 at local tag `m1-step1-wip`, which is not pushed.** M1 step 1 (the D3 stack)
+is built. Validation rounds 13–17 each returned NOT READY, and every finding is fixed. The round-17
+fixes have not yet been confirmed by a reviewer, so **these commits are not on GitHub**. `main` on
+GitHub still ends at `c807271` (M0 complete, tag `m0-complete`). Everything since is local: the
+owner's approval of the re-baseline, and M1 step 1 with its rounds 13–17 fixes. To resume, see
+"Resume here" below.
+
 **Phase 1, milestone M0: all five steps are done.** The spikes (step 4) pass with evidence, and
-the re-baseline (step 5) is a proposal awaiting the owner. Validation round 10 (GPT-6.1-Sol) returned
+the owner approved the re-baseline (step 5) on 2026-11-09. Validation round 10 (GPT-6.1-Sol) returned
 NOT READY with one major and six minor findings, all fixed
 ([docs/validation/round10-m0-spikes.md](validation/round10-m0-spikes.md)). Round 11 confirmed
 those fixes but returned NOT READY on a new major problem in the redirect-page cleanup (a symlinked
 directory) and three minor ones, all fixed. **Round 12: READY WITH MINOR CHANGES**; both minor
 changes are applied. M0 is the baseline at tag `m0-complete`.
 
-Earlier stopping points: `m0-step2`, `m0-step3`.
+Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete` (pushed).
 
 ## Done
 
@@ -106,13 +113,42 @@ Earlier stopping points: `m0-step2`, `m0-step3`.
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
+## Resume here: M1 step 1, validation round 18
+
+1. Check the baseline:
+
+   ```sh
+   uv sync --locked && uv run pytest -q -m "not slow"   # 264 passed
+   ```
+
+2. Ask GPT-6.1-Sol for round 18, a confirmation of the round-17 fixes. Give it the brief from
+   rounds 13–17 in `docs/validation/round13-m1-step1.md`. The reviewer's earlier probes are
+   permanent tests in `packages/dipolar-core/tests/test_core_fit_adversarial.py`.
+3. If the verdict is READY or READY WITH MINOR CHANGES, apply any minor changes, then push `main`
+   and tag `m1-step1`.
+4. Then continue with M1 step 2: the frame contract and the C2(z)/C1 constraints.
+
+**What the review loop has taught.** Rounds 13–17 found real defects in the general numerics,
+which the frozen fixture never exercises:
+- differencing the data;
+- KKT signs;
+- gaps in intervals;
+- failed trials;
+- trusting derivative error estimates.
+
+Each round fixed the previous counterexample, and the next round found a sibling. Round 16 replaced
+patches with principled mechanisms, and round 17 refined them. If round 18 again finds siblings,
+consider two options. One is analytic geometry derivatives for the biphenyl template, which would
+remove the finite-difference questions. The other is scoping step 1 to the regular problems D3
+targets, with documented limits.
+
 ## M1, the scientific core: in progress
 
 The owner approved the re-baseline on 2026-11-09.
 
 | M1 step | Status | Owner hours (owner fills in) |
 |---|---|---|
-| 1. The D3 stack in dipolar-core | rounds 13–16 NOT READY, all findings fixed; round 17 reviews | |
+| 1. The D3 stack in dipolar-core | rounds 13–17 NOT READY; round-17 fixes committed locally, **round 18 pending** | |
 | 2. Frame contract, C2(z) and C1 | — | |
 | 3. Four-site jump model | — | |
 | 4. CSV/XYZ import, JSON v1 | — | |
@@ -178,9 +214,16 @@ fragile mechanisms were replaced:
   optimum;
 - named null directions are the numerical basis, unfiltered.
 
+**Validation round 17** returned NOT READY on two more major problems. Both are fixed locally and
+await round 18:
+- an unrealised prediction is certified only if the derivative's error estimate explains it;
+- a three-level Richardson error estimate is used;
+- the joint rank is floored at the inner rank;
+- uncertain directions are reported apart from the data's null space.
+
 **Tests:**
 - `test_core_fit.py`: 16 tests.
-- `test_core_fit_adversarial.py`: 53 tests, made from the round-13 counterexamples, plus GLS
+- `test_core_fit_adversarial.py`: 57 tests, made from the round-13 counterexamples, plus GLS
   controls for correlated errors.
 
 The `test_core_fit.py` tests:
@@ -207,7 +250,7 @@ The fitter is not yet an operation. Operations come in M2, as the beta UI needs 
 Check the baseline before resuming:
 
 ```sh
-uv sync --locked && uv run pytest -q -m "not slow"     # 260 passed
+uv sync --locked && uv run pytest -q -m "not slow"     # 264 passed
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 (cd web && pnpm install --frozen-lockfile && pnpm build)
 LEGACY=path/to/NMRApllication tools/legacy-harness/run.sh

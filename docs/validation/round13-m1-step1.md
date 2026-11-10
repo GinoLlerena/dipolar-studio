@@ -195,7 +195,8 @@ restoring the old behaviour makes its test fail.
        BVLS) with the exact Golub–Pereyra J, so bounds, signs and cross terms are included.
      - If the predicted reduction exceeds the tolerance, it **tries the step**, halving it up to 40
        times. A step that really lowers χ² means "not converged".
-     - A prediction that no step realises came from derivative noise, and the point is certified.
+     - Round 16 concluded that a prediction no step realises came from derivative noise. Round 17
+       showed that this is wrong (see below).
    - **Tests:** the reviewer's small-gradient cases, at unit precision and with precise data; the
      coupled-bounds case; and a direct test with a 10⁻⁹-amplitude, high-frequency model whose
      derivative promises a reduction that cannot happen.
@@ -207,3 +208,36 @@ restoring the old behaviour makes its test fail.
 
 **Accepted limitation.** A barrier narrower than the interval verification's sampling, such as the
 reviewer's width-0.001 variant, can still be missed. The docs state this.
+
+## Round 17: confirmation
+
+- **Reviewer and date:** the same reviewer, read-only, 2026-11-10.
+- **Scope:** commit f673c60.
+- **Verdict: NOT READY.** The four round-16 findings were resolved, but there were two new major
+  findings.
+
+**Findings, both fixed and not yet confirmed by a reviewer** (`test_core_fit_adversarial.py`,
+each mutation-checked):
+
+1. **Major. A failed trial step was taken as derivative noise.** Nonlinearity can make the joint
+   Gauss–Newton direction useless while another feasible move, here x alone, halves χ².
+   - **The fix.** An unrealised prediction is certified only if the derivative's own error estimate
+     can account for it: TRUST_FACTOR · 2 · |δ|ᵀ(|E|ᵀ|r|) must be at least the predicted reduction.
+     Otherwise the point is not converged.
+   - **Tests:**
+     - the reviewer's case;
+     - a high-frequency model whose derivative is aliased, which is not certified;
+     - a one-sided cusp whose derivative error is genuinely large, which is certified.
+   - **Trying further directions** was considered and dropped, because no test needed it once the
+     rule above was in place.
+2. **Major. The derivative error estimate erased exactly identifiable directions.** For
+   D = (1, x + 10¹⁰x³, 0) the joint rank was 0, although J = [[0, 1], [1, 0], [0, 0]].
+   - **Three Richardson levels.** The value is R(h/2), and the error is |R(h/2) − R(h)| rather than
+     the raw difference.
+   - **A floor.** The joint rank is never below the exact inner rank.
+   - **A separate report.** Directions the derivatives cannot resolve are reported in
+     `FitResult.uncertain` and flagged by `Validity.derivatives_resolved`. They are no longer
+     called unidentified.
+
+**Cost.** A fit of the fixture takes 0.31 s. The profiles take 0.03 s for φ, 6.7 s for Szz and
+3.9 s for Δ. The third Richardson level costs about 1.5×.

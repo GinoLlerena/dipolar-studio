@@ -192,6 +192,7 @@ class Validity:
     physically_admissible: bool | None
     at_bound: tuple[str, ...]
     search_resolved: bool  # no unfinished refinement reached a lower χ² than the best basin
+    derivatives_resolved: bool  # no joint singular value is hidden by the Jacobian's own error
     regular: bool  # converged, resolved, interior, full inner and joint rank: the conditions for ν and intervals
 
 
@@ -210,7 +211,8 @@ class FitResult:
     basins: tuple[Basin, ...]  # converged and distinct, best first
     unfinished: tuple[Basin, ...]  # refinements that did not converge: not basins
     covariance: Covariance | None  # None unless the optimum is regular
-    unidentified: tuple[dict[str, float], ...]  # a complete basis of the null space of J
+    unidentified: tuple[dict[str, float], ...]  # a basis of the data's null space of J (rank policy)
+    uncertain: tuple[dict[str, float], ...]  # directions the derivatives cannot resolve (not data)
     validity: Validity
     names: tuple[str, ...] = field(default=())
 
@@ -280,7 +282,7 @@ def scan(problem: Problem, settings: Settings) -> Scan:
     joint = []
     for pt, sol in zip(points, inner, strict=True):
         jac, error = _full_jacobian(problem, pt, sol.params)
-        joint.append(_trusted_rank(np.linalg.svd(jac, compute_uv=False), error))
+        joint.append(_trusted_rank(np.linalg.svd(jac, compute_uv=False), error, sol.rank))
     admissible = None
     if problem.s5_map is not None:
         admissible = np.array([is_admissible(problem.s5_map @ sol.params) for sol in inner], dtype=bool)
@@ -321,8 +323,8 @@ def _whole(problem: Problem) -> Model:
 
 def _varpro_jacobian(
     problem: Problem, model: Model, x: Array, lower: Array, upper: Array
-) -> tuple[Array, Array, Array]:
-    """(r, J, ∂m) at x for a VarPro sub-problem: the exact Golub–Pereyra Jacobian.
+) -> tuple[Array, Array, Array, Array]:
+    """(r, J, ∂m, error of ∂m) at x for a VarPro sub-problem: the exact Golub–Pereyra Jacobian.
 
     With A = W·D, t* = A⁺·W(y − F) and r = W·(D t* + F − y):
 
@@ -347,7 +349,7 @@ def _varpro_jacobian(
     else:
         q, pinv_t = np.empty((len(r), 0)), np.empty((len(r), 0))
     n = len(r)
-    dm_columns, j_columns = [], []
+    dm_columns, j_columns, error_columns = [], [], []
     for i in range(len(x)):
 
         def stacked(v: float, i: int = i) -> Array:
@@ -356,15 +358,16 @@ def _varpro_jacobian(
             d, f = model(shifted)
             return np.concatenate([problem.whiten(d @ t + f), problem.whiten(d).ravel()])
 
-        derivative, _ = _derivative(stacked, float(x[i]), float(lower[i]), float(upper[i]))
+        derivative, error = _derivative(stacked, float(x[i]), float(lower[i]), float(upper[i]))
+        error_columns.append(error[:n])
         dm = derivative[:n]
         da = derivative[n:].reshape(n, p_free)
         dm_columns.append(dm)
         j_columns.append(dm - q @ (q.T @ dm) - pinv_t @ (da.T @ r))
     if not dm_columns:
         empty = np.empty((n, 0))
-        return r, empty, empty
-    return r, np.column_stack(j_columns), np.column_stack(dm_columns)
+        return r, empty, empty, empty
+    return r, np.column_stack(j_columns), np.column_stack(dm_columns), np.column_stack(error_columns)
 
 
 def _converged(
@@ -385,15 +388,17 @@ def _converged(
     2. If the predicted reduction ‖r‖² − ‖J δ + r‖² is within the tolerance
        DECREMENT_ATOL + ATTAINABLE_FACTOR · tolerance · χ², the point is converged.
     3. Otherwise the actual χ² is evaluated at x + δ/2ᵏ for k = 0 … TRIAL_HALVINGS. A step that
-       really lowers χ² by more than the tolerance means "not converged". If no step does, the
-       predicted reduction came from derivative noise, and the point is converged.
+       really lowers χ² by more than the tolerance means "not converged".
+    4. If no step does, that alone proves nothing: nonlinearity can defeat one direction while
+       another still helps (round 17). The point is certified only if the derivative's own error
+       estimate can account for the prediction; otherwise it is not converged.
     """
     from scipy.optimize import lsq_linear
 
     if result.status <= 0:
         return False, str(result.message)
     x = np.asarray(result.x, dtype=np.float64)
-    r, jac, _ = _varpro_jacobian(problem, model, x, lower, upper)
+    r, jac, _, dm_error = _varpro_jacobian(problem, model, x, lower, upper)
     chi2 = float(r @ r)
     tol = DECREMENT_ATOL + ATTAINABLE_FACTOR * tolerance * chi2
     if jac.shape[1] == 0:
@@ -413,7 +418,17 @@ def _converged(
         if actual > tol:
             why = f"a feasible step lowers χ² by {actual:.3g} (predicted {predicted:.3g})"
             return False, f"stopped ({result.message}) at a non-stationary point: {why}"
-    return True, f"{result.message} (a predicted reduction of {predicted:.3g} was not realised: derivative noise)"
+    # Step 4: the linear reduction is about 2·|δ|ᵀ|g|, and the error in g is about |E|ᵀ|r|.
+    gradient_error = np.abs(dm_error).T @ np.abs(r)
+    # TRUST_FACTOR covers errors Richardson cannot remove: for an h^p error with p < 2,
+    # |R(h/2) − R(h)| underestimates the remaining error.
+    explainable = TRUST_FACTOR * 2 * float(np.abs(step) @ gradient_error)
+    if explainable >= predicted:
+        return True, f"{result.message} (a predicted reduction of {predicted:.3g} was not realised: derivative noise)"
+    return (
+        False,
+        f"stopped ({result.message}): a predicted reduction of {predicted:.3g} could not be realised or explained",
+    )
 
 
 def _refine(problem: Problem, start: Array, settings: Settings) -> Basin:
@@ -450,9 +465,9 @@ def _derivative(fun: Callable[[float], Array], x: float, lo: float, hi: float) -
 
     The stencil is centred when it fits. Otherwise it is a second-order one-sided stencil toward
     the roomier side, with its step shrunk to fit (rounds 13 and 14). Both stencils have a leading
-    h² error, so Richardson extrapolation of steps h and h/2 removes it: (4·D(h/2) − D(h))/3.
-    |D(h/2) − D(h)| is a conservative estimate of the remaining truncation and rounding error,
-    used to decide which derivatives can be trusted (round 16). The base step is
+    h² error. Richardson extrapolation removes it: R(h) = (4·D(h/2) − D(h))/3. The value returned
+    is R(h/2), and |R(h/2) − R(h)| estimates its remaining truncation and rounding error. That
+    estimate decides which derivatives can be trusted (rounds 16 and 17). The base step is
     ε^(1/3)·max(1, |x|).
     """
     h = float(np.cbrt(np.finfo(float).eps)) * max(1.0, abs(x))
@@ -465,9 +480,13 @@ def _derivative(fun: Callable[[float], Array], x: float, lo: float, hi: float) -
         step, is_centred = min(h, room / 2), False
         if not step > 0:
             raise ValueError("a zero-width range cannot be differentiated")
-    coarse = _stencil(fun, x, step, sign, is_centred)
-    fine = _stencil(fun, x, step / 2, sign, is_centred)
-    return (4 * fine - coarse) / 3, np.abs(fine - coarse)
+    d1 = _stencil(fun, x, step, sign, is_centred)
+    d2 = _stencil(fun, x, step / 2, sign, is_centred)
+    d4 = _stencil(fun, x, step / 4, sign, is_centred)
+    r1, r2 = (4 * d2 - d1) / 3, (4 * d4 - d2) / 3
+    # The error of the extrapolated value is estimated from two successive Richardson values, not
+    # from the raw differences, which overstate it (round 17).
+    return r2, np.abs(r2 - r1)
 
 
 def _jacobian(residual: Callable[[Array], Array], x: Array, lower: Array, upper: Array) -> tuple[Array, Array]:
@@ -507,14 +526,27 @@ def _full_jacobian(problem: Problem, theta: Array, t: Array) -> tuple[Array, Arr
     return np.column_stack([geometry, order]), np.column_stack([error, np.zeros_like(order)])
 
 
-def _trusted_rank(s: Array, error: Array) -> int:
-    """Joint rank: singular values above the rank policy *and* above the Jacobian's own error
-    (‖E‖_F bounds how far any singular value can move), so a derivative that is zero up to
-    truncation or rounding never counts as information (round 16)."""
+def _rank_split(s: Array, error: Array, floor: int) -> tuple[int, int]:
+    """(trusted rank, policy rank) of the joint Jacobian from its singular values s.
+
+    - The *policy rank* counts singular values above RANK_RTOL·s₀.
+    - The *trusted rank* also requires them to exceed TRUST_FACTOR·‖E‖_F, the Jacobian's own error
+      (round 16). A derivative that is zero up to truncation or rounding therefore never counts as
+      information.
+    - Both are at least ``floor``, the exact inner rank of the order columns (round 17).
+
+    Singular values between the two counts are *uncertain*: not resolved by the derivatives. They
+    are not a null space of the data.
+    """
     if not s.size or s[0] <= 0:
-        return 0
-    cutoff = max(RANK_RTOL * float(s[0]), TRUST_FACTOR * float(np.linalg.norm(error)))
-    return int(np.count_nonzero(s > cutoff))
+        return floor, floor
+    policy = int(np.count_nonzero(s > RANK_RTOL * float(s[0])))
+    trusted = int(np.count_nonzero(s > max(RANK_RTOL * float(s[0]), TRUST_FACTOR * float(np.linalg.norm(error)))))
+    return max(trusted, floor), max(policy, floor)
+
+
+def _trusted_rank(s: Array, error: Array, floor: int = 0) -> int:
+    return _rank_split(s, error, floor)[0]
 
 
 def _near(value: float, bound: float) -> bool:
@@ -536,9 +568,14 @@ def fit(problem: Problem, settings: Settings | None = None) -> FitResult:
     j, j_error = _full_jacobian(problem, best.theta, sol.params)
     # A complete right basis: the reduced SVD gives it when N ≥ p_free; full matrices only when N < p_free.
     _, s, vt = np.linalg.svd(j, full_matrices=j.shape[0] < j.shape[1])
-    joint_rank = _trusted_rank(s, j_error)
+    joint_rank, policy_rank = _rank_split(s, j_error, sol.rank)
     names = problem.names
-    unidentified = tuple({n: float(v) for n, v in zip(names, row, strict=True)} for row in vt[joint_rank:])
+
+    def named(rows: Array) -> tuple[dict[str, float], ...]:
+        return tuple({n: float(v) for n, v in zip(names, row, strict=True)} for row in rows)
+
+    unidentified = named(vt[policy_rank:])
+    uncertain = named(vt[joint_rank:policy_rank])
 
     at_bound = tuple(
         name
@@ -567,6 +604,7 @@ def fit(problem: Problem, settings: Settings | None = None) -> FitResult:
         physically_admissible=None if problem.s5_map is None else is_admissible(problem.s5_map @ sol.params),
         at_bound=at_bound,
         search_resolved=resolved,
+        derivatives_resolved=joint_rank == policy_rank,
         regular=regular,
     )
     return FitResult(
@@ -584,6 +622,7 @@ def fit(problem: Problem, settings: Settings | None = None) -> FitResult:
         unfinished=unfinished,
         covariance=covariance,
         unidentified=unidentified,
+        uncertain=uncertain,
         validity=validity,
         names=names,
     )
