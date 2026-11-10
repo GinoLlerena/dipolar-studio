@@ -79,7 +79,7 @@ BOUND_ATOL: Final = 1e-9
 DECREMENT_ATOL: Final = 1e-8
 ATTAINABLE_FACTOR: Final = 10.0
 #: A singular value of the joint Jacobian counts toward the rank only above TRUST_FACTOR times the
-#: Frobenius norm of the Jacobian's own error estimate (see ``_trusted_rank``).
+#: Frobenius norm of the Jacobian's own error estimate (see ``_rank_split``).
 TRUST_FACTOR: Final = 10.0
 #: Multiplier of the rounding allowances of derivative columns (``_solve_error``, ``_analytic_error``).
 ROUNDING_FACTOR: Final = 8.0
@@ -288,7 +288,7 @@ def scan(problem: Problem, settings: Settings) -> Scan:
     joint = []
     for pt, sol in zip(points, inner, strict=True):
         jac, error = _full_jacobian(problem, pt, sol.params)
-        joint.append(_trusted_rank(np.linalg.svd(jac, compute_uv=False), error, sol.rank))
+        joint.append(_rank_split(jac, error, problem.k, sol.rank)[0])
     admissible = None
     if problem.s5_map is not None:
         admissible = np.array([is_admissible(problem.s5_map @ sol.params) for sol in inner], dtype=bool)
@@ -380,8 +380,10 @@ def _varpro_jacobian(
             wd, wf = problem.whiten(d_design[i]), problem.whiten(d_fixed[i])
             dm = wd @ t + wf
             dm_columns.append(dm)
-            # Only the contraction's rounding: this error feeds the certificate's gradient test, and
-            # the gradient ∂mᵀr is insensitive to first order to the error of t because Aᵀr = 0.
+            # Only the contraction's rounding. This error feeds the certificate's step 4, which can
+            # only *accept* an unrealised prediction as derivative noise. Leaving out the error of t
+            # (``_solve_error``) makes that step stricter: an ill-conditioned inner solve can yield
+            # "not converged", never a false certificate (round 20 corrected an earlier argument).
             error_columns.append(_analytic_error(wd, wf, t, 0.0))
             j_columns.append(dm - q @ (q.T @ dm) - pinv_t @ (problem.whiten(d_design[i]).T @ r))
     for i in range(len(x) if model.derivative is None else 0):
@@ -610,27 +612,37 @@ def _full_jacobian(problem: Problem, theta: Array, t: Array) -> tuple[Array, Arr
     return np.column_stack([geometry, order]), np.column_stack([error, np.zeros_like(order)])
 
 
-def _rank_split(s: Array, error: Array, floor: int) -> tuple[int, int]:
-    """(trusted rank, policy rank) of the joint Jacobian from its singular values s.
+def _rank_split(j: Array, error: Array, k: int, floor: int) -> tuple[int, int]:
+    """(trusted rank, policy rank) of the joint Jacobian J = [G | A] (k geometry columns G).
 
-    - The *policy rank* counts singular values above RANK_RTOL·s₀.
-    - The *trusted rank* also requires them to exceed TRUST_FACTOR·‖E‖_F, the Jacobian's own error
-      (round 16). A derivative that is zero up to truncation or rounding therefore never counts as
+    - The *policy rank* counts the singular values of J above RANK_RTOL·s₀, and is at least
+      ``floor``, the exact inner rank of the order columns A (round 17).
+    - The *trusted rank* is ``floor`` plus the rank that the geometry adds beyond the span of A:
+      the singular values of G⊥ = (I − QQᵀ)·G, with Q spanning A. They count only above
+      max(RANK_RTOL·s₀, TRUST_FACTOR·‖E‖_F), where E is the geometry columns' own error estimate
+      (round 16). So a derivative that is zero up to truncation or rounding never counts as
       information.
-    - Both are at least ``floor``, the exact inner rank of the order columns (round 17).
 
-    Singular values between the two counts are *uncertain*: not resolved by the derivatives. They
-    are not a null space of the data.
+      The order columns are exact. Only the geometry's *additional* information is judged against
+      its error (round 20): one global cutoff could discard a well-determined but small order
+      direction whenever the parameters are badly scaled.
+    - The trusted rank never exceeds the policy rank.
+
+    Directions between the two counts are *uncertain*: not resolved by the derivatives. They are
+    not a null space of the data.
     """
+    s = np.linalg.svd(j, compute_uv=False)
     if not s.size or s[0] <= 0:
         return floor, floor
-    policy = int(np.count_nonzero(s > RANK_RTOL * float(s[0])))
-    trusted = int(np.count_nonzero(s > max(RANK_RTOL * float(s[0]), TRUST_FACTOR * float(np.linalg.norm(error)))))
-    return max(trusted, floor), max(policy, floor)
-
-
-def _trusted_rank(s: Array, error: Array, floor: int = 0) -> int:
-    return _rank_split(s, error, floor)[0]
+    policy = max(int(np.count_nonzero(s > RANK_RTOL * float(s[0]))), floor)
+    geometry, order = j[:, :k], j[:, k:]
+    if order.shape[1]:
+        u, so, _ = np.linalg.svd(order, full_matrices=False)
+        q = u[:, so > RANK_RTOL * so[0]] if so[0] > 0 else u[:, :0]
+        geometry = geometry - q @ (q.T @ geometry)
+    threshold = max(RANK_RTOL * float(s[0]), TRUST_FACTOR * float(np.linalg.norm(error[:, :k])))
+    added = int(np.count_nonzero(np.linalg.svd(geometry, compute_uv=False) > threshold)) if k else 0
+    return min(floor + added, policy), policy
 
 
 def _near(value: float, bound: float) -> bool:
@@ -652,7 +664,7 @@ def fit(problem: Problem, settings: Settings | None = None) -> FitResult:
     j, j_error = _full_jacobian(problem, best.theta, sol.params)
     # A complete right basis: the reduced SVD gives it when N ≥ p_free; full matrices only when N < p_free.
     _, s, vt = np.linalg.svd(j, full_matrices=j.shape[0] < j.shape[1])
-    joint_rank, policy_rank = _rank_split(s, j_error, sol.rank)
+    joint_rank, policy_rank = _rank_split(j, j_error, problem.k, sol.rank)
     names = problem.names
 
     def named(rows: Array) -> tuple[dict[str, float], ...]:

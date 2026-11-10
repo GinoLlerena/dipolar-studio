@@ -1,10 +1,12 @@
 # Status
 
-**M1 step 2 (the frame contract, C2(z) and C1, analytic derivatives) is built and under review.**
+**M1 step 2 (the frame contract, C2(z) and C1, analytic derivatives) is done: tag `m1-step2`.**
 Round 19 returned NOT READY with two class-(A) findings, both fixed. One of them also fixed a
-sibling defect in step 1's finite-difference path. See
-[docs/validation/round19-m1-step2.md](validation/round19-m1-step2.md). Round 20 is the last
-round under the cap. The step is committed locally and not pushed until the review passes.
+sibling defect in step 1's finite-difference path. Round 20, the last round under the cap,
+returned NOT READY on one class-(A) regression in the round-19 fix. It is fixed, mutation-checked
+and documented, but not reviewed again, and the class-(B) limits are documented. See
+[docs/validation/round19-m1-step2.md](validation/round19-m1-step2.md). **Next: decide the rest of
+M1 (steps 3–5) from real usage, as agreed.**
 
 **M1 step 1 (the D3 stack) is done: tag `m1-step1`, pushed.** Validation rounds 13–17 each
 returned NOT READY, and every finding was fixed. Round 18, the second round under the two-round
@@ -116,45 +118,33 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` (all 
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: M1 step 2, the frame contract and the C2(z)/C1 constraints
+## Resume here: decide the rest of M1, then step 3 (the four-site jump model)
 
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 264 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 325 passed
    ```
 
-2. Read the frozen frame contract in plan D12 (docs/03-redesign-plan.md, "Frozen frame contract
-   (M1)"). It covers four things: active versus passive rotation, the ring axes, the torsion sign
-   convention, and the constraint basis C(g).
-3. Build:
-   - **Analytic geometry derivatives** for the biphenyl template, so that the stack no longer
-     relies on finite differences there (see the plan agreed below).
-   - **The C2(z) constraint**, which keeps zz, xx − yy and xy.
-   - **The C1 constraint** (all five components).
-   - **The moving-bisector diagonal form**, Δ = Δ′ cos δ and Sxy = ½Δ′ sin δ.
-   - **The D2d endpoint**, either enforced or labelled.
-4. Write tests for:
-   - contraction invariance;
-   - the ideal D2d endpoint;
-   - equivalence with the legacy model away from the pole.
+2. **The owner decides the scope** of the rest of M1 from real usage, as agreed on 2026-11-10.
+   - Step 3: the four-site jump model.
+   - Step 4: CSV/XYZ import and JSON v1.
+   - Step 5: gates (a)–(e), coverage, and the 8CB data.
+3. **Step 3, if chosen.** The symmetric four-site jump (±φ, 180° ± φ, equal populations, one
+   tensor shared in each conformer's acute-bisector frame), as plan §4 Phase 1 describes. What it
+   builds on:
+   - the frame contract and `RELABELLING_MAPS` (step 2) give each conformer's frame and the
+     relabelling;
+   - analytic derivatives carry over as sums over the conformers;
+   - gate (e): explicit four-conformer averaging must equal the relabelling shortcut.
+4. **Review:** at most two rounds, then push and tag `m1-step3`.
 
-   Legacy D4 parity (B55) needs the thesis.
-5. Review: at most two rounds (first at high effort). Then push and tag `m1-step2`.
-
-**What the review loop has taught.** Rounds 13–17 found real defects in the general numerics,
-which the frozen fixture never exercises:
-- differencing the data;
-- KKT signs;
-- gaps in intervals;
-- failed trials;
-- trusting derivative error estimates.
-
-Each round fixed the previous counterexample, and the next round found a sibling. Round 16 replaced
-patches with principled mechanisms, and round 17 refined them. If round 18 again finds siblings,
-consider two options. One is analytic geometry derivatives for the biphenyl template, which would
-remove the finite-difference questions. The other is scoping step 1 to the regular problems D3
-targets, with documented limits.
+**What the review loop has taught:**
+- Reviewers' synthetic counterexamples break general numerics that the frozen fixture never
+  exercises: rounds 13–20.
+- Every allowance or cutoff added for one counterexample needs a test with the *opposite*
+  failure. Round 20 found a cutoff that hid a well-determined parameter.
+- Mutation checks keep finding untested branches. Run them for every fix.
 
 ### Plan agreed with the owner on 2026-11-10 ("medium plan")
 
@@ -177,7 +167,7 @@ The owner approved the re-baseline on 2026-11-09.
 | M1 step | Status | Owner hours (owner fills in) |
 |---|---|---|
 | 1. The D3 stack in dipolar-core | **done** (tag `m1-step1`); rounds 13–18, READY WITH MINOR CHANGES at round 18 | |
-| 2. Frame contract, C2(z) and C1 | built; round 19 NOT READY (fixed), round 20 pending | |
+| 2. Frame contract, C2(z) and C1 | **done** (tag `m1-step2`); rounds 19–20, both fixed under the cap | |
 | 3. Four-site jump model | — | |
 | 4. CSV/XYZ import, JSON v1 | — | |
 | 5. Gates (a)–(e), coverage, 8CB | — | |
@@ -278,7 +268,7 @@ The fitter is not yet an operation. Operations come in M2, as the beta UI needs 
 Check the baseline before resuming:
 
 ```sh
-uv sync --locked && uv run pytest -q -m "not slow"     # 320 passed
+uv sync --locked && uv run pytest -q -m "not slow"     # 325 passed
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 (cd web && pnpm install --frozen-lockfile && pnpm build)
 LEGACY=path/to/NMRApllication tools/legacy-harness/run.sh
@@ -316,7 +306,7 @@ What was built:
   tensor, but the individual couplings still constrain Δ′. A fit that lands there carries
   `FitResult.notes = (D2D_NOTE,)`.
 
-The tests are in `packages/dipolar-core/tests/test_core_frames.py` (56 tests after round 19):
+The tests are in `packages/dipolar-core/tests/test_core_frames.py` (60 tests after round 20):
 - the analytic derivatives against an independent sixth-order stencil, and every sub-model;
 - contraction invariance under random rotations, and in both frames;
 - the ring-A frame holds ring A still, and the δ sign;
@@ -336,7 +326,12 @@ Every new piece was mutation-checked; two survivors led to new sub-model tests.
 - The ring-B relabelling maps are published.
 - An acute fit at the 90° bound gets a note.
 
+**Round 20 fix:** the trusted joint rank judges only what the geometry adds beyond the exact
+order columns. A global cutoff had discarded a small but exact order direction.
+
 **Limits:**
+- An acute fit with wrong ring-B labels is not always flagged; the χ² and residuals show it.
+- The round-20 fix has not been reviewed independently.
 - c2z and c1 do not impose the template's D2 symmetry, so with identical rings nonzero
   off-diagonal components are phenomenological.
 - Legacy D4 parity of the *reported tensor* (B55) still needs the thesis.

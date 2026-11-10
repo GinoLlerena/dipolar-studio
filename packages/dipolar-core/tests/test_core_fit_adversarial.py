@@ -568,11 +568,11 @@ def test_named_null_directions_are_the_numerical_basis() -> None:
 def test_a_singular_value_inside_the_jacobian_error_is_not_rank() -> None:
     """The trust rule itself: a singular value no larger than the Jacobian's own error estimate
     carries no information, whatever the rank policy alone would say."""
-    from dipolar_core.fit import _trusted_rank
+    from dipolar_core.fit import _rank_split
 
-    s = np.array([1.0, 1e-9])
-    assert _trusted_rank(s, np.zeros((3, 2))) == 2  # no error: the rank policy decides
-    assert _trusted_rank(s, np.full((3, 2), 1e-9)) == 1  # inside the error: not information
+    j = np.array([[0.0, 1.0], [1e-9, 0.0], [0.0, 0.0]])  # geometry column, then an order column
+    assert _rank_split(j, np.zeros((3, 2)), 1, 1)[0] == 2  # no error: the rank policy decides
+    assert _rank_split(j, np.full((3, 2), 1e-9), 1, 1)[0] == 1  # inside the error: not information
 
 
 def test_an_unverifiable_prediction_is_not_certified() -> None:
@@ -634,6 +634,17 @@ def test_exact_order_columns_keep_their_rank_and_derivatives_are_refined() -> No
 def test_the_joint_rank_never_drops_below_the_inner_rank() -> None:
     from dipolar_core.fit import _rank_split
 
-    s = np.array([1.0, 1.0])
-    assert _rank_split(s, np.full((3, 2), 1.0), floor=1) == (1, 2)  # uncertain, not unidentified
-    assert _rank_split(s, np.zeros((3, 2)), floor=1) == (2, 2)
+    j = np.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])
+    assert _rank_split(j, np.full((3, 2), 1.0), 1, floor=1) == (1, 2)  # uncertain, not unidentified
+    assert _rank_split(j, np.zeros((3, 2)), 1, floor=1) == (2, 2)
+
+
+def test_a_geometry_column_inside_the_order_span_adds_no_trusted_rank() -> None:
+    """Round 20: only the geometry's information *beyond* the order columns is judged. Here the
+    geometry column nearly repeats the order column. Its distinguishing part (1e-9) lies inside its
+    error estimate, so it adds no trusted rank, although the column itself is large."""
+    from dipolar_core.fit import _rank_split
+
+    j = np.array([[1.0, 1.0], [1e-9, 0.0], [0.0, 0.0]])  # geometry column, then an order column
+    assert _rank_split(j, np.full((3, 2), 1e-9), 1, floor=1) == (1, 2)  # uncertain, not information
+    assert _rank_split(j, np.zeros((3, 2)), 1, floor=1) == (2, 2)

@@ -80,3 +80,63 @@ The test `test_wider_order_models_break_the_template_d2_symmetry` records the fa
 
 320 tests pass (`-m "not slow"`), and ruff and mypy are clean. Round 20 is the second and last
 round under the owner's two-round cap.
+
+# Validation round 20 (final under the two-round cap)
+
+- **Reviewed:** commit b19cea9.
+- **Verdict: NOT READY.** One class-(A) regression and three class-(B) findings.
+- **Confirmed:** the [0°, 180°] completeness claim, for all three models in both frames; the 90°
+  notes in both domains; the round-19 counterexamples; the frozen fixture stays regular.
+
+## Findings and responses
+
+### 1. (A) The round-19 allowance hid real identifiability
+
+**The counterexample.** D = [a, g·(c + x·b)], with orthonormal a, b, c, y = a + c, σ = 0.001
+and g = 10⁻⁷. At x = 0, t = (1, 10⁷), and the joint singular values are (1000, 1000, 10⁻⁴): all
+three parameters are identifiable. The error norm was 1.8·10⁻⁵, so the global cutoff
+TRUST_FACTOR·‖E‖ removed the exactly known order direction v. Both paths reported rank 2 and no
+covariance.
+
+**Fix.** `_rank_split(J, E, k, floor)` now judges only what the geometry adds beyond the order
+columns: the singular values of G⊥ = (I − QQᵀ)·G, against
+max(RANK_RTOL·s₀, TRUST_FACTOR·‖E_geometry‖). The trusted rank is the exact inner rank plus that
+count, capped at the policy rank.
+
+After the fix:
+- the reviewer's example has rank 3, is regular, and has a stderr of 0.001 on both paths and at
+  both scalings;
+- every round-19 counterexample and all 18 ill-conditioned probes keep rank 2.
+
+Tests:
+- `test_a_small_but_exact_order_direction_keeps_its_rank` (4 cases);
+- `test_a_geometry_column_inside_the_order_span_adds_no_trusted_rank`. It was added because
+  removing the projection survived the first mutation check.
+
+Mutations caught: the old global cutoff, no projection, and policy-only.
+
+### 2. (B) An obtuse input need not stop at 90°
+
+Bisector-diagonal data at 137° fit in the acute domain to 34.6°, with a large χ² and no note.
+**Documented** in the `biphenyl` docstring and ADR-0012: the note cannot detect wrong labels in
+general; the χ² and the residuals can.
+
+### 3. (B) The off-diagonal statement needs a frame
+
+**Documented:** the statement holds in the bisector frame, the D2 symmetry axes. In the ring-A
+frame, a D2-symmetric tensor has Sxy = ½Δ′ sin δ.
+
+### 4. (B) The envelope-theorem justification was wrong
+
+δg = (A_θ δt)ᵀr + (A_θ t + F_θ)ᵀA δt does not vanish in general. **Corrected comment:** the
+certificate's derivative error leaves out δt deliberately. That error can only make step 4
+*accept* an unrealised prediction, so leaving δt out makes the certificate stricter. The failure
+mode is "not converged", never a false certificate.
+
+## Closing
+
+Under the owner's cap, the round-20 fixes were applied and mutation-checked, and the limits are
+documented. No round 21 was run, so **the finding-1 fix has not been reviewed independently**; it
+is the first thing to check if the rank logic is revisited.
+
+325 tests pass (`-m "not slow"`).

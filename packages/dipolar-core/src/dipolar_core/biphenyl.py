@@ -23,8 +23,10 @@
      (Szz, −Δ, −Sxy, −Syz, Sxz).
    - ``domain="acute"``, φ ∈ [0°, 90°], is the frozen fixture's domain and the default. It is
      complete only when ring B's labels have been assigned so that the torsion is acute (a
-     precondition on the input). Otherwise the best fit sits at the 90° bound, with the note
-     ``ACUTE_BOUND_NOTE``.
+     precondition on the input). If they were not, the fit can stop at the 90° bound, where it
+     gets the note ``ACUTE_BOUND_NOTE``. It can also land on a wrong acute optimum with no note:
+     for example, bisector-diagonal data at 137° fit to 34.6° with a large χ² (round 20). The
+     note cannot detect wrong labels in general. The χ² and the residuals can.
 4. *Constraint basis C(g)*, in ``ORDER_MODELS``. Each maps the free order parameters t onto the
    five ``ORDER_BASIS`` components in the declared frame:
    - ``"bisector-diagonal"`` (legacy alias "D4"): S is diagonal in the bisector frame, with
@@ -52,10 +54,12 @@ classes (``couplings.csv``, ``equivalent_pairs``) are those of a D2-symmetric mo
 They are valid for ``"bisector-diagonal"`` and not for ``"c2z"`` or ``"c1"``.
 
 ``"c2z"`` and ``"c1"`` are reference models. They do not impose the D2 symmetry (C2 about x, y
-and z) of the identical-ring template. With this template, a nonzero Sxy, Sxz or Syz at *any*
-torsion describes a tensor less symmetric than the molecule. For example, Sxy alone gives H2–H6
-and H2′–H6′ couplings of opposite sign, although D2 relates those pairs. Such values are
-phenomenological, just as Δ′ is at the D2d endpoint (round 19).
+and z) of the identical-ring template. With this template, a nonzero Sxy, Sxz or Syz *in the
+bisector frame* (the D2 symmetry axes), at any torsion, describes a tensor less symmetric than
+the molecule. For example, Sxy alone gives H2–H6 and H2′–H6′ couplings of opposite sign,
+although D2 relates those pairs. Such values are phenomenological, just as Δ′ is at the D2d
+endpoint (round 19). In the ring-A frame, a D2-symmetric tensor already has Sxy = ½Δ′ sin δ ≠ 0
+(round 20).
 """
 
 from __future__ import annotations

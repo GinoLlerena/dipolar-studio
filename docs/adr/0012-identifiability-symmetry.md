@@ -22,7 +22,9 @@ The full text is in the `dipolar_core.biphenyl` module docstring. In short:
      the ring planes.
    - `ring-a`: the same z, with x in ring A's plane on the C2 side.
 3. **Torsion sign.** The IUPAC dihedral τ(C2–C1–C1′–C2′) is −φ. y → −y maps φ to −φ and negates
-   Sxy and Syz. The domain is φ ∈ [0°, 90°].
+   Sxy and Syz. `domain="fixed-labels"`, φ ∈ [0°, 180°], is complete. `domain="acute"`,
+   φ ∈ [0°, 90°], is the fixture's domain and the default. It is complete only if ring B's labels
+   make the torsion acute, and wrong labels are not always detected (rounds 19 and 20).
 4. **Constraint bases.**
    - `bisector-diagonal` ("D4"): t = (Szz, Δ′). In the ring-A frame it is the moving form
      Δ = Δ′cos δ, Sxy = ½Δ′sin δ with δ = −φ.

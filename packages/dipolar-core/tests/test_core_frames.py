@@ -518,3 +518,30 @@ def test_the_inner_solve_error_never_invents_a_joint_rank(gap: float, residual: 
     result = fit(problem, Settings(grid=np.array([0.0])))
     assert result.validity.inner_rank == 2
     assert result.validity.joint_rank == 2 and not result.validity.regular and result.covariance is None
+
+
+@pytest.mark.parametrize("scale", [1.0, 1e-7])
+@pytest.mark.parametrize("analytic", [True, False])
+def test_a_small_but_exact_order_direction_keeps_its_rank(scale: float, analytic: bool) -> None:
+    """Round 20: D = [a, g·(c + x·b)] with orthonormal a, b, c and y = a + c, σ = 0.001. At x = 0,
+    t = (1, 1/g) and the joint singular values are (1000, 1000, 1e-4·(g/1e-7)): all identifiable.
+
+    The round-19 allowance (‖E‖ ≈ 1.8e-5 for g = 1e-7) once cut every singular value below
+    TRUST_FACTOR·‖E‖. That discarded the exact order direction v and reported rank 2. Now only the
+    geometry's information beyond the order span is judged against E.
+    """
+    a, c, b = np.eye(6)[:3]
+    problem = Problem(
+        design=lambda x: np.column_stack([a, scale * (c + x[0] * b)]),
+        design_derivative=(lambda x: np.column_stack([0 * a, scale * b])[None]) if analytic else None,
+        y=a + c,
+        sigma=np.full(6, 0.001),
+        lower=np.array([-0.1]),
+        upper=np.array([0.1]),
+        theta_names=("x",),
+        order_names=("u", "v"),
+    )
+    result = fit(problem, Settings(grid=np.array([0.0])))
+    assert result.validity.joint_rank == 3 and result.validity.regular
+    assert result.uncertain == () and result.covariance is not None
+    assert result.covariance.stderr[0] == pytest.approx(0.001, rel=1e-6)
