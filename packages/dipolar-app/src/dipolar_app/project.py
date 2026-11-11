@@ -19,6 +19,7 @@ class Spin(Wire):
     id: SpinId
     label: str  # display only (D5)
     isotope: Literal["1H"]
+    atom: Annotated[int, Field(ge=0)] | None = None  # index into imported atoms; None for the template
 
 
 class BiphenylTemplate(Wire):
@@ -28,8 +29,24 @@ class BiphenylTemplate(Wire):
     r_inter: Angstrom
 
 
+class Atom(Wire):
+    element: Annotated[str, Field(min_length=1, max_length=2)]
+    x: float  # Å, in the input frame (the frame of the order tensor)
+    y: float
+    z: float
+
+
+class ImportedGeometry(Wire):
+    """Coordinates from a file (XYZ). ``torsion`` names four atoms (a, i, j, b) whose IUPAC
+    dihedral is the fitted angle (``dipolar_core.torsion``)."""
+
+    source_format: Literal["xyz"]
+    atoms: tuple[Atom, ...]
+    torsion: tuple[int, int, int, int] | None = None
+
+
 class Molecule(Wire):
-    geometry: BiphenylTemplate
+    geometry: BiphenylTemplate | ImportedGeometry
     spins: tuple[Spin, ...]
 
 
@@ -43,11 +60,21 @@ class Coupling(Wire):
     sigma_source: str
     multiplicity: Annotated[int, Field(ge=1)]  # symmetry copies; never inflates N (D3.3)
     equivalent_pairs: tuple[str, ...]  # display labels, data only
+    source_labels: tuple[str, str] | None = None  # the labels as imported, kept verbatim (D5)
 
 
 class ModelSpec(Wire):
-    kind: Literal["rigid"]
-    order: Literal["diagonal-bisector"]
+    """The fitted model (``dipolar_core.biphenyl`` and ``dipolar_core.torsion``).
+
+    - ``kind``: "rigid" (one conformer) or "jump4" (the symmetric four-site jump, template only).
+    - ``order``: "bisector-diagonal" (legacy "D4"; template only), "c2z" (legacy "D2") or "c1".
+    - ``frame``: "bisector" or "ring-a" for the template; "input" for imported coordinates.
+    - ``phi_domain_deg``: the fitted torsion interval.
+    """
+
+    kind: Literal["rigid", "jump4"]
+    order: Literal["bisector-diagonal", "c2z", "c1"]
+    frame: Literal["bisector", "ring-a", "input"] = "bisector"
     phi_domain_deg: tuple[float, float]
 
 
@@ -126,5 +153,5 @@ def load_example(name: ExampleName) -> Project:
             spins=tuple(Spin(id=spin_ids[label], label=label, isotope="1H") for label in labels),
         ),
         couplings=couplings,
-        model=ModelSpec(kind="rigid", order="diagonal-bisector", phi_domain_deg=(0.0, 90.0)),
+        model=ModelSpec(kind="rigid", order="bisector-diagonal", phi_domain_deg=(0.0, 90.0)),
     )

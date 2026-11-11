@@ -19,7 +19,7 @@ from pydantic import Field
 
 from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.policy import Capability
-from dipolar_app.project import Project, load_example, science_hash
+from dipolar_app.project import BiphenylTemplate, Project, load_example, science_hash
 from dipolar_app.registry import Context, Operation, Registry
 from dipolar_app.schemas import (
     Angstrom,
@@ -146,10 +146,27 @@ class DescribeProjectOut(Wire):
     estimand: str
 
 
+def _template_rigid(project: Project) -> BiphenylTemplate:
+    """M1: the operations serve the rigid model on the biphenyl template. Imported geometry and
+    the jump model reach the operations in M2."""
+    g = project.molecule.geometry
+    if (
+        not isinstance(g, BiphenylTemplate)
+        or project.model.kind != "rigid"
+        or project.model.order != "bisector-diagonal"
+    ):
+        raise OperationError(
+            ErrorCode.OUT_OF_DOMAIN,
+            "this operation supports the rigid bisector-diagonal model on the biphenyl template only",
+            hint="imported geometry, the jump model and the C2(z)/C1 order models reach the operations in M2",
+        )
+    return g
+
+
 def describe_project(ctx: Context, _: DescribeProjectIn) -> DescribeProjectOut:
     state = ctx.read()
     project = _require_project(state)
-    g = project.molecule.geometry
+    g = _template_rigid(project)
     return DescribeProjectOut(
         science_revision=state.science_revision,
         science_hash=state.science_hash,
@@ -232,9 +249,9 @@ def fit_preview(ctx: Context, p: PreviewIn) -> PreviewOut:
             offending_field="phi.value",
             hint="the torsion domain is folded; see the estimand for the equivalent angles",
         )
+    g = _template_rigid(project)
     index = {s.id: i for i, s in enumerate(project.molecule.spins)}
     pairs = tuple((index[c.spin_a], index[c.spin_b]) for c in project.couplings)
-    g = project.molecule.geometry
     geometry = BiphenylGeometry(r_cc=g.r_cc.value, r_ch=g.r_ch.value, r_inter=g.r_inter.value)
     y = np.array([c.value.value for c in project.couplings])
     sigma = np.array([c.sigma.value for c in project.couplings])

@@ -1,8 +1,7 @@
 # Status
 
-**M1 step 3 (the symmetric four-site jump model) is built and under review (round 21).** It is
-committed locally and not pushed until the review passes. Step 4 (CSV/XYZ import, JSON v1)
-follows; the owner asked for steps 3 and 4 on 2026-11-10.
+**M1 step 3 (the symmetric four-site jump model) is built and under review (round 21).** Step 4 (CSV/XYZ import, JSON v1) is also built and under review. Both are committed locally and
+not pushed until their reviews pass. The owner asked for steps 3 and 4 on 2026-11-10.
 
 **M1 step 2 (the frame contract, C2(z) and C1, analytic derivatives) is done: tag `m1-step2`.**
 Round 19 returned NOT READY with two class-(A) findings, both fixed. One of them also fixed a
@@ -174,7 +173,7 @@ The owner approved the re-baseline on 2026-11-09.
 | 1. The D3 stack in dipolar-core | **done** (tag `m1-step1`); rounds 13–18, READY WITH MINOR CHANGES at round 18 | |
 | 2. Frame contract, C2(z) and C1 | **done** (tag `m1-step2`); rounds 19–20, both fixed under the cap | |
 | 3. Four-site jump model | built; review round 21 pending | |
-| 4. CSV/XYZ import, JSON v1 | — | |
+| 4. CSV/XYZ import, JSON v1 | built; review pending | |
 | 5. Gates (a)–(e), coverage, 8CB | — | |
 
 ### Step 1: the D3 stack
@@ -273,7 +272,7 @@ The fitter is not yet an operation. Operations come in M2, as the beta UI needs 
 Check the baseline before resuming:
 
 ```sh
-uv sync --locked && uv run pytest -q -m "not slow"     # 325 passed
+uv sync --locked && uv run pytest -q -m "not slow"     # 417 passed
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 (cd web && pnpm install --frozen-lockfile && pnpm build)
 LEGACY=path/to/NMRApllication tools/legacy-harness/run.sh
@@ -364,6 +363,40 @@ with t = (Szz, Δ).
 
 Tests: `packages/dipolar-core/tests/test_core_jump.py` and `tests/test_engine_jump_reference.py`
 (39 tests). They were mutation-checked, and every mutation was caught.
+
+### Step 4: imports and the project file
+
+- **Imported geometry** (`dipolar_core.torsion`, pure functions):
+  - bonds from covalent radii;
+  - the moving fragment across a torsion bond (ring bonds are refused);
+  - φ as the signed IUPAC dihedral τ(a–i–j–b), set by a right-handed turn of the moving fragment
+    about i → j, with an analytic derivative;
+  - `imported_problem` (c1 or c2z in the input frame, which is fixed to the non-moving
+    fragment).
+
+  Cross-checked: imported coordinates at τ predict what the template predicts in its ring-A
+  frame at φ = −τ.
+- **Formats** (`dipolar_app.formats`):
+  - strict XYZ and couplings-CSV parsers, with errors by line or row; unknown columns are
+    reported, never used;
+  - `project_from_xyz` (one spin per hydrogen);
+  - **D5 reconciliation**: `reconcile` only proposes exact label matches. Unmatched labels need
+    a mapping the user confirms. The diff lists added, removed, changed and unchanged pairs, and
+    a reversed pair is the same observation. `apply_import` keeps the original labels in
+    `source_labels`, and keeps each existing pair's stable coupling ID;
+  - **`*.dipolar.json` v1**: a format tag and schema version, strict JSON-mode validation, exact
+    round trips, and a migration chain. A newer file is refused.
+- **Project schema v1** (additive): a geometry union (template or imported XYZ with a declared
+  torsion); spins with atom indices; `source_labels` on couplings; and a model spec with kind
+  (rigid or jump4), order, frame and domain. The order model's name is now `bisector-diagonal`,
+  matching the core.
+- **`dipolar_app.science`:** `check_project` states the consistency rules, and `problem_for`
+  builds the D3 problem for the template (rigid or jump) and for imported coordinates.
+- **The operations** (`project.describe`, `fit.preview`) still serve only the rigid
+  bisector-diagonal template model. Other projects get `OUT_OF_DOMAIN` until M2 wires them in.
+
+Tests: `test_core_torsion.py` (16) and `test_app_formats.py` (35), mutation-checked; 417 pass in
+total.
 
 ## Open items for the owner
 
