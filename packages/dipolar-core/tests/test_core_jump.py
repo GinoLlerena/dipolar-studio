@@ -129,3 +129,20 @@ def test_an_interval_away_from_the_pole_is_still_supported() -> None:
     problem = jump_problem(ALL_PAIRS, y, np.full(len(y), 0.5))
     interval = profile_interval(problem, fit(problem), "phi_deg")
     assert interval.supported and interval.lower is not None and interval.lower < 60.0 < (interval.upper or 0)
+
+
+def test_steep_smooth_crossings_are_still_supported() -> None:
+    """Round 23: with σ = 1e-6 Hz the profile is steep but smooth, and no rank changes. A fixed
+    residual check rejected both intervals as "discontinuous"; continuity is now judged at float
+    resolution, and both are supported."""
+    from dipolar_core.fit import slice_interval
+
+    y = jump_design(37.0, ALL_PAIRS) @ [0.25, 0.1]
+    problem = jump_problem(ALL_PAIRS, y, np.full(len(y), 1e-6))
+    result = fit(problem)
+    assert result.validity.regular
+    phi = profile_interval(problem, result, "phi_deg")
+    delta = slice_interval(problem, result, "Delta")
+    assert phi.supported and delta.supported, (phi.note, delta.note)
+    assert delta.lower == pytest.approx(0.0999999998034, abs=1e-12)
+    assert delta.upper == pytest.approx(0.1000000001966, abs=1e-12)

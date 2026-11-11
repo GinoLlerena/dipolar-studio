@@ -36,7 +36,10 @@ The error covariance Σ is known and never rescaled (``dipolar_core.problem``). 
    Crossings are searched by geometric sampling outward from the optimum, and every interval is
    then verified by sampling it evenly. A feature narrower than the sampling can still be missed.
    The label states the one-parameter coverage of the raw Δχ² threshold under regular asymptotics.
-   An endpoint must meet the threshold: a jump in the profile (a rank change) is not a crossing.
+   An endpoint must be a continuous crossing at double-precision resolution: a jump in the
+   profile (a rank change) is not a crossing. The check is local to the endpoints. A rank-change
+   gap *inside* an interval that falls between the verification samples is the documented
+   sampling limit (round 23).
    Intervals do not judge model adequacy. A caller that reports them must refuse them when there
    is no error model, or when the fit is inadequate (for example p < 1e-3), as the frozen 8CB
    policy requires (round 21).
@@ -66,7 +69,7 @@ from dipolar_core.problem import Problem as Problem
 Array = NDArray[np.float64]
 
 #: Version of this stack's numerical choices (enters the numerical context when an operation uses it).
-FIT_VERSION: Final = "varpro-trf.7"
+FIT_VERSION: Final = "varpro-trf.8"
 #: Relative distance (in units of the bound range) under which two refined optima are one basin.
 BASIN_RTOL: Final = 1e-6
 #: A geometry parameter is at a bound if TRF reports the bound active, or if it lies within
@@ -87,8 +90,11 @@ ATTAINABLE_FACTOR: Final = 10.0
 TRUST_FACTOR: Final = 10.0
 #: Multiplier of the rounding allowances of derivative columns (``_solve_error``, ``_analytic_error``).
 ROUNDING_FACTOR: Final = 8.0
-#: A located interval endpoint must meet the threshold to within ENDPOINT_RTOL · Δχ² (round 21).
-ENDPOINT_RTOL: Final = 1e-6
+#: At an interval endpoint the profile must be continuous at double-precision resolution: across a
+#: few ulps around the root it may change by at most JUMP_RTOL · Δχ² (rounds 21 and 23).
+JUMP_RTOL: Final = 1e-3
+#: Half-width, in ulps of the root, of the bracket on which that continuity is checked.
+JUMP_ULPS: Final = 8
 #: Backtracking halvings of the certificate's trial step (see ``_converged``).
 TRIAL_HALVINGS: Final = 40
 #: Constrained re-minimizations in a profile start from at most this many known basins.
@@ -927,16 +933,20 @@ def _interval(
                 for sub in np.linspace(previous, mark, SUBDIVISIONS + 1)[1:]:
                     if excess(estimate + direction * float(sub)) > 0:
                         lo, hi = sorted((estimate + direction * sub_prev, estimate + direction * float(sub)))
-                        root = float(brentq(excess, lo, hi, xtol=1e-14, rtol=1e-14, maxiter=200))
-                        # A sign change is not a crossing unless the profile reaches the threshold
-                        # there. brentq also converges onto a jump, for example where the inner rank
-                        # drops and χ² leaps past the threshold (round 21).
-                        miss = abs(excess(root))
-                        if miss > ENDPOINT_RTOL * delta_chi2:
+                        eps = float(np.finfo(np.float64).eps)
+                        root = float(brentq(excess, lo, hi, xtol=1e-300, rtol=4 * eps, maxiter=500))
+                        # A sign change is a crossing only if the profile is continuous there:
+                        # brentq also converges onto a jump, for example where the inner rank drops
+                        # and χ² leaps past the threshold (round 21). Judge continuity at the
+                        # resolution of the floats, not by a fixed residual, because a steep but
+                        # smooth profile cannot meet any fixed residual (round 23).
+                        width = JUMP_ULPS * max(abs(float(np.spacing(root))), 1e-300)
+                        change = abs(excess(root + width) - excess(root - width))
+                        if change > JUMP_RTOL * delta_chi2:
                             raise _Unsupported(
                                 f"the profile jumps across the threshold at {name} = {root:.10g} "
-                                f"(off by {miss:.3g} in χ²): it is discontinuous there, for example where "
-                                "the inner rank changes"
+                                f"(by {change:.3g} in χ² within {2 * JUMP_ULPS} ulps): it is discontinuous "
+                                "there, for example where the inner rank changes, or too steep to resolve"
                             )
                         return root
                     sub_prev = float(sub)

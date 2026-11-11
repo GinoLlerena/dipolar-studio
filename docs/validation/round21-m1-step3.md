@@ -48,3 +48,48 @@ M2) must refuse them when there is no error model, or when the fit is inadequate
 now asserts the fixture's policy, so it cannot be lost.
 
 `FIT_VERSION` is now varpro-trf.7. 421 tests pass (`-m "not slow"`).
+
+# Validation round 23 (final under the two-round cap)
+
+- **Reviewed:** 4c52a0d..31c4c50, and step 3 as a whole.
+- **Verdict: NOT READY.** One class-(A) regression and two class-(B) limits.
+- **Confirmed:** the round-21 counterexamples are fixed. `rank_starts` also works on Sobol scans
+  and adds nothing when every point is deficient. The pole profiles are refused, the 60° control
+  is supported, and the frozen fixtures pass.
+
+## 1. (A) The round-21 endpoint check rejected steep, smooth crossings
+
+**The counterexample.** All pairs, φ = 37°, σ = 1e-6 Hz. The φ profile and the Δ slice were
+both called "discontinuous", with residuals of 2.3e-6 and 1.5e-5. No rank changes there; the
+residual came from brentq's tolerance and from float resolution.
+
+**Fix.**
+- brentq now solves to 4ε relative.
+- Continuity is judged at float resolution: across ±8 ulps around the root, the profile may
+  change by at most JUMP_RTOL·Δχ² (JUMP_RTOL = 1e-3).
+- A smooth crossing changes by far less. The pole jump changes by order Δχ² and is still refused.
+- A crossing too steep to resolve in double precision is also refused, and the note says so.
+
+**Test:** `test_steep_smooth_crossings_are_still_supported`. The Δ slice endpoints match the
+analytic quadratic to 1e-12. Mutations caught: the old residual rule, and no check at all.
+
+`FIT_VERSION` is now varpro-trf.8.
+
+## 2. (B) A rank-change gap *inside* an interval can be missed
+
+For D(x) = [[100, 0], [x, 0], [0, x − 0.3], [0, x(x − 0.3)], [0, 0]], the inner rank drops at
+x = 0.3, inside the supported interval [−0.786, 0.786]. That point falls between the
+verification samples. This is the documented sampling limit, now stated explicitly in the fit
+docstring: the endpoint check is local.
+
+## 3. (B) Small-angle recovery is a flagged search limit
+
+True φ = 0.1° with σ = 1e-8: the default search stays near 0°, with a huge χ². The result
+correctly reports non-convergence and an unresolved search, so no false answer is given. A start
+at 0.5° recovers the solution.
+
+## Closing
+
+Under the owner's cap, the round-23 fix was applied and mutation-checked, and the limits are
+documented. No further round was run, so **the continuity check has not been reviewed
+independently**. 443 tests pass.
