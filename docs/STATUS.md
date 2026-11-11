@@ -349,8 +349,13 @@ order columns. A global cutoff had discarded a small but exact order direction.
   redistribution. The data are used for validation only and are removable at any time
   (datasets/README.md). The repository record's licence file says only "Creative Commons", with
   no version.
-- Decide whether Marco Idrogo should be listed as a co-author of the new software in
-  `CITATION.cff`.
+
+## Decisions recorded
+
+- 2026-11-10: Marco Idrogo is **not** a co-author of the new implementation. `CITATION.cff`
+  lists Gino Llerena as the only author of Dipolar Studio. Marco Idrogo stays credited as
+  co-author of the original 1998 thesis and *Proyecto* application: in the README credits and in
+  the cited 1998 reference in `CITATION.cff`.
 
 ## Known minor issue
 
