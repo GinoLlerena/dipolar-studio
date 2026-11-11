@@ -370,20 +370,6 @@ def test_project_files_are_checked_for_consistency(mutate, message: str) -> None
         loads_project(json.dumps(document))
 
 
-@pytest.mark.parametrize(
-    "update",
-    [{"frame": "ring-a"}, {"phi_domain_deg": (0.0, 180.0)}, {"kind": "jump4"}, {"order": "c1"}],
-)
-def test_the_operations_refuse_what_their_outputs_cannot_describe(update: dict) -> None:  # type: ignore[type-arg]
-    """Round 22, finding 7: describe/preview present bisector-frame science on the acute domain."""
-    from dipolar_app.errors import OperationError
-    from dipolar_app.operations import _template_rigid
-
-    with pytest.raises(OperationError, match="bisector frame on the acute domain"):
-        _template_rigid(EXAMPLE.model_copy(update={"model": EXAMPLE.model.model_copy(update=update)}))
-    assert _template_rigid(EXAMPLE) is EXAMPLE.molecule.geometry
-
-
 @pytest.mark.parametrize("field", ['"0.5', '"0".5'])
 def test_malformed_csv_quoting_is_refused(field: str) -> None:
     """Round 22, finding 8: never repair a malformed field into a number."""

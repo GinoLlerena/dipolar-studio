@@ -1,5 +1,5 @@
 {
-  "contract_version": "0.1.0",
+  "contract_version": "0.2.0",
   "envelopes": {
     "error": {
       "$defs": {
@@ -64,6 +64,7 @@
             "NO_PROJECT",
             "ID_NOT_FOUND",
             "OUT_OF_DOMAIN",
+            "PROJECT_NOT_READY",
             "PAYLOAD_TOO_LARGE",
             "JOURNAL_FAILED",
             "INTERNAL"
@@ -164,6 +165,289 @@
   },
   "operations": [
     {
+      "capability": "science_mutation",
+      "cost": "instant",
+      "effect": "model",
+      "examples": [
+        {
+          "confirmed_mapping": {
+            "H2": "spn_000001",
+            "H3": "spn_000002"
+          },
+          "csv": "spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H3,-1124.6,0.5\n",
+          "expected_science_revision": 1
+        }
+      ],
+      "idempotent": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmed_mapping": {
+            "additionalProperties": {
+              "pattern": "^spn_[0-9]{6}$",
+              "type": "string"
+            },
+            "maxProperties": 1000,
+            "propertyNames": {
+              "maxLength": 200
+            },
+            "title": "Confirmed Mapping",
+            "type": "object"
+          },
+          "csv": {
+            "maxLength": 1048576,
+            "title": "Csv",
+            "type": "string"
+          },
+          "expected_science_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Expected Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "csv",
+          "confirmed_mapping",
+          "expected_science_revision"
+        ],
+        "title": "ImportCouplingsIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "name": "couplings.import",
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "integer"
+          },
+          "changed": {
+            "title": "Changed",
+            "type": "integer"
+          },
+          "n_couplings": {
+            "title": "N Couplings",
+            "type": "integer"
+          },
+          "not_ready_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Ready Reason"
+          },
+          "ready_to_fit": {
+            "title": "Ready To Fit",
+            "type": "boolean"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "integer"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          },
+          "unchanged": {
+            "title": "Unchanged",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "n_couplings",
+          "added",
+          "removed",
+          "changed",
+          "unchanged",
+          "ready_to_fit",
+          "not_ready_reason"
+        ],
+        "title": "ImportCouplingsOut",
+        "type": "object"
+      },
+      "revision_check": "expected_science_revision (required)",
+      "summary": "Replace the couplings with a CSV's, under a label mapping the caller confirmed (stable IDs kept)."
+    },
+    {
+      "capability": "query",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {
+          "csv": "spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H3,-1124.6,0.5\n"
+        }
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "csv": {
+            "maxLength": 1048576,
+            "title": "Csv",
+            "type": "string"
+          },
+          "mapping": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "pattern": "^spn_[0-9]{6}$",
+                  "type": "string"
+                },
+                "maxProperties": 1000,
+                "propertyNames": {
+                  "maxLength": 200
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mapping"
+          }
+        },
+        "required": [
+          "csv"
+        ],
+        "title": "ReconcileIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "name": "couplings.reconcile",
+      "output_schema": {
+        "$defs": {
+          "PairOut": {
+            "additionalProperties": false,
+            "properties": {
+              "label": {
+                "title": "Label",
+                "type": "string"
+              },
+              "spin_a": {
+                "pattern": "^spn_[0-9]{6}$",
+                "title": "Spin A",
+                "type": "string"
+              },
+              "spin_b": {
+                "pattern": "^spn_[0-9]{6}$",
+                "title": "Spin B",
+                "type": "string"
+              }
+            },
+            "required": [
+              "spin_a",
+              "spin_b",
+              "label"
+            ],
+            "title": "PairOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "added": {
+            "items": {
+              "$ref": "#/$defs/PairOut"
+            },
+            "title": "Added",
+            "type": "array"
+          },
+          "changed": {
+            "items": {
+              "$ref": "#/$defs/PairOut"
+            },
+            "title": "Changed",
+            "type": "array"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "ignored_columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ignored Columns",
+            "type": "array"
+          },
+          "proposed_mapping": {
+            "additionalProperties": {
+              "pattern": "^spn_[0-9]{6}$",
+              "type": "string"
+            },
+            "title": "Proposed Mapping",
+            "type": "object"
+          },
+          "removed": {
+            "items": {
+              "$ref": "#/$defs/PairOut"
+            },
+            "title": "Removed",
+            "type": "array"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          },
+          "unchanged": {
+            "items": {
+              "$ref": "#/$defs/PairOut"
+            },
+            "title": "Unchanged",
+            "type": "array"
+          },
+          "unmatched_labels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unmatched Labels",
+            "type": "array"
+          },
+          "unresolved_pairs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unresolved Pairs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "proposed_mapping",
+          "unmatched_labels",
+          "unresolved_pairs",
+          "complete",
+          "added",
+          "removed",
+          "changed",
+          "unchanged",
+          "ignored_columns"
+        ],
+        "title": "ReconcileOut",
+        "type": "object"
+      },
+      "revision_check": "none",
+      "summary": "Read a couplings CSV against the project: the proposed label mapping and the diff (no change)."
+    },
+    {
       "capability": "preview",
       "cost": "instant",
       "effect": "none",
@@ -235,46 +519,7 @@
             "title": "Degrees",
             "type": "object"
           },
-          "Hertz": {
-            "additionalProperties": false,
-            "properties": {
-              "unit": {
-                "const": "Hz",
-                "title": "Unit",
-                "type": "string"
-              },
-              "value": {
-                "title": "Value",
-                "type": "number"
-              }
-            },
-            "required": [
-              "value",
-              "unit"
-            ],
-            "title": "Hertz",
-            "type": "object"
-          },
-          "OrderOut": {
-            "additionalProperties": false,
-            "properties": {
-              "Delta": {
-                "title": "Delta",
-                "type": "number"
-              },
-              "Szz": {
-                "title": "Szz",
-                "type": "number"
-              }
-            },
-            "required": [
-              "Szz",
-              "Delta"
-            ],
-            "title": "OrderOut",
-            "type": "object"
-          },
-          "PreviewCoupling": {
+          "FittedCoupling": {
             "additionalProperties": false,
             "properties": {
               "calculated": {
@@ -312,10 +557,102 @@
               "residual",
               "normalized_residual"
             ],
-            "title": "PreviewCoupling",
+            "title": "FittedCoupling",
             "type": "object"
           },
-          "Validity": {
+          "Hertz": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Hz",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Hertz",
+            "type": "object"
+          },
+          "ModelOut": {
+            "additionalProperties": false,
+            "properties": {
+              "frame": {
+                "enum": [
+                  "bisector",
+                  "ring-a",
+                  "input"
+                ],
+                "title": "Frame",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "rigid",
+                  "jump4"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "order": {
+                "enum": [
+                  "bisector-diagonal",
+                  "c2z",
+                  "c1"
+                ],
+                "title": "Order",
+                "type": "string"
+              },
+              "phi_domain": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "$ref": "#/$defs/Degrees"
+                  },
+                  {
+                    "$ref": "#/$defs/Degrees"
+                  }
+                ],
+                "title": "Phi Domain",
+                "type": "array"
+              }
+            },
+            "required": [
+              "kind",
+              "order",
+              "frame",
+              "phi_domain"
+            ],
+            "title": "ModelOut",
+            "type": "object"
+          },
+          "NamedValue": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "name",
+              "value"
+            ],
+            "title": "NamedValue",
+            "type": "object"
+          },
+          "PreviewValidity": {
             "additionalProperties": false,
             "properties": {
               "inner_condition_number": {
@@ -338,8 +675,15 @@
                 "type": "integer"
               },
               "physically_admissible": {
-                "title": "Physically Admissible",
-                "type": "boolean"
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Physically Admissible"
               }
             },
             "required": [
@@ -348,7 +692,7 @@
               "inner_condition_number",
               "physically_admissible"
             ],
-            "title": "Validity",
+            "title": "PreviewValidity",
             "type": "object"
           }
         },
@@ -360,7 +704,7 @@
           },
           "couplings": {
             "items": {
-              "$ref": "#/$defs/PreviewCoupling"
+              "$ref": "#/$defs/FittedCoupling"
             },
             "title": "Couplings",
             "type": "array"
@@ -374,9 +718,7 @@
             "type": "string"
           },
           "model": {
-            "const": "rigid",
-            "title": "Model",
-            "type": "string"
+            "$ref": "#/$defs/ModelOut"
           },
           "n_obs": {
             "title": "N Obs",
@@ -397,7 +739,11 @@
             "type": "object"
           },
           "order": {
-            "$ref": "#/$defs/OrderOut"
+            "items": {
+              "$ref": "#/$defs/NamedValue"
+            },
+            "title": "Order",
+            "type": "array"
           },
           "phi": {
             "$ref": "#/$defs/Degrees"
@@ -418,7 +764,7 @@
             "type": "string"
           },
           "validity": {
-            "$ref": "#/$defs/Validity"
+            "$ref": "#/$defs/PreviewValidity"
           }
         },
         "required": [
@@ -442,6 +788,914 @@
       },
       "revision_check": "none",
       "summary": "Preview the fit at a fixed torsion: order parameters re-solved, predictions and residuals."
+    },
+    {
+      "capability": "compute_job",
+      "cost": "seconds",
+      "effect": "none",
+      "examples": [
+        {},
+        {
+          "intervals": true
+        }
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "intervals": {
+            "default": false,
+            "title": "Intervals",
+            "type": "boolean"
+          }
+        },
+        "title": "FitRunIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "name": "fit.run",
+      "output_schema": {
+        "$defs": {
+          "BasinOut": {
+            "additionalProperties": false,
+            "properties": {
+              "chi2": {
+                "title": "Chi2",
+                "type": "number"
+              },
+              "delta_chi2": {
+                "title": "Delta Chi2",
+                "type": "number"
+              },
+              "theta": {
+                "items": {
+                  "$ref": "#/$defs/NamedValue"
+                },
+                "title": "Theta",
+                "type": "array"
+              }
+            },
+            "required": [
+              "theta",
+              "chi2",
+              "delta_chi2"
+            ],
+            "title": "BasinOut",
+            "type": "object"
+          },
+          "Degrees": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "deg",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Degrees",
+            "type": "object"
+          },
+          "FitValidity": {
+            "additionalProperties": false,
+            "properties": {
+              "at_bound": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "At Bound",
+                "type": "array"
+              },
+              "converged": {
+                "title": "Converged",
+                "type": "boolean"
+              },
+              "derivatives_resolved": {
+                "title": "Derivatives Resolved",
+                "type": "boolean"
+              },
+              "inner_condition_number": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Inner Condition Number"
+              },
+              "inner_parameters": {
+                "title": "Inner Parameters",
+                "type": "integer"
+              },
+              "inner_rank": {
+                "title": "Inner Rank",
+                "type": "integer"
+              },
+              "joint_parameters": {
+                "title": "Joint Parameters",
+                "type": "integer"
+              },
+              "joint_rank": {
+                "title": "Joint Rank",
+                "type": "integer"
+              },
+              "physically_admissible": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Physically Admissible"
+              },
+              "regular": {
+                "title": "Regular",
+                "type": "boolean"
+              },
+              "search_resolved": {
+                "title": "Search Resolved",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "inner_rank",
+              "inner_parameters",
+              "inner_condition_number",
+              "joint_rank",
+              "joint_parameters",
+              "converged",
+              "physically_admissible",
+              "at_bound",
+              "search_resolved",
+              "derivatives_resolved",
+              "regular"
+            ],
+            "title": "FitValidity",
+            "type": "object"
+          },
+          "FittedCoupling": {
+            "additionalProperties": false,
+            "properties": {
+              "calculated": {
+                "$ref": "#/$defs/Hertz"
+              },
+              "id": {
+                "pattern": "^cpl_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "label": {
+                "title": "Label",
+                "type": "string"
+              },
+              "normalized_residual": {
+                "title": "Normalized Residual",
+                "type": "number"
+              },
+              "observed": {
+                "$ref": "#/$defs/Hertz"
+              },
+              "residual": {
+                "$ref": "#/$defs/Hertz"
+              },
+              "sigma": {
+                "$ref": "#/$defs/Hertz"
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "observed",
+              "sigma",
+              "calculated",
+              "residual",
+              "normalized_residual"
+            ],
+            "title": "FittedCoupling",
+            "type": "object"
+          },
+          "Hertz": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Hz",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Hertz",
+            "type": "object"
+          },
+          "IntervalOut": {
+            "additionalProperties": false,
+            "properties": {
+              "estimate": {
+                "title": "Estimate",
+                "type": "number"
+              },
+              "kind": {
+                "const": "profile",
+                "title": "Kind",
+                "type": "string"
+              },
+              "label": {
+                "title": "Label",
+                "type": "string"
+              },
+              "lower": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Lower"
+              },
+              "note": {
+                "title": "Note",
+                "type": "string"
+              },
+              "parameter": {
+                "title": "Parameter",
+                "type": "string"
+              },
+              "supported": {
+                "title": "Supported",
+                "type": "boolean"
+              },
+              "upper": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Upper"
+              }
+            },
+            "required": [
+              "parameter",
+              "kind",
+              "label",
+              "estimate",
+              "lower",
+              "upper",
+              "supported",
+              "note"
+            ],
+            "title": "IntervalOut",
+            "type": "object"
+          },
+          "ModelOut": {
+            "additionalProperties": false,
+            "properties": {
+              "frame": {
+                "enum": [
+                  "bisector",
+                  "ring-a",
+                  "input"
+                ],
+                "title": "Frame",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "rigid",
+                  "jump4"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "order": {
+                "enum": [
+                  "bisector-diagonal",
+                  "c2z",
+                  "c1"
+                ],
+                "title": "Order",
+                "type": "string"
+              },
+              "phi_domain": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "$ref": "#/$defs/Degrees"
+                  },
+                  {
+                    "$ref": "#/$defs/Degrees"
+                  }
+                ],
+                "title": "Phi Domain",
+                "type": "array"
+              }
+            },
+            "required": [
+              "kind",
+              "order",
+              "frame",
+              "phi_domain"
+            ],
+            "title": "ModelOut",
+            "type": "object"
+          },
+          "NamedValue": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "name",
+              "value"
+            ],
+            "title": "NamedValue",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "adequate": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adequate"
+          },
+          "basins": {
+            "items": {
+              "$ref": "#/$defs/BasinOut"
+            },
+            "title": "Basins",
+            "type": "array"
+          },
+          "chi2": {
+            "title": "Chi2",
+            "type": "number"
+          },
+          "couplings": {
+            "items": {
+              "$ref": "#/$defs/FittedCoupling"
+            },
+            "title": "Couplings",
+            "type": "array"
+          },
+          "estimand": {
+            "title": "Estimand",
+            "type": "string"
+          },
+          "fit_version": {
+            "title": "Fit Version",
+            "type": "string"
+          },
+          "frame": {
+            "title": "Frame",
+            "type": "string"
+          },
+          "intervals": {
+            "items": {
+              "$ref": "#/$defs/IntervalOut"
+            },
+            "title": "Intervals",
+            "type": "array"
+          },
+          "intervals_policy": {
+            "title": "Intervals Policy",
+            "type": "string"
+          },
+          "model": {
+            "$ref": "#/$defs/ModelOut"
+          },
+          "n_obs": {
+            "title": "N Obs",
+            "type": "integer"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "nu": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nu"
+          },
+          "numerical_context": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "title": "Numerical Context",
+            "type": "object"
+          },
+          "order": {
+            "items": {
+              "$ref": "#/$defs/NamedValue"
+            },
+            "title": "Order",
+            "type": "array"
+          },
+          "p_free": {
+            "title": "P Free",
+            "type": "integer"
+          },
+          "p_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P Value"
+          },
+          "rms_residual": {
+            "$ref": "#/$defs/Hertz"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          },
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          },
+          "stderr": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/NamedValue"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stderr"
+          },
+          "theta": {
+            "items": {
+              "$ref": "#/$defs/NamedValue"
+            },
+            "title": "Theta",
+            "type": "array"
+          },
+          "unidentified": {
+            "items": {
+              "items": {
+                "$ref": "#/$defs/NamedValue"
+              },
+              "type": "array"
+            },
+            "title": "Unidentified",
+            "type": "array"
+          },
+          "validity": {
+            "$ref": "#/$defs/FitValidity"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "model",
+          "frame",
+          "estimand",
+          "notes",
+          "theta",
+          "order",
+          "chi2",
+          "n_obs",
+          "p_free",
+          "nu",
+          "p_value",
+          "adequate",
+          "validity",
+          "stderr",
+          "unidentified",
+          "basins",
+          "couplings",
+          "rms_residual",
+          "intervals_policy",
+          "intervals",
+          "fit_version",
+          "numerical_context",
+          "statement"
+        ],
+        "title": "FitRunOut",
+        "type": "object"
+      },
+      "revision_check": "none",
+      "summary": "Fit the project's model (D3): estimates, validity, adequacy, and optional profile intervals under the reporting policy."
+    },
+    {
+      "capability": "science_mutation",
+      "cost": "instant",
+      "effect": "model",
+      "examples": [
+        {
+          "expected_science_revision": 1,
+          "frame": "bisector",
+          "kind": "jump4",
+          "order": "bisector-diagonal",
+          "phi_domain": [
+            {
+              "unit": "deg",
+              "value": 0.0
+            },
+            {
+              "unit": "deg",
+              "value": 90.0
+            }
+          ]
+        }
+      ],
+      "idempotent": false,
+      "input_schema": {
+        "$defs": {
+          "Degrees": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "deg",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Degrees",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "expected_science_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Expected Science Revision",
+            "type": "integer"
+          },
+          "frame": {
+            "enum": [
+              "bisector",
+              "ring-a",
+              "input"
+            ],
+            "title": "Frame",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "rigid",
+              "jump4"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "order": {
+            "enum": [
+              "bisector-diagonal",
+              "c2z",
+              "c1"
+            ],
+            "title": "Order",
+            "type": "string"
+          },
+          "phi_domain": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/Degrees"
+              },
+              {
+                "$ref": "#/$defs/Degrees"
+              }
+            ],
+            "title": "Phi Domain",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "order",
+          "frame",
+          "phi_domain",
+          "expected_science_revision"
+        ],
+        "title": "ModelSetIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "name": "model.set",
+      "output_schema": {
+        "$defs": {
+          "Degrees": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "deg",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Degrees",
+            "type": "object"
+          },
+          "ModelOut": {
+            "additionalProperties": false,
+            "properties": {
+              "frame": {
+                "enum": [
+                  "bisector",
+                  "ring-a",
+                  "input"
+                ],
+                "title": "Frame",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "rigid",
+                  "jump4"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "order": {
+                "enum": [
+                  "bisector-diagonal",
+                  "c2z",
+                  "c1"
+                ],
+                "title": "Order",
+                "type": "string"
+              },
+              "phi_domain": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "$ref": "#/$defs/Degrees"
+                  },
+                  {
+                    "$ref": "#/$defs/Degrees"
+                  }
+                ],
+                "title": "Phi Domain",
+                "type": "array"
+              }
+            },
+            "required": [
+              "kind",
+              "order",
+              "frame",
+              "phi_domain"
+            ],
+            "title": "ModelOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "$ref": "#/$defs/ModelOut"
+          },
+          "not_ready_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Ready Reason"
+          },
+          "ready_to_fit": {
+            "title": "Ready To Fit",
+            "type": "boolean"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "model",
+          "ready_to_fit",
+          "not_ready_reason"
+        ],
+        "title": "ModelSetOut",
+        "type": "object"
+      },
+      "revision_check": "expected_science_revision (required)",
+      "summary": "Set the model: kind (rigid, jump4), order model, frame and torsion domain."
+    },
+    {
+      "capability": "science_mutation",
+      "cost": "instant",
+      "effect": "model",
+      "examples": [
+        {
+          "expected_science_revision": 1,
+          "torsion": [
+            3,
+            0,
+            1,
+            6
+          ]
+        }
+      ],
+      "idempotent": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_science_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Expected Science Revision",
+            "type": "integer"
+          },
+          "torsion": {
+            "maxItems": 4,
+            "minItems": 4,
+            "prefixItems": [
+              {
+                "exclusiveMaximum": 1000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "exclusiveMaximum": 1000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "exclusiveMaximum": 1000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "exclusiveMaximum": 1000,
+                "minimum": 0,
+                "type": "integer"
+              }
+            ],
+            "title": "Torsion",
+            "type": "array"
+          }
+        },
+        "required": [
+          "torsion",
+          "expected_science_revision"
+        ],
+        "title": "SetTorsionIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "name": "molecule.set_torsion",
+      "output_schema": {
+        "$defs": {
+          "Degrees": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "deg",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Degrees",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "phi0": {
+            "$ref": "#/$defs/Degrees"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          },
+          "torsion": {
+            "maxItems": 4,
+            "minItems": 4,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Torsion",
+            "type": "array"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "torsion",
+          "phi0"
+        ],
+        "title": "SetTorsionOut",
+        "type": "object"
+      },
+      "revision_check": "expected_science_revision (required)",
+      "summary": "Declare the fitted torsion of imported geometry: four atom indices (a, i, j, b), i–j a bond."
     },
     {
       "capability": "query",
@@ -482,6 +1736,40 @@
             "title": "Angstrom",
             "type": "object"
           },
+          "AtomOut": {
+            "additionalProperties": false,
+            "properties": {
+              "element": {
+                "title": "Element",
+                "type": "string"
+              },
+              "index": {
+                "title": "Index",
+                "type": "integer"
+              },
+              "x": {
+                "title": "X",
+                "type": "number"
+              },
+              "y": {
+                "title": "Y",
+                "type": "number"
+              },
+              "z": {
+                "title": "Z",
+                "type": "number"
+              }
+            },
+            "required": [
+              "index",
+              "element",
+              "x",
+              "y",
+              "z"
+            ],
+            "title": "AtomOut",
+            "type": "object"
+          },
           "CouplingOut": {
             "additionalProperties": false,
             "properties": {
@@ -516,6 +1804,27 @@
                 "title": "Sigma Source",
                 "type": "string"
               },
+              "source_labels": {
+                "anyOf": [
+                  {
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "prefixItems": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Source Labels"
+              },
               "spin_a": {
                 "pattern": "^spn_[0-9]{6}$",
                 "title": "Spin A",
@@ -540,35 +1849,30 @@
               "sigma",
               "sigma_source",
               "multiplicity",
-              "equivalent_pairs"
+              "equivalent_pairs",
+              "source_labels"
             ],
             "title": "CouplingOut",
             "type": "object"
           },
-          "GeometryOut": {
+          "Degrees": {
             "additionalProperties": false,
             "properties": {
-              "r_cc": {
-                "$ref": "#/$defs/Angstrom"
-              },
-              "r_ch": {
-                "$ref": "#/$defs/Angstrom"
-              },
-              "r_inter": {
-                "$ref": "#/$defs/Angstrom"
-              },
-              "template": {
-                "title": "Template",
+              "unit": {
+                "const": "deg",
+                "title": "Unit",
                 "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
               }
             },
             "required": [
-              "template",
-              "r_cc",
-              "r_ch",
-              "r_inter"
+              "value",
+              "unit"
             ],
-            "title": "GeometryOut",
+            "title": "Degrees",
             "type": "object"
           },
           "Hertz": {
@@ -591,9 +1895,129 @@
             "title": "Hertz",
             "type": "object"
           },
+          "ImportedOut": {
+            "additionalProperties": false,
+            "properties": {
+              "atoms": {
+                "items": {
+                  "$ref": "#/$defs/AtomOut"
+                },
+                "title": "Atoms",
+                "type": "array"
+              },
+              "kind": {
+                "const": "imported",
+                "title": "Kind",
+                "type": "string"
+              },
+              "source_format": {
+                "title": "Source Format",
+                "type": "string"
+              },
+              "torsion": {
+                "anyOf": [
+                  {
+                    "maxItems": 4,
+                    "minItems": 4,
+                    "prefixItems": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "integer"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Torsion"
+              }
+            },
+            "required": [
+              "kind",
+              "source_format",
+              "atoms",
+              "torsion"
+            ],
+            "title": "ImportedOut",
+            "type": "object"
+          },
+          "ModelOut": {
+            "additionalProperties": false,
+            "properties": {
+              "frame": {
+                "enum": [
+                  "bisector",
+                  "ring-a",
+                  "input"
+                ],
+                "title": "Frame",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "rigid",
+                  "jump4"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "order": {
+                "enum": [
+                  "bisector-diagonal",
+                  "c2z",
+                  "c1"
+                ],
+                "title": "Order",
+                "type": "string"
+              },
+              "phi_domain": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "$ref": "#/$defs/Degrees"
+                  },
+                  {
+                    "$ref": "#/$defs/Degrees"
+                  }
+                ],
+                "title": "Phi Domain",
+                "type": "array"
+              }
+            },
+            "required": [
+              "kind",
+              "order",
+              "frame",
+              "phi_domain"
+            ],
+            "title": "ModelOut",
+            "type": "object"
+          },
           "SpinOut": {
             "additionalProperties": false,
             "properties": {
+              "atom": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Atom"
+              },
               "id": {
                 "pattern": "^spn_[0-9]{6}$",
                 "title": "Id",
@@ -611,9 +2035,42 @@
             "required": [
               "id",
               "label",
-              "isotope"
+              "isotope",
+              "atom"
             ],
             "title": "SpinOut",
+            "type": "object"
+          },
+          "TemplateOut": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "template",
+                "title": "Kind",
+                "type": "string"
+              },
+              "r_cc": {
+                "$ref": "#/$defs/Angstrom"
+              },
+              "r_ch": {
+                "$ref": "#/$defs/Angstrom"
+              },
+              "r_inter": {
+                "$ref": "#/$defs/Angstrom"
+              },
+              "template": {
+                "title": "Template",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "template",
+              "r_cc",
+              "r_ch",
+              "r_inter"
+            ],
+            "title": "TemplateOut",
             "type": "object"
           }
         },
@@ -630,16 +2087,42 @@
             "title": "Estimand",
             "type": "string"
           },
+          "frame": {
+            "title": "Frame",
+            "type": "string"
+          },
           "geometry": {
-            "$ref": "#/$defs/GeometryOut"
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TemplateOut"
+              },
+              {
+                "$ref": "#/$defs/ImportedOut"
+              }
+            ],
+            "title": "Geometry"
           },
           "model": {
-            "title": "Model",
-            "type": "string"
+            "$ref": "#/$defs/ModelOut"
           },
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "not_ready_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Ready Reason"
+          },
+          "ready_to_fit": {
+            "title": "Ready To Fit",
+            "type": "boolean"
           },
           "science_hash": {
             "title": "Science Hash",
@@ -670,13 +2153,285 @@
           "spins",
           "couplings",
           "model",
-          "estimand"
+          "frame",
+          "estimand",
+          "ready_to_fit",
+          "not_ready_reason"
         ],
         "title": "DescribeProjectOut",
         "type": "object"
       },
       "revision_check": "none",
-      "summary": "Describe the project: geometry, spins and observed couplings, with IDs and labels."
+      "summary": "Describe the project: geometry, spins, couplings, model, estimand and readiness to fit, with IDs."
+    },
+    {
+      "capability": "query",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {}
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "ExportIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "name": "project.export",
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "filename",
+          "text"
+        ],
+        "title": "ExportOut",
+        "type": "object"
+      },
+      "revision_check": "none",
+      "summary": "The project as *.dipolar.json text, with a suggested file name."
+    },
+    {
+      "capability": "science_mutation",
+      "cost": "instant",
+      "effect": "model",
+      "examples": [
+        {
+          "expected_science_revision": 0,
+          "name": "ethane",
+          "torsion": [
+            2,
+            0,
+            1,
+            5
+          ],
+          "xyz": "8\nethane, staggered\nC 0 0 0\nC 1.54 0 0\nH -0.36 1.03 0\nH -0.36 -0.515 0.892\nH -0.36 -0.515 -0.892\nH 1.9 -1.03 0\nH 1.9 0.515 0.892\nH 1.9 0.515 -0.892\n"
+        }
+      ],
+      "idempotent": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_science_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Expected Science Revision",
+            "type": "integer"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "order": {
+            "default": "c1",
+            "enum": [
+              "c2z",
+              "c1"
+            ],
+            "title": "Order",
+            "type": "string"
+          },
+          "source": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Source",
+            "type": "string"
+          },
+          "torsion": {
+            "anyOf": [
+              {
+                "maxItems": 4,
+                "minItems": 4,
+                "prefixItems": [
+                  {
+                    "exclusiveMaximum": 1000,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "exclusiveMaximum": 1000,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "exclusiveMaximum": 1000,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "exclusiveMaximum": 1000,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Torsion"
+          },
+          "xyz": {
+            "maxLength": 1048576,
+            "title": "Xyz",
+            "type": "string"
+          }
+        },
+        "required": [
+          "xyz",
+          "name",
+          "expected_science_revision"
+        ],
+        "title": "ImportXyzIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "name": "project.import_xyz",
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "n_atoms": {
+            "title": "N Atoms",
+            "type": "integer"
+          },
+          "n_spins": {
+            "title": "N Spins",
+            "type": "integer"
+          },
+          "not_ready_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Ready Reason"
+          },
+          "ready_to_fit": {
+            "title": "Ready To Fit",
+            "type": "boolean"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "n_atoms",
+          "n_spins",
+          "ready_to_fit",
+          "not_ready_reason"
+        ],
+        "title": "ImportXyzOut",
+        "type": "object"
+      },
+      "revision_check": "expected_science_revision (required)",
+      "summary": "Replace the project with one on imported XYZ coordinates (one spin per hydrogen, no couplings)."
+    },
+    {
+      "capability": "science_mutation",
+      "cost": "instant",
+      "effect": "model",
+      "examples": [
+        {
+          "expected_science_revision": 0,
+          "text": "{\n  \"format\": \"dipolar-studio-project\",\n  \"project\": {\n    \"couplings\": [],\n    \"model\": {\n      \"frame\": \"input\",\n      \"kind\": \"rigid\",\n      \"order\": \"c1\",\n      \"phi_domain_deg\": [\n        -180.0,\n        180.0\n      ]\n    },\n    \"molecule\": {\n      \"geometry\": {\n        \"atoms\": [\n          {\n            \"element\": \"C\",\n            \"x\": 0.0,\n            \"y\": 0.0,\n            \"z\": 0.0\n          },\n          {\n            \"element\": \"C\",\n            \"x\": 1.54,\n            \"y\": 0.0,\n            \"z\": 0.0\n          },\n          {\n            \"element\": \"H\",\n            \"x\": -0.36,\n            \"y\": 1.03,\n            \"z\": 0.0\n          },\n          {\n            \"element\": \"H\",\n            \"x\": -0.36,\n            \"y\": -0.515,\n            \"z\": 0.892\n          },\n          {\n            \"element\": \"H\",\n            \"x\": -0.36,\n            \"y\": -0.515,\n            \"z\": -0.892\n          },\n          {\n            \"element\": \"H\",\n            \"x\": 1.9,\n            \"y\": -1.03,\n            \"z\": 0.0\n          },\n          {\n            \"element\": \"H\",\n            \"x\": 1.9,\n            \"y\": 0.515,\n            \"z\": 0.892\n          },\n          {\n            \"element\": \"H\",\n            \"x\": 1.9,\n            \"y\": 0.515,\n            \"z\": -0.892\n          }\n        ],\n        \"source_format\": \"xyz\",\n        \"torsion\": [\n          2,\n          0,\n          1,\n          5\n        ]\n      },\n      \"spins\": [\n        {\n          \"atom\": 2,\n          \"id\": \"spn_000001\",\n          \"isotope\": \"1H\",\n          \"label\": \"H3\"\n        },\n        {\n          \"atom\": 3,\n          \"id\": \"spn_000002\",\n          \"isotope\": \"1H\",\n          \"label\": \"H4\"\n        },\n        {\n          \"atom\": 4,\n          \"id\": \"spn_000003\",\n          \"isotope\": \"1H\",\n          \"label\": \"H5\"\n        },\n        {\n          \"atom\": 5,\n          \"id\": \"spn_000004\",\n          \"isotope\": \"1H\",\n          \"label\": \"H6\"\n        },\n        {\n          \"atom\": 6,\n          \"id\": \"spn_000005\",\n          \"isotope\": \"1H\",\n          \"label\": \"H7\"\n        },\n        {\n          \"atom\": 7,\n          \"id\": \"spn_000006\",\n          \"isotope\": \"1H\",\n          \"label\": \"H8\"\n        }\n      ]\n    },\n    \"name\": \"ethane\",\n    \"next_coupling_id\": 1,\n    \"schema_version\": 2,\n    \"source\": \"registry example\"\n  },\n  \"schema_version\": 2\n}\n"
+        }
+      ],
+      "idempotent": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_science_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Expected Science Revision",
+            "type": "integer"
+          },
+          "text": {
+            "maxLength": 1048576,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "expected_science_revision"
+        ],
+        "title": "LoadIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "name": "project.load",
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "n_couplings": {
+            "title": "N Couplings",
+            "type": "integer"
+          },
+          "n_spins": {
+            "title": "N Spins",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "name",
+          "n_spins",
+          "n_couplings"
+        ],
+        "title": "LoadOut",
+        "type": "object"
+      },
+      "revision_check": "expected_science_revision (required)",
+      "summary": "Replace the project with a *.dipolar.json document (validated and migrated)."
     },
     {
       "capability": "science_mutation",

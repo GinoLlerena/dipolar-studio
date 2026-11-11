@@ -37,8 +37,8 @@ def test_preview_reproduces_frozen_fixture() -> None:
     env = c.call("fit.preview", phi_args(e["phi_deg"]))
     assert env["ok"], env
     r = env["result"]
-    assert r["order"]["Szz"] == pytest.approx(e["Szz"], abs=tol["S_atol"])
-    assert r["order"]["Delta"] == pytest.approx(e["Delta"], abs=tol["S_atol"])
+    assert {o["name"]: o["value"] for o in r["order"]}["Szz"] == pytest.approx(e["Szz"], abs=tol["S_atol"])
+    assert {o["name"]: o["value"] for o in r["order"]}["Delta"] == pytest.approx(e["Delta"], abs=tol["S_atol"])
     assert r["chi2"] == pytest.approx(e["objective"], rel=tol["objective_rtol"])
     calculated = [row["calculated"]["value"] for row in r["couplings"]]
     assert calculated == pytest.approx(e["predictions_Hz"], abs=tol["predictions_atol_Hz"])

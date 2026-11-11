@@ -1,54 +1,26 @@
-"""The M0 vertical-slice operations.
+"""The operation registry: the M0 slice operations and the M2 science operations.
 
-``fit.preview`` and ``view.select`` are the slice (plan §8, M0). Three supporting operations make
-it usable end to end: ``project.open_example`` (puts a project in the session), ``project.describe``
-and ``render.describe_view`` (the seed of the D16 perception channel).
+``project.open_example``, ``view.select`` and ``render.describe_view`` are defined here. The
+science operations (projects, the model, couplings and fitting) are in ``dipolar_app.science_ops``.
 """
 
 from __future__ import annotations
 
-import math
 from typing import Annotated, Literal
 
-import numpy as np
-from dipolar_core.biphenyl import BiphenylGeometry, rigid_design
-from dipolar_core.context import numerical_context
-from dipolar_core.forward import constraint_diagonal
-from dipolar_core.inference import is_admissible, solve_inner
 from pydantic import Field
 
+from dipolar_app import science_ops as S
 from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.policy import Capability
-from dipolar_app.project import BiphenylTemplate, Project, load_example, science_hash
+from dipolar_app.project import Project, load_example, science_hash
 from dipolar_app.registry import Context, Operation, Registry
-from dipolar_app.schemas import (
-    Angstrom,
-    CouplingId,
-    Degrees,
-    ExampleName,
-    Hertz,
-    ObjectId,
-    Revision,
-    SpinId,
-    Wire,
-    deg,
-    hz,
-)
-from dipolar_app.session import SCIENCE, WORKSPACE, Event, SessionState
+from dipolar_app.schemas import ExampleName, ObjectId, Revision, Wire
+from dipolar_app.session import WORKSPACE, Event, SessionState
 
 MAX_SELECTION = 1000
 
-ESTIMAND = (
-    "rigid effective inter-ring torsion φ, folded to [0°, 90°]; at fixed labels (±φ, Δ) are equivalent, "
-    "(180° ± φ, −Δ) only with the ring-B relabelling H2′↔H6′, H3′↔H5′"
-)
-FRAME = "bisector frame: z along the inter-ring axis (ring A at z < 0), x bisects the ring planes, y = z × x"
-
-
-def _require_project(state: SessionState) -> Project:
-    if state.project is None:
-        raise OperationError(ErrorCode.NO_PROJECT, "the session has no project", hint="call project.open_example")
-    return state.project
+_require_project = S.require_project
 
 
 # --------------------------------------------------------------------------- project.open_example
@@ -68,23 +40,9 @@ def open_example(ctx: Context, p: OpenExampleIn) -> OpenExampleOut:
     project = load_example(p.name)
 
     def plan(state: SessionState) -> tuple[list[Event], OpenExampleOut]:
-        if p.expected_science_revision != state.science_revision:
-            raise OperationError(
-                ErrorCode.REVISION_CONFLICT,
-                "the science state changed since the caller last read it",
-                offending_field="expected_science_revision",
-                hint="read the current revision and retry if the change is still wanted",
-                details={"current_science_revision": state.science_revision},
-            )
-        events: list[Event] = [
-            {
-                "type": "project.replaced",
-                "domain": SCIENCE,
-                "project": project.model_dump(mode="json"),
-                "previous_science_hash": state.science_hash,
-            }
-        ]
-        if state.view.selection:  # IDs of the old project must not stay selected
+        S.check_revision(p.expected_science_revision, state)
+        events = S.replace_project(state, project)
+        if state.view.selection and len(events) == 1:  # IDs of the old project never stay selected
             events.append(
                 {
                     "type": "view.selection_set",
@@ -101,196 +59,6 @@ def open_example(ctx: Context, p: OpenExampleIn) -> OpenExampleOut:
         )
 
     return ctx.commit("project.open_example", p.model_dump(mode="json"), plan)
-
-
-# --------------------------------------------------------------------------- project.describe
-class SpinOut(Wire):
-    id: SpinId
-    label: str
-    isotope: str
-
-
-class CouplingOut(Wire):
-    id: CouplingId
-    label: str
-    spin_a: SpinId
-    spin_b: SpinId
-    observable: str
-    value: Hertz
-    sigma: Hertz
-    sigma_source: str
-    multiplicity: int
-    equivalent_pairs: tuple[str, ...]
-
-
-class GeometryOut(Wire):
-    template: str
-    r_cc: Angstrom
-    r_ch: Angstrom
-    r_inter: Angstrom
-
-
-class DescribeProjectIn(Wire):
-    pass
-
-
-class DescribeProjectOut(Wire):
-    science_revision: int
-    science_hash: str
-    name: str
-    source: str
-    geometry: GeometryOut
-    spins: tuple[SpinOut, ...]
-    couplings: tuple[CouplingOut, ...]
-    model: str
-    estimand: str
-
-
-def _template_rigid(project: Project) -> BiphenylTemplate:
-    """M1: the operations serve the rigid model on the biphenyl template. Imported geometry and
-    the jump model reach the operations in M2."""
-    g, m = project.molecule.geometry, project.model
-    supported = (m.kind, m.order, m.frame, m.phi_domain_deg) == ("rigid", "bisector-diagonal", "bisector", (0.0, 90.0))
-    if not isinstance(g, BiphenylTemplate) or not supported:  # what the outputs' frame and estimand describe
-        raise OperationError(
-            ErrorCode.OUT_OF_DOMAIN,
-            "this operation supports the rigid bisector-diagonal model on the biphenyl template, "
-            "in the bisector frame on the acute domain [0, 90], only",
-            hint="imported geometry, the jump model and the C2(z)/C1 order models reach the operations in M2",
-        )
-    return g
-
-
-def describe_project(ctx: Context, _: DescribeProjectIn) -> DescribeProjectOut:
-    state = ctx.read()
-    project = _require_project(state)
-    g = _template_rigid(project)
-    return DescribeProjectOut(
-        science_revision=state.science_revision,
-        science_hash=state.science_hash,
-        name=project.name,
-        source=project.source,
-        geometry=GeometryOut(template=g.template, r_cc=g.r_cc, r_ch=g.r_ch, r_inter=g.r_inter),
-        spins=tuple(SpinOut(id=s.id, label=s.label, isotope=s.isotope) for s in project.molecule.spins),
-        couplings=tuple(
-            CouplingOut(
-                id=c.id,
-                label=project.coupling_label(c),
-                spin_a=c.spin_a,
-                spin_b=c.spin_b,
-                observable=c.observable,
-                value=c.value,
-                sigma=c.sigma,
-                sigma_source=c.sigma_source,
-                multiplicity=c.multiplicity,
-                equivalent_pairs=c.equivalent_pairs,
-            )
-            for c in project.couplings
-        ),
-        model=f"{project.model.kind} / {project.model.order}",
-        estimand=ESTIMAND,
-    )
-
-
-# --------------------------------------------------------------------------- fit.preview
-class PreviewIn(Wire):
-    phi: Degrees
-
-
-class PreviewCoupling(Wire):
-    id: CouplingId
-    label: str
-    observed: Hertz
-    sigma: Hertz
-    calculated: Hertz
-    residual: Hertz
-    normalized_residual: float
-
-
-class OrderOut(Wire):
-    Szz: float
-    Delta: float
-
-
-class Validity(Wire):
-    inner_rank: int
-    inner_parameters: int
-    inner_condition_number: float | None  # None when rank-deficient (no finite condition number)
-    physically_admissible: bool
-
-
-class PreviewOut(Wire):
-    science_revision: int
-    science_hash: str
-    model: Literal["rigid"]
-    frame: str
-    estimand: str
-    phi: Degrees
-    order: OrderOut
-    couplings: tuple[PreviewCoupling, ...]
-    chi2: float
-    n_obs: int
-    rms_residual: Hertz
-    validity: Validity
-    numerical_context: dict[str, str | float]
-    statement: str
-
-
-def fit_preview(ctx: Context, p: PreviewIn) -> PreviewOut:
-    state = ctx.read()  # one snapshot: the result names the revision it reflects
-    project = _require_project(state)
-    lo, hi = project.model.phi_domain_deg
-    if not lo <= p.phi.value <= hi:
-        raise OperationError(
-            ErrorCode.OUT_OF_DOMAIN,
-            f"φ = {p.phi.value}° is outside the model domain [{lo}°, {hi}°]",
-            offending_field="phi.value",
-            hint="the torsion domain is folded; see the estimand for the equivalent angles",
-        )
-    g = _template_rigid(project)
-    index = {s.id: i for i, s in enumerate(project.molecule.spins)}
-    pairs = tuple((index[c.spin_a], index[c.spin_b]) for c in project.couplings)
-    geometry = BiphenylGeometry(r_cc=g.r_cc.value, r_ch=g.r_ch.value, r_inter=g.r_inter.value)
-    y = np.array([c.value.value for c in project.couplings])
-    sigma = np.array([c.sigma.value for c in project.couplings])
-    sol = solve_inner(rigid_design(p.phi.value, pairs, geometry), y, sigma)
-    szz, delta = (float(v) for v in sol.params)
-    normalized = sol.residuals / sigma
-    return PreviewOut(
-        science_revision=state.science_revision,
-        science_hash=state.science_hash,
-        model="rigid",
-        frame=FRAME,
-        estimand=ESTIMAND,
-        phi=deg(p.phi.value),
-        order=OrderOut(Szz=szz, Delta=delta),
-        couplings=tuple(
-            PreviewCoupling(
-                id=c.id,
-                label=project.coupling_label(c),
-                observed=c.value,
-                sigma=c.sigma,
-                calculated=hz(float(sol.predictions[i])),
-                residual=hz(float(sol.residuals[i])),
-                normalized_residual=float(normalized[i]),
-            )
-            for i, c in enumerate(project.couplings)
-        ),
-        chi2=sol.chi2,
-        n_obs=sol.n_obs,
-        rms_residual=hz(math.sqrt(float(np.mean(sol.residuals**2)))),
-        validity=Validity(
-            inner_rank=sol.rank,
-            inner_parameters=sol.n_params,
-            inner_condition_number=sol.condition if math.isfinite(sol.condition) else None,
-            physically_admissible=is_admissible(constraint_diagonal() @ sol.params),
-        ),
-        numerical_context=numerical_context(),
-        statement=(
-            "Profile objective at fixed φ: the order parameters are re-solved by whitened SVD "
-            "(known σ, not rescaled). This is a preview, not a fit: no ν, p-value or interval is implied."
-        ),
-    )
 
 
 # --------------------------------------------------------------------------- view.select
@@ -396,10 +164,10 @@ def build_registry() -> Registry:
             kind="query",
             effect="none",
             capability=Capability.QUERY,
-            summary="Describe the project: geometry, spins and observed couplings, with IDs and labels.",
-            input_model=DescribeProjectIn,
-            output_model=DescribeProjectOut,
-            handler=describe_project,
+            summary="Describe the project: geometry, spins, couplings, model, estimand and readiness to fit, with IDs.",
+            input_model=S.DescribeProjectIn,
+            output_model=S.DescribeProjectOut,
+            handler=S.describe_project,
             idempotent=True,
             examples=({},),
         )
@@ -411,9 +179,9 @@ def build_registry() -> Registry:
             effect="none",
             capability=Capability.PREVIEW,
             summary="Preview the fit at a fixed torsion: order parameters re-solved, predictions and residuals.",
-            input_model=PreviewIn,
-            output_model=PreviewOut,
-            handler=fit_preview,
+            input_model=S.PreviewIn,
+            output_model=S.PreviewOut,
+            handler=S.fit_preview,
             idempotent=True,
             examples=({"phi": {"value": 37.0, "unit": "deg"}},),
         )
@@ -447,4 +215,132 @@ def build_registry() -> Registry:
             examples=({},),
         )
     )
+    _register_science(registry)
     return registry
+
+
+def _register_science(registry: Registry) -> None:
+    """The M2 step 1 science operations (``dipolar_app.science_ops``)."""
+    revision = "expected_science_revision (required)"
+    for op in (
+        Operation(
+            name="fit.run",
+            kind="query",
+            effect="none",
+            capability=Capability.COMPUTE_JOB,
+            summary="Fit the project's model (D3): estimates, validity, adequacy, and optional profile intervals "
+            "under the reporting policy.",
+            input_model=S.FitRunIn,
+            output_model=S.FitRunOut,
+            handler=S.fit_run,
+            cost="seconds",
+            idempotent=True,
+            examples=({}, {"intervals": True}),
+        ),
+        Operation(
+            name="model.set",
+            kind="command",
+            effect="model",
+            capability=Capability.SCIENCE_MUTATION,
+            summary="Set the model: kind (rigid, jump4), order model, frame and torsion domain.",
+            input_model=S.ModelSetIn,
+            output_model=S.ModelSetOut,
+            handler=S.model_set,
+            revision_check=revision,
+            examples=(
+                {
+                    "kind": "jump4",
+                    "order": "bisector-diagonal",
+                    "frame": "bisector",
+                    "phi_domain": [{"value": 0.0, "unit": "deg"}, {"value": 90.0, "unit": "deg"}],
+                    "expected_science_revision": 1,
+                },
+            ),
+        ),
+        Operation(
+            name="project.import_xyz",
+            kind="command",
+            effect="model",
+            capability=Capability.SCIENCE_MUTATION,
+            summary="Replace the project with one on imported XYZ coordinates (one spin per hydrogen, no couplings).",
+            input_model=S.ImportXyzIn,
+            output_model=S.ImportXyzOut,
+            handler=S.import_xyz,
+            revision_check=revision,
+            examples=(
+                {
+                    "xyz": S.ETHANE_XYZ,
+                    "name": "ethane",
+                    "torsion": [2, 0, 1, 5],
+                    "expected_science_revision": 0,
+                },
+            ),
+        ),
+        Operation(
+            name="molecule.set_torsion",
+            kind="command",
+            effect="model",
+            capability=Capability.SCIENCE_MUTATION,
+            summary="Declare the fitted torsion of imported geometry: four atom indices (a, i, j, b), i–j a bond.",
+            input_model=S.SetTorsionIn,
+            output_model=S.SetTorsionOut,
+            handler=S.set_torsion,
+            revision_check=revision,
+            examples=({"torsion": [3, 0, 1, 6], "expected_science_revision": 1},),
+        ),
+        Operation(
+            name="couplings.reconcile",
+            kind="query",
+            effect="none",
+            capability=Capability.QUERY,
+            summary="Read a couplings CSV against the project: the proposed label mapping and the diff (no change).",
+            input_model=S.ReconcileIn,
+            output_model=S.ReconcileOut,
+            handler=S.couplings_reconcile,
+            idempotent=True,
+            examples=({"csv": "spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H3,-1124.6,0.5\n"},),
+        ),
+        Operation(
+            name="couplings.import",
+            kind="command",
+            effect="model",
+            capability=Capability.SCIENCE_MUTATION,
+            summary="Replace the couplings with a CSV's, under a label mapping the caller confirmed (stable IDs kept).",
+            input_model=S.ImportCouplingsIn,
+            output_model=S.ImportCouplingsOut,
+            handler=S.couplings_import,
+            revision_check=revision,
+            examples=(
+                {
+                    "csv": "spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H3,-1124.6,0.5\n",
+                    "confirmed_mapping": {"H2": "spn_000001", "H3": "spn_000002"},
+                    "expected_science_revision": 1,
+                },
+            ),
+        ),
+        Operation(
+            name="project.load",
+            kind="command",
+            effect="model",
+            capability=Capability.SCIENCE_MUTATION,
+            summary="Replace the project with a *.dipolar.json document (validated and migrated).",
+            input_model=S.LoadIn,
+            output_model=S.LoadOut,
+            handler=S.project_load,
+            revision_check=revision,
+            examples=({"text": S.ethane_document(), "expected_science_revision": 0},),
+        ),
+        Operation(
+            name="project.export",
+            kind="query",
+            effect="none",
+            capability=Capability.QUERY,
+            summary="The project as *.dipolar.json text, with a suggested file name.",
+            input_model=S.ExportIn,
+            output_model=S.ExportOut,
+            handler=S.project_export,
+            idempotent=True,
+            examples=({},),
+        ),
+    ):
+        registry.register(op)

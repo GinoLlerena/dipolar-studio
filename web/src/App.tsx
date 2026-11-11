@@ -202,8 +202,9 @@ export function App() {
       {preview && (
         <section className={stale ? "panel stale" : "panel"}>
           <p className="meta">
-            φ = {fmt(preview.phi.value, 4)}° · S<sub>zz</sub> = {fmt(preview.order.Szz, 5)} · Δ ={" "}
-            {fmt(preview.order.Delta, 5)} · χ² = {fmt(preview.chi2, 3)} (N = {preview.n_obs}) · RMS ={" "}
+            φ = {fmt(preview.phi.value, 4)}° ·{" "}
+            {preview.order.map((o) => `${strings.orderName(o.name)} = ${fmt(o.value, 5)}`).join(" · ")} · χ² ={" "}
+            {fmt(preview.chi2, 3)} (N = {preview.n_obs}) · RMS ={" "}
             {fmt(preview.rms_residual.value, 3)} Hz
           </p>
           <p className="meta">

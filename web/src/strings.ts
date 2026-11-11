@@ -22,7 +22,9 @@ export const strings = {
   colCalculated: "Calculated (Hz)",
   colResidual: "Residual (Hz)",
   colNormalized: "Residual / σ",
-  admissible: (ok: boolean) => (ok ? "physically admissible" : "NOT physically admissible"),
+  admissible: (ok: boolean | null) =>
+    ok === null ? "admissibility not applicable" : ok ? "physically admissible" : "NOT physically admissible",
+  orderName: (name: string) => ({ Szz: "Szz", Delta: "Δ" })[name] ?? name,
   rank: (rank: number, params: number) => `inner rank ${rank} of ${params}`,
   condition: (value: number | null) => (value === null ? "condition number: not finite" : `condition ${value.toFixed(3)}`),
   selectHint: "Click a row to select that coupling in the shared view.",

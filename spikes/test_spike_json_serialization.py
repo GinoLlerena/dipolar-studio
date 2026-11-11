@@ -58,6 +58,21 @@ def opened_client(principal: Principal = USER, journal: Journal | None = None) -
     return LocalClient(REGISTRY, session, principal)
 
 
+#: Operations whose example needs an imported project rather than the opened template example.
+NEEDS_IMPORTED = {"molecule.set_torsion"}
+
+
+def client_for(name: str) -> LocalClient:
+    """A client whose session is at science revision 1 with a project the example can use."""
+    if name not in NEEDS_IMPORTED:
+        return opened_client()
+    session = Session(None, contract_version=CONTRACT_VERSION)
+    op = REGISTRY.get("project.import_xyz")
+    assert op is not None
+    assert LocalClient(REGISTRY, session, USER).call("project.import_xyz", dict(op.examples[0]))["ok"]
+    return LocalClient(REGISTRY, session, USER)
+
+
 def test_every_published_schema_is_valid_json_schema() -> None:
     schemas = [SNAPSHOT["envelopes"]["success"], SNAPSHOT["envelopes"]["error"]]
     for op in SNAPSHOT["operations"]:
@@ -73,7 +88,7 @@ def test_examples_and_results_match_the_published_schemas(name: str) -> None:
     assert op["examples"], f"{name} publishes no example"
     for example in op["examples"]:
         assert_valid(op["input_schema"], example)
-        c = opened_client()
+        c = client_for(name)
         args = dict(example)
         if "expected_science_revision" in args:
             args["expected_science_revision"] = 1  # the example opened the project once already
@@ -91,7 +106,8 @@ def test_results_round_trip_losslessly(name: str) -> None:
     args = dict(OPS[name]["examples"][0])
     if "expected_science_revision" in args:
         args["expected_science_revision"] = 1
-    result = opened_client().call(name, args)["result"]
+    c = client_for(name)
+    result = c.call(name, args)["result"]
     text = json.dumps(result, allow_nan=False)
     again = op.output_model.model_validate_json(text, strict=True).model_dump(mode="json")
     assert again == result
@@ -127,6 +143,8 @@ def produce_every_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict
     keep(user.call("no.such_operation"))  # UNKNOWN_OPERATION
     keep(user.call("fit.preview", {"phi": {"value": 120.0, "unit": "deg"}}))  # OUT_OF_DOMAIN
     keep(user.call("view.select", {"ids": ["cpl_999999"]}))  # ID_NOT_FOUND
+    keep(client_for("molecule.set_torsion").call("fit.preview", {"phi": {"value": 60.0, "unit": "deg"}}))
+    # PROJECT_NOT_READY: the imported example has no couplings yet
     keep(user.call("project.open_example", {"name": "biphenyl-synthetic", "expected_science_revision": 0}))
     keep(opened_client(VIEWER).call("view.select", {"ids": []}))  # CAPABILITY_DENIED
     keep(

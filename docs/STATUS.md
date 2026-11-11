@@ -1,5 +1,17 @@
 # Status
 
+**M2 step 1 (the science operations) is built and under review (round 27).** Every project the
+core can fit now reaches the operations:
+- imported XYZ geometry with a declared torsion;
+- the four-site jump model;
+- the C2(z) and C1 order models;
+- both template frames and the [0, 180] domain.
+
+The new operations are `fit.run` (with the interval policy), `model.set`, `project.import_xyz`,
+`molecule.set_torsion`, `couplings.reconcile`, `couplings.import`, `project.load` and
+`project.export`. The contract version is now 0.2.0. See
+[round27-m2-step1.md](validation/round27-m2-step1.md).
+
 **M1 is complete: step 5 (the acceptance gates) is done, tag `m1-step5`.** Round 25 returned NOT
 READY on two test-assertion gaps, both fixed; round 26 returned **READY**. Every frozen gate now
 names an engine test, and a ledger test fails if one goes missing. Gate (c) holds on the engine:
@@ -132,7 +144,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: M2, or the owner's choice
+## Resume here: M2 step 1 review (round 27)
 
 **Stopping point (2026-11-10, at the owner's request): tag `m1-complete`** (pushed, CI green).
 M1 is complete (see the M1 table). To resume:
@@ -454,6 +466,54 @@ total.
     fitter was left unchanged here.
 
 Tests: 461 pass (`-m "not slow"`), plus the slow coverage rerun.
+
+## M2, the application layer: in progress
+
+| M2 step | Status | Owner hours (owner fills in) |
+|---|---|---|
+| 1. Science operations the beta UI needs | built; review round 27 pending | |
+| 1b. TypeScript generated from the registry snapshot | — | |
+| 2. Idempotency, dry run, proposals, undo | — | |
+| 3. Jobs, D11 runs, the authenticated event stream | — | |
+| 4. Scene description, `describe_view`, the SVG renderer | — | |
+
+The plan's step 1 is "operations the beta UI needs, with TypeScript generated from the
+snapshot". The owner chose to start with the science operations; the TypeScript generation is
+split out as step 1b.
+
+### Step 1: the science operations
+
+- **`dipolar_app.science_ops`** holds the operations. Each science mutation is one
+  `project.replaced` event. `validate_project` checks the new project first. Selected IDs that no
+  longer exist are dropped in the same transaction, and journal replay reproduces the science hash.
+- **`project.describe`** and **`fit.preview`** serve every fittable project:
+  - the geometry is either the template or imported atoms with their torsion;
+  - order parameters are named by the model (`order` is now a list of `{name, value}`, a breaking
+    change under 0.x, hence 0.2.0);
+  - the frame and the estimand follow the model;
+  - `describe` reports `ready_to_fit` and, if not ready, why.
+- **`fit.run`** (a query, capability `compute_job`) runs the D3 fit. It returns the estimates,
+  validity, ν, p, adequacy, standard errors (regular optimum only), unidentified directions,
+  basins and residuals. Profile intervals are optional, under **`dipolar_app.reporting`**: they
+  are reported only for a regular optimum of an adequate fit (p ≥ 1e-3, the frozen 8CB policy).
+  Otherwise each interval is "not supported", with the reason. This enforces round 21's
+  finding 3.
+- **`model.set`**: kind, order, frame, domain. The template's domains are [0, 90] and [0, 180]
+  (rigid), or [0, 90] (jump). The example's D2 symmetry classes are not equivalences of C2(z) or
+  C1, so switching the example to those models is refused until its couplings are re-imported
+  without classes (round 22's class rule, working as intended).
+- **`project.import_xyz`** and **`molecule.set_torsion`** (imported geometry);
+  **`couplings.reconcile`** (a query: the proposed mapping and the diff) and
+  **`couplings.import`** (under the confirmed mapping; stable IDs kept);
+  **`project.load`** and **`project.export`** (`*.dipolar.json`).
+- **New error code `PROJECT_NOT_READY`** (409): fitting a project that has no torsion or no
+  couplings.
+- **Web:** the slice page reads the named order values.
+
+Tests: `test_app_science_ops.py` (32). They compare the operations with the core and the frozen
+fixtures, including fit.run against the noisy fixture and its frozen intervals, and an imported
+ethane fit recovering its truth. Mutation-checked: the adequacy rule, the policy gate in fit.run,
+validation before the event, and selection pruning. 505 pass in total.
 
 ## Open items for the owner
 

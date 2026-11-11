@@ -210,8 +210,8 @@ def test_robot_completes_the_slice_in_a_clean_process(server: Server, clean_env:
     assert proc.returncode == 0, proc.stdout + proc.stderr
     report = json.loads(proc.stdout)
     preview = report["preview"]
-    assert preview["order"]["Szz"] == pytest.approx(e["Szz"], abs=tol["S_atol"])
-    assert preview["order"]["Delta"] == pytest.approx(e["Delta"], abs=tol["S_atol"])
+    assert {o["name"]: o["value"] for o in preview["order"]}["Szz"] == pytest.approx(e["Szz"], abs=tol["S_atol"])
+    assert {o["name"]: o["value"] for o in preview["order"]}["Delta"] == pytest.approx(e["Delta"], abs=tol["S_atol"])
     assert preview["chi2"] == pytest.approx(e["objective"], rel=tol["objective_rtol"])
     assert [c["calculated"]["value"] for c in preview["couplings"]] == pytest.approx(
         e["predictions_Hz"], abs=tol["predictions_atol_Hz"]

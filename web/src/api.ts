@@ -43,7 +43,7 @@ export type Preview = {
   science_revision: number;
   estimand: string;
   phi: Quantity<"deg">;
-  order: { Szz: number; Delta: number };
+  order: { name: string; value: number }[]; // named by the model (Szz, Delta, Sxy, …)
   couplings: PreviewCoupling[];
   chi2: number;
   n_obs: number;
@@ -52,7 +52,7 @@ export type Preview = {
     inner_rank: number;
     inner_parameters: number;
     inner_condition_number: number | null;
-    physically_admissible: boolean;
+    physically_admissible: boolean | null;
   };
   statement: string;
 };

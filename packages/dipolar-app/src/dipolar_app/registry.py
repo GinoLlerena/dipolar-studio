@@ -21,7 +21,7 @@ from dipolar_app.session import Plan, Session, SessionState
 T = TypeVar("T")
 
 #: Semantic version of the tool contract (D20), independent of the package version.
-CONTRACT_VERSION = "0.1.0"
+CONTRACT_VERSION = "0.2.0"
 
 Kind = Literal["query", "command"]
 Effect = Literal["none", "model", "view", "compute", "io", "destructive"]

@@ -438,7 +438,7 @@ def project_from_xyz(
     *,
     name: str,
     source: str,
-    torsion: tuple[int, int, int, int],
+    torsion: tuple[int, int, int, int] | None,
     order: str = "c1",
     domain_deg: tuple[float, float] = (-180.0, 180.0),
     spin_labels: Mapping[int, str] | None = None,
