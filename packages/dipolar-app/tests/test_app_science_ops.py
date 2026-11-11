@@ -399,3 +399,146 @@ def test_problem_for_is_what_the_operations_fit() -> None:
 
     problem = problem_for(load_example("biphenyl-synthetic"))
     assert problem.estimand == "rigid effective phi" and problem.order_names == ("Szz", "Delta")
+
+
+# --------------------------------------------------------------------------- round 27 counterexamples
+@pytest.mark.parametrize("order", ["bisector-diagonal", "c2z", "c1"])
+@pytest.mark.parametrize("frame", ["bisector", "ring-a"])
+def test_every_stated_equivalence_holds(order: str, frame: str) -> None:
+    """Finding 1: the stated equivalences are the model's, for every order model and frame,
+    checked on all 45 pairs at torsions and orders the derivation never probed."""
+    from dipolar_app.science_ops import template_equivalences
+    from dipolar_core.biphenyl import BiphenylGeometry, relabel_ring_b, rigid_design
+
+    g = BiphenylGeometry()
+    pairs = tuple(combinations(range(10), 2))
+    found = template_equivalences(order, frame, g.r_cc, g.r_ch, g.r_inter)
+    assert [label for label, _, _ in found] == ["−φ", "180° − φ", "180° + φ"]
+    images = {"−φ": lambda x: -x, "180° − φ": lambda x: 180 - x, "180° + φ": lambda x: 180 + x}
+    rng = np.random.default_rng(27)
+    for label, relabel, rows in found:
+        for phi in (37.0, 8.5, 79.0):
+            t = rng.normal(0, 0.1, len(rows))
+            here = rigid_design(phi, pairs, g, order=order, frame=frame) @ t  # type: ignore[arg-type]
+            there_pairs = relabel_ring_b(pairs) if relabel else pairs
+            there = rigid_design(images[label](phi), there_pairs, g, order=order, frame=frame) @ (np.array(rows) @ t)  # type: ignore[arg-type]
+            np.testing.assert_allclose(there, here, rtol=0, atol=1e-9)
+
+
+def test_c1_in_the_ring_a_frame_keeps_delta_under_the_relabelling() -> None:
+    """Finding 1's counterexample: C1/ring-A at 180° − φ keeps Δ and negates Sxy and Syz."""
+    c = opened()
+    ok(c.call("model.set", model_args("rigid", "c1", "ring-a", 0, 180, without_classes(c, 1))))
+    d = ok(c.call("project.describe"))
+    assert any("(180° − φ, Szz, Delta, −Sxy, Sxz, −Syz) with ring B relabelled" in e for e in d["equivalences"])
+    assert "−Δ" not in d["estimand"]
+
+
+def test_the_acute_domain_states_its_label_precondition() -> None:
+    d = ok(opened().call("project.describe"))
+    assert "precondition" in d["estimand"]
+    assert any("(180° − φ, Szz, −Delta) with ring B relabelled" in e for e in d["equivalences"])
+
+
+IMPORT_CSV = "spin_a,spin_b,D_obs_Hz,sigma_Hz,multiplicity,equivalent_pairs\n"
+
+
+@pytest.mark.parametrize(
+    ("row", "mapping", "message"),
+    [
+        # A label that appears only in an equivalent pair, mapped to a spin that does not exist.
+        (
+            "H2,H3,1,0.5,2,H2-H3 H5-H6",
+            {"H2": "spn_000001", "H3": "spn_000002", "H5": "spn_000999", "H6": "spn_000005"},
+            "not a spin of the project",
+        ),
+        ("H2,H3,1,0.5," + "9" * 5000 + ",", None, "multiplicity must be an integer"),
+        ("H2,H3,1,0.5,²,", None, "multiplicity must be an integer"),
+        ("H2,H3,1,0.5,1," + " ".join(["H2-H3"] * 1001), None, "more than 1000 equivalent pairs"),
+    ],
+)
+def test_malformed_imports_are_structured_errors(row: str, mapping: dict[str, str] | None, message: str) -> None:
+    """Finding 2: never an internal error, in reconcile or import."""
+    c = opened()
+    csv = IMPORT_CSV + row + "\n"
+    args: dict[str, object] = {"csv": csv} if mapping is None else {"csv": csv, "mapping": mapping}
+    assert message in error(c.call("couplings.reconcile", args), "INVALID_ARGUMENT")["message"]
+    confirmed = mapping or {"H2": "spn_000001", "H3": "spn_000002"}
+    body = error(
+        c.call("couplings.import", {"csv": csv, "confirmed_mapping": confirmed, "expected_science_revision": 1}),
+        "INVALID_ARGUMENT",
+    )
+    assert message in body["message"]
+
+
+def test_coincident_atoms_are_refused_on_import() -> None:
+    """Finding 3: a geometry the model cannot evaluate never enters the session as ready."""
+    lines = ETHANE_XYZ.splitlines()
+    lines[2 + 3] = lines[2 + 2]  # atom 3 onto atom 2
+    xyz = "\n".join(lines) + "\n"
+    c = client(new_session())
+    args = {"xyz": xyz, "name": "bad", "torsion": [2, 0, 1, 5], "expected_science_revision": 0}
+    assert "closer than 0.5 Å" in error(c.call("project.import_xyz", args), "INVALID_ARGUMENT")["message"]
+
+
+def test_a_model_that_fails_to_evaluate_is_a_structured_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Finding 3: a design failure inside the domain (for example, spins meeting as the torsion
+    turns) is PROJECT_NOT_READY, never INTERNAL."""
+    import dipolar_core.fit
+
+    def broken(*_: object, **__: object) -> None:
+        raise ValueError("coincident spins")
+
+    monkeypatch.setattr(dipolar_core.fit, "fit", broken)
+    body = error(opened().call("fit.run"), "PROJECT_NOT_READY")
+    assert "coincident spins" in body["message"]
+
+
+def grid_xyz(n_side: int) -> str:
+    atoms = [f"H {2.0 * i} {2.0 * j} 0" for i in range(n_side) for j in range(n_side)]
+    return f"{len(atoms)}\nhydrogen grid\n" + "\n".join(atoms) + "\n"
+
+
+def all_pairs_csv(n: int) -> str:
+    rows = [f"H{a},H{b},1.0,0.5" for a, b in combinations(range(1, n + 1), 2)]
+    return "spin_a,spin_b,D_obs_Hz,sigma_Hz\n" + "\n".join(rows) + "\n"
+
+
+def test_an_exported_project_loads_back() -> None:
+    """Finding 4: 100 hydrogens and all 4950 pairs export to about 2.5 MB, and load back."""
+    c = client(new_session())
+    ok(c.call("project.import_xyz", {"xyz": grid_xyz(10), "name": "grid", "expected_science_revision": 0}))
+    csv = all_pairs_csv(100)
+    mapping = ok(c.call("couplings.reconcile", {"csv": csv}))["proposed_mapping"]
+    ok(c.call("couplings.import", {"csv": csv, "confirmed_mapping": mapping, "expected_science_revision": 1}))
+    exported = ok(c.call("project.export"))
+    assert len(exported["text"]) > 1 << 20
+    loaded = ok(client(new_session()).call("project.load", {"text": exported["text"], "expected_science_revision": 0}))
+    assert loaded["science_hash"] == exported["science_hash"]
+
+
+def test_a_project_too_large_to_reload_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Finding 4: every project in the session exports to a document project.load accepts."""
+    import dipolar_app.science_ops
+
+    c = opened()
+    monkeypatch.setattr(dipolar_app.science_ops, "MAX_PROJECT_TEXT", 2_000)
+    csv = "spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H3,-1124.6,0.5\n"
+    body = error(
+        c.call(
+            "couplings.import",
+            {"csv": csv, "confirmed_mapping": {"H2": "spn_000001", "H3": "spn_000002"}, "expected_science_revision": 1},
+        ),
+        "INVALID_ARGUMENT",
+    )
+    assert "above the limit" in body["message"]
+
+
+def test_opening_the_example_always_clears_the_selection() -> None:
+    """Finding 5: an ID that exists in both projects names a different object; never keep it."""
+    session = new_session()
+    c = client(session)
+    ok(c.call("project.import_xyz", {"xyz": grid_xyz(4), "name": "grid", "expected_science_revision": 0}))
+    ok(c.call("view.select", {"ids": ["spn_000001", "spn_000011"]}))
+    ok(c.call("project.open_example", {"name": "biphenyl-synthetic", "expected_science_revision": 1}))
+    assert session.state.view.selection == ()

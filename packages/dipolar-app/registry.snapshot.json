@@ -215,6 +215,7 @@
         "type": "object"
       },
       "kind": "command",
+      "max_request_bytes": 1048576,
       "name": "couplings.import",
       "output_schema": {
         "additionalProperties": false,
@@ -326,6 +327,7 @@
         "type": "object"
       },
       "kind": "query",
+      "max_request_bytes": 1048576,
       "name": "couplings.reconcile",
       "output_schema": {
         "$defs": {
@@ -496,6 +498,7 @@
         "type": "object"
       },
       "kind": "query",
+      "max_request_bytes": 1048576,
       "name": "fit.preview",
       "output_schema": {
         "$defs": {
@@ -813,6 +816,7 @@
         "type": "object"
       },
       "kind": "query",
+      "max_request_bytes": 1048576,
       "name": "fit.run",
       "output_schema": {
         "$defs": {
@@ -1446,6 +1450,7 @@
         "type": "object"
       },
       "kind": "command",
+      "max_request_bytes": 1048576,
       "name": "model.set",
       "output_schema": {
         "$defs": {
@@ -1627,6 +1632,7 @@
         "type": "object"
       },
       "kind": "command",
+      "max_request_bytes": 1048576,
       "name": "molecule.set_torsion",
       "output_schema": {
         "$defs": {
@@ -1712,6 +1718,7 @@
         "type": "object"
       },
       "kind": "query",
+      "max_request_bytes": 1048576,
       "name": "project.describe",
       "output_schema": {
         "$defs": {
@@ -2083,6 +2090,13 @@
             "title": "Couplings",
             "type": "array"
           },
+          "equivalences": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Equivalences",
+            "type": "array"
+          },
           "estimand": {
             "title": "Estimand",
             "type": "string"
@@ -2155,6 +2169,7 @@
           "model",
           "frame",
           "estimand",
+          "equivalences",
           "ready_to_fit",
           "not_ready_reason"
         ],
@@ -2179,6 +2194,7 @@
         "type": "object"
       },
       "kind": "query",
+      "max_request_bytes": 1048576,
       "name": "project.export",
       "output_schema": {
         "additionalProperties": false,
@@ -2311,6 +2327,7 @@
         "type": "object"
       },
       "kind": "command",
+      "max_request_bytes": 1048576,
       "name": "project.import_xyz",
       "output_schema": {
         "additionalProperties": false,
@@ -2382,7 +2399,7 @@
             "type": "integer"
           },
           "text": {
-            "maxLength": 1048576,
+            "maxLength": 16777216,
             "title": "Text",
             "type": "string"
           }
@@ -2395,6 +2412,7 @@
         "type": "object"
       },
       "kind": "command",
+      "max_request_bytes": 34603008,
       "name": "project.load",
       "output_schema": {
         "additionalProperties": false,
@@ -2467,6 +2485,7 @@
         "type": "object"
       },
       "kind": "command",
+      "max_request_bytes": 1048576,
       "name": "project.open_example",
       "output_schema": {
         "additionalProperties": false,
@@ -2515,6 +2534,7 @@
         "type": "object"
       },
       "kind": "query",
+      "max_request_bytes": 1048576,
       "name": "render.describe_view",
       "output_schema": {
         "$defs": {
@@ -2626,6 +2646,7 @@
         "type": "object"
       },
       "kind": "command",
+      "max_request_bytes": 1048576,
       "name": "view.select",
       "output_schema": {
         "$defs": {

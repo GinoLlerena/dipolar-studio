@@ -229,3 +229,24 @@ def test_robot_completes_the_slice_in_a_clean_process(server: Server, clean_env:
         ("script:robot", "project.open_example"),
         ("script:robot", "view.select"),
     ]
+
+
+def test_project_load_accepts_a_large_document_over_http(server: Server) -> None:
+    """Round 27, finding 4: project.load has its own request limit, so an export loads back."""
+    from test_app_science_ops import all_pairs_csv, grid_xyz
+
+    def call(name: str, args: dict[str, Any]) -> Any:
+        reply = post(server, name, {"args": args})
+        assert reply.status == 200, reply.body[:500]
+        return reply.json()["result"]
+
+    call("project.import_xyz", {"xyz": grid_xyz(10), "name": "grid", "expected_science_revision": 0})
+    csv = all_pairs_csv(100)
+    mapping = call("couplings.reconcile", {"csv": csv})["proposed_mapping"]
+    call("couplings.import", {"csv": csv, "confirmed_mapping": mapping, "expected_science_revision": 1})
+    exported = call("project.export", {})
+    body = json.dumps({"args": {"text": exported["text"], "expected_science_revision": 2}}).encode()
+    assert len(body) > 1 << 20  # above the default limit
+    reply = server.request("POST", "/api/v1/ops/project.load", body, headers=JSON)
+    assert reply.status == 200, reply.body[:500]
+    assert reply.json()["result"]["science_hash"] == exported["science_hash"]

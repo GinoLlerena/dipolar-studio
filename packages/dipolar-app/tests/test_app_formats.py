@@ -95,7 +95,7 @@ def test_parse_the_synthetic_couplings() -> None:
         ("spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H3,1,inf\n", "row 1: sigma_Hz must be finite"),
         ("spin_a,spin_b,D_obs_Hz,sigma_Hz,observable\nH2,H3,1,0.5,T\n", "observable D"),
         ("spin_a,spin_b,D_obs_Hz,sigma_Hz,unit\nH2,H3,1,0.5,kHz\n", "must be in Hz"),
-        ("spin_a,spin_b,D_obs_Hz,sigma_Hz,multiplicity\nH2,H3,1,0.5,0\n", "multiplicity must be a positive"),
+        ("spin_a,spin_b,D_obs_Hz,sigma_Hz,multiplicity\nH2,H3,1,0.5,0\n", "multiplicity must be an integer from 1"),
         ("spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H3,1\n", "number of fields"),
         ("spin_a,spin_b,D_obs_Hz,sigma_Hz\n", "no coupling rows"),
         ("spin_a,spin_a,D_obs_Hz,sigma_Hz\nH2,H3,1,1\n", "duplicate column"),

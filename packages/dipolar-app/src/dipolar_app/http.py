@@ -184,7 +184,9 @@ def create_app(
         if principal is None:
             return unauthenticated(name)
         try:
-            envelope_in = await read_json_body(request, MAX_BODY_BYTES, name)
+            op = registry.get(name)
+            limit = op.max_request_bytes if op is not None else MAX_BODY_BYTES
+            envelope_in = await read_json_body(request, limit, name)
         except BodyError as exc:
             return exc.response
         if not isinstance(envelope_in, dict) or set(envelope_in) - {"args"}:

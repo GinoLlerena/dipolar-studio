@@ -28,6 +28,8 @@ from dipolar_app.project import BiphenylTemplate, Coupling, ImportedGeometry, Pr
 #: Torsions at which a declared equivalence class must give identical design rows.
 _PROBE_FRACTIONS = (0.137, 0.5, 0.861)
 _ROW_RTOL = 1e-9
+#: Imported atoms closer than this are refused: coincident spins have no dipolar coupling.
+MIN_ATOM_DISTANCE_A = 0.5
 
 
 def _resolve_pair(entry: str, by_label: dict[str, str]) -> frozenset[str]:
@@ -77,6 +79,17 @@ def validate_project(project: Project) -> None:
                 raise ValueError(f"spin {s.id} must name a hydrogen atom of the imported geometry")
         if len({s.atom for s in spins}) != len(spins):
             raise ValueError("two spins name the same atom")
+        positions = np.array([[atom.x, atom.y, atom.z] for atom in g.atoms])
+        if n > 1:
+            gaps = np.linalg.norm(positions[:, None, :] - positions[None, :, :], axis=2)
+            np.fill_diagonal(gaps, np.inf)
+            k = int(np.argmin(gaps))
+            if gaps.flat[k] < MIN_ATOM_DISTANCE_A:  # coincident or overlapping atoms (round 27)
+                i, j = divmod(k, n)
+                raise ValueError(
+                    f"atoms {i} and {j} are {gaps.flat[k]:.3g} Å apart; atoms closer than "
+                    f"{MIN_ATOM_DISTANCE_A} Å are not a molecule"
+                )
         if g.torsion is not None:
             if not all(0 <= k < n for k in g.torsion):
                 raise ValueError("the torsion atoms must exist")

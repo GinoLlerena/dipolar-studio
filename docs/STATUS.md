@@ -1,6 +1,6 @@
 # Status
 
-**M2 step 1 (the science operations) is built and under review (round 27).** Every project the
+**M2 step 1 (the science operations) is built. Round 27 returned NOT READY on five findings, all fixed; round 28, the last under the cap, is pending.** Every project the
 core can fit now reaches the operations:
 - imported XYZ geometry with a declared torsion;
 - the four-site jump model;
@@ -10,7 +10,7 @@ core can fit now reaches the operations:
 The new operations are `fit.run` (with the interval policy), `model.set`, `project.import_xyz`,
 `molecule.set_torsion`, `couplings.reconcile`, `couplings.import`, `project.load` and
 `project.export`. The contract version is now 0.2.0. See
-[round27-m2-step1.md](validation/round27-m2-step1.md).
+[round27-m2-step1.md](validation/round27-m2-step1.md) (rounds 27 and 28).
 
 **M1 is complete: step 5 (the acceptance gates) is done, tag `m1-step5`.** Round 25 returned NOT
 READY on two test-assertion gaps, both fixed; round 26 returned **READY**. Every frozen gate now
@@ -144,7 +144,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: M2 step 1 review (round 27)
+## Resume here: M2 step 1 review (round 28)
 
 **Stopping point (2026-11-10, at the owner's request): tag `m1-complete`** (pushed, CI green).
 M1 is complete (see the M1 table). To resume:
@@ -471,7 +471,7 @@ Tests: 461 pass (`-m "not slow"`), plus the slow coverage rerun.
 
 | M2 step | Status | Owner hours (owner fills in) |
 |---|---|---|
-| 1. Science operations the beta UI needs | built; review round 27 pending | |
+| 1. Science operations the beta UI needs | built; round 27 fixed, round 28 pending | |
 | 1b. TypeScript generated from the registry snapshot | — | |
 | 2. Idempotency, dry run, proposals, undo | — | |
 | 3. Jobs, D11 runs, the authenticated event stream | — | |
@@ -513,7 +513,10 @@ split out as step 1b.
 Tests: `test_app_science_ops.py` (32). They compare the operations with the core and the frozen
 fixtures, including fit.run against the noisy fixture and its frozen intervals, and an imported
 ethane fit recovering its truth. Mutation-checked: the adequacy rule, the policy gate in fit.run,
-validation before the event, and selection pruning. 505 pass in total.
+validation before the event, and selection pruning. Round 27's fixes added the derived
+equivalences (`project.describe` → `equivalences`), bounded CSV fields, the 0.5 Å atom rule, a
+readiness check that evaluates the design, per-operation request limits (`project.load` takes up
+to 16 MiB of text), and an always-cleared selection on `project.open_example`. 523 pass in total.
 
 ## Open items for the owner
 

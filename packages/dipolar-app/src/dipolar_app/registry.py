@@ -92,6 +92,9 @@ class Operation:
     idempotent: bool = False
     revision_check: str = "none"
     examples: tuple[dict[str, Any], ...] = ()
+    #: The HTTP request limit for this operation (bytes). Most take the default; project.load
+    #: carries a whole project document (round 27).
+    max_request_bytes: int = 1 << 20
 
     def describe(self) -> dict[str, Any]:
         return {
@@ -106,6 +109,7 @@ class Operation:
             "input_schema": self.input_model.model_json_schema(),
             "output_schema": self.output_model.model_json_schema(mode="serialization"),
             "examples": list(self.examples),
+            "max_request_bytes": self.max_request_bytes,
         }
 
 

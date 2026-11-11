@@ -22,11 +22,14 @@ transaction.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
+from functools import lru_cache
 from typing import Annotated, Literal
 
 import numpy as np
 from dipolar_core.context import numerical_context
 from dipolar_core.inference import is_admissible
+from dipolar_core.problem import Problem
 from pydantic import Field
 
 from dipolar_app.errors import ErrorCode, OperationError
@@ -50,6 +53,12 @@ from dipolar_app.session import SCIENCE, WORKSPACE, Event, SessionState
 #: Text arguments are bounded by the HTTP body limit too; this bounds the Python adapter alike.
 MAX_TEXT = 1 << 20
 Text = Annotated[str, Field(max_length=MAX_TEXT)]
+#: The largest project document the operations accept or create (round 27): every project in the
+#: session must export to a document that ``project.load`` accepts back. ``project.load`` declares
+#: an HTTP request limit large enough for this text after JSON escaping (``LOAD_REQUEST_BYTES``).
+MAX_PROJECT_TEXT = 16 << 20
+LOAD_REQUEST_BYTES = 2 * MAX_PROJECT_TEXT + (1 << 20)
+ProjectText = Annotated[str, Field(max_length=MAX_PROJECT_TEXT)]
 Name = Annotated[str, Field(min_length=1, max_length=200)]
 AtomIndex = Annotated[int, Field(ge=0, lt=1_000)]
 
@@ -73,17 +82,80 @@ FRAMES = {
     "ring-a": "ring-A frame: z along the inter-ring axis, x in the plane of ring A",
     "input": "input frame of the imported coordinates, fixed to the non-moving fragment",
 }
-ESTIMANDS = {
-    ("rigid", "acute"): (
-        "rigid effective inter-ring torsion φ, folded to [0°, 90°]; at fixed labels (±φ, Δ) are equivalent, "
-        "(180° ± φ, −Δ) only with the ring-B relabelling H2′↔H6′, H3′↔H5′"
+DOMAINS = {
+    "acute": (
+        "folded to [0°, 90°]; complete only when ring-B labels are assigned so that the torsion is acute "
+        "(a precondition on the input)"
     ),
-    ("rigid", "fixed-labels"): "rigid effective inter-ring torsion φ in [0°, 180°] at fixed ring-B labels",
-    ("jump4", "acute"): (
-        "jump-model φ: the symmetric four-site jump (±φ, 180° ± φ, equal populations), φ in [0°, 90°]"
-    ),
-    ("rigid", "imported"): "rigid effective dihedral τ(a–i–j–b) of the declared torsion, in degrees (IUPAC sign)",
+    "fixed-labels": "in [0°, 180°] at fixed ring-B labels (complete for every order model)",
 }
+JUMP_ESTIMAND = (
+    "jump-model φ: the symmetric four-site jump among +φ, −φ, 180° − φ and 180° + φ with equal populations, "
+    "φ in [0°, 90°] (complete at fixed labels; the model is invariant under the ring-B relabelling)"
+)
+IMPORTED_ESTIMAND = (
+    "rigid effective dihedral τ(a–i–j–b) of the declared torsion, in degrees (IUPAC sign); the dihedral is "
+    "periodic, and no symmetry equivalence is assumed for imported geometry"
+)
+_SYMMETRIES: tuple[tuple[str, bool, Callable[[float], float]], ...] = (
+    ("−φ", False, lambda phi: -phi),
+    ("180° − φ", True, lambda phi: 180.0 - phi),
+    ("180° + φ", True, lambda phi: 180.0 + phi),
+)
+_PROBES = (23.0, 61.0)
+
+
+@lru_cache(maxsize=64)
+def template_equivalences(
+    order: str, frame: str, r_cc: float, r_ch: float, r_inter: float
+) -> tuple[tuple[str, bool, tuple[tuple[float, ...], ...]], ...]:
+    """The rigid template model's torsion equivalences, derived from the core's own predictions
+    (round 27): for each symmetry (φ′, ring B relabelled or not), the order map P with
+    D(φ, pairs) t = D(φ′, pairs′) P t for every t, over all 45 proton pairs.
+
+    Only exact signed permutations that hold at every probe torsion are reported, so a stated
+    equivalence is always one the model has.
+    """
+    from dipolar_core.biphenyl import PROTON_LABELS, BiphenylGeometry, relabel_ring_b, rigid_design
+
+    geometry = BiphenylGeometry(r_cc=r_cc, r_ch=r_ch, r_inter=r_inter)
+    pairs = tuple((i, j) for i in range(len(PROTON_LABELS)) for j in range(i + 1, len(PROTON_LABELS)))
+    relabelled = relabel_ring_b(pairs)
+    out = []
+    for label, relabel, image in _SYMMETRIES:
+        maps = []
+        for phi in _PROBES:
+            a = rigid_design(phi, pairs, geometry, order=order, frame=frame)  # type: ignore[arg-type]
+            b = rigid_design(image(phi), relabelled if relabel else pairs, geometry, order=order, frame=frame)  # type: ignore[arg-type]
+            m, *_ = np.linalg.lstsq(b, a, rcond=None)
+            rounded = np.round(m)
+            exact = np.abs(b @ rounded - a).max() <= 1e-9 * max(1.0, float(np.abs(a).max()))
+            signed_permutation = np.all(np.abs(rounded).sum(axis=0) == 1) and np.all(np.abs(rounded).sum(axis=1) == 1)
+            maps.append(rounded if exact and signed_permutation else None)
+        if maps[0] is not None and all(m is not None and np.array_equal(m, maps[0]) for m in maps):
+            out.append((label, relabel, tuple(tuple(float(x) for x in row) for row in maps[0])))
+    return tuple(out)
+
+
+def equivalences_of(project: Project) -> tuple[str, ...]:
+    """The stated equivalences of the project's model, in words."""
+    from dipolar_core.biphenyl import ORDER_NAMES
+
+    g, m = project.molecule.geometry, project.model
+    if not isinstance(g, BiphenylTemplate):
+        return ()
+    if m.kind == "jump4":
+        return ("φ, −φ, 180° − φ and 180° + φ are the same conformer set: one model, no sign choice",)
+    names = ORDER_NAMES[m.order]
+    lines = []
+    for label, relabel, rows in template_equivalences(m.order, m.frame, g.r_cc.value, g.r_ch.value, g.r_inter.value):
+        image = []
+        for row in rows:
+            k = next(i for i, x in enumerate(row) if x != 0)
+            image.append(("−" if row[k] < 0 else "") + names[k])
+        where = "with ring B relabelled (H2′↔H6′, H3′↔H5′)" if relabel else "at fixed labels"
+        lines.append(f"(φ, {', '.join(names)}) predicts the same as ({label}, {', '.join(image)}) {where}")
+    return tuple(lines)
 
 
 def require_project(state: SessionState) -> Project:
@@ -110,6 +182,13 @@ def replace_project(state: SessionState, project: Project, *, field: str | None 
         validate_project(project)
     except ValueError as exc:
         raise OperationError(ErrorCode.INVALID_ARGUMENT, str(exc), offending_field=field) from None
+    size = len(dumps_project(project))
+    if size > MAX_PROJECT_TEXT:  # it could not be exported and loaded back (round 27)
+        raise OperationError(
+            ErrorCode.INVALID_ARGUMENT,
+            f"the project would be {size} characters as a file, above the limit of {MAX_PROJECT_TEXT}",
+            offending_field=field,
+        )
     events: list[Event] = [
         {
             "type": "project.replaced",
@@ -134,29 +213,45 @@ def replace_project(state: SessionState, project: Project, *, field: str | None 
 def estimand_of(project: Project) -> str:
     m = project.model
     if isinstance(project.molecule.geometry, ImportedGeometry):
-        return ESTIMANDS[("rigid", "imported")]
+        return IMPORTED_ESTIMAND
+    if m.kind == "jump4":
+        return JUMP_ESTIMAND
     domain = "acute" if m.phi_domain_deg == (0.0, 90.0) else "fixed-labels"
-    return ESTIMANDS.get((m.kind, domain), "")
+    return f"rigid effective inter-ring torsion φ, {DOMAINS[domain]}"
 
 
 def readiness(project: Project) -> str | None:
-    """None if the project can be fitted, or why it cannot."""
+    """None if the project can be fitted, or why it cannot. The model is evaluated at both ends and
+    the middle of the domain, so "ready" means the design can actually be computed (round 27)."""
     try:
-        problem_for(project)
+        problem = problem_for(project)
+        lo, hi = project.model.phi_domain_deg
+        for phi in (lo, 0.5 * (lo + hi), hi):
+            problem.checked_design(np.array([phi]))
     except ValueError as exc:
         return str(exc)
     return None
 
 
-def _problem(project: Project):  # type: ignore[no-untyped-def]
-    try:
-        return problem_for(project)
-    except ValueError as exc:
+def _problem(project: Project) -> Problem:
+    reason = readiness(project)
+    if reason is not None:
         raise OperationError(
             ErrorCode.PROJECT_NOT_READY,
-            f"the project cannot be fitted yet: {exc}",
+            f"the project cannot be fitted yet: {reason}",
             hint="project.describe reports what is missing",
-        ) from None
+        )
+    return problem_for(project)
+
+
+def _not_evaluable(exc: ValueError) -> OperationError:
+    """A model that fails to evaluate somewhere in its domain (for example, two spins meeting at
+    one torsion): a structured error, never an internal one (round 27)."""
+    return OperationError(
+        ErrorCode.PROJECT_NOT_READY,
+        f"the model cannot be evaluated: {exc}",
+        hint="check the geometry for atoms that meet as the torsion turns (molecule.set_torsion, model.set)",
+    )
 
 
 # --------------------------------------------------------------------------- project.describe
@@ -226,6 +321,7 @@ class DescribeProjectOut(Wire):
     model: ModelOut
     frame: str
     estimand: str
+    equivalences: tuple[str, ...]
     ready_to_fit: bool
     not_ready_reason: str | None
 
@@ -276,6 +372,7 @@ def describe_project(ctx: Context, _: DescribeProjectIn) -> DescribeProjectOut:
         model=_model_out(project.model),
         frame=FRAMES[project.model.frame],
         estimand=estimand_of(project),
+        equivalences=equivalences_of(project),
         ready_to_fit=reason is None,
         not_ready_reason=reason,
     )
@@ -362,7 +459,10 @@ def fit_preview(ctx: Context, p: PreviewIn) -> PreviewOut:
             hint="the torsion domain is set by model.set; see the estimand for the equivalent angles",
         )
     problem = _problem(project)
-    sol = problem.inner(np.array([p.phi.value]))
+    try:
+        sol = problem.inner(np.array([p.phi.value]))
+    except ValueError as exc:
+        raise _not_evaluable(exc) from None
     return PreviewOut(
         science_revision=state.science_revision,
         science_hash=state.science_hash,
@@ -459,7 +559,10 @@ def fit_run(ctx: Context, p: FitRunIn) -> FitRunOut:
     state = ctx.read()
     project = require_project(state)
     problem = _problem(project)
-    result = fit(problem)
+    try:
+        result = fit(problem)
+    except ValueError as exc:
+        raise _not_evaluable(exc) from None
     v = result.validity
     policy = interval_policy(result)
     intervals: list[IntervalOut] = []
@@ -467,7 +570,10 @@ def fit_run(ctx: Context, p: FitRunIn) -> FitRunOut:
         estimates = dict(zip(result.names, (*result.theta, *result.order), strict=True))
         for name in result.names:
             if policy.allowed:
-                iv = profile_interval(problem, result, name)
+                try:
+                    iv = profile_interval(problem, result, name)
+                except ValueError as exc:
+                    raise _not_evaluable(exc) from None
                 intervals.append(
                     IntervalOut(
                         parameter=name,
@@ -610,7 +716,7 @@ def import_xyz(ctx: Context, p: ImportXyzIn) -> ImportXyzOut:
         project = project_from_xyz(
             molecule, name=p.name, source=p.source or "imported XYZ", torsion=p.torsion, order=p.order
         )
-    except FormatError as exc:
+    except (FormatError, ValueError) as exc:  # ValidationError is a ValueError
         raise OperationError(ErrorCode.INVALID_ARGUMENT, str(exc), offending_field="xyz") from None
 
     def plan(state: SessionState) -> tuple[list[Event], ImportXyzOut]:
@@ -710,7 +816,7 @@ def couplings_reconcile(ctx: Context, p: ReconcileIn) -> ReconcileOut:
     try:
         table = parse_couplings_csv(p.csv)
         diff = reconcile(table, project, p.mapping)
-    except FormatError as exc:
+    except (FormatError, ValueError) as exc:  # ValidationError is a ValueError
         raise OperationError(ErrorCode.INVALID_ARGUMENT, str(exc), offending_field="csv") from None
     return ReconcileOut(
         science_revision=state.science_revision,
@@ -746,7 +852,7 @@ class ImportCouplingsOut(Science):
 def couplings_import(ctx: Context, p: ImportCouplingsIn) -> ImportCouplingsOut:
     try:
         table = parse_couplings_csv(p.csv)
-    except FormatError as exc:
+    except (FormatError, ValueError) as exc:  # ValidationError is a ValueError
         raise OperationError(ErrorCode.INVALID_ARGUMENT, str(exc), offending_field="csv") from None
 
     def plan(state: SessionState) -> tuple[list[Event], ImportCouplingsOut]:
@@ -758,7 +864,7 @@ def couplings_import(ctx: Context, p: ImportCouplingsIn) -> ImportCouplingsOut:
                 missing = [*diff.unmatched_labels, *diff.unresolved_pairs]
                 raise FormatError(f"the confirmed mapping leaves labels or pairs unresolved: {missing}")
             new = apply_import(project, table, p.confirmed_mapping)
-        except FormatError as exc:
+        except (FormatError, ValueError) as exc:  # ValidationError is a ValueError
             raise OperationError(
                 ErrorCode.INVALID_ARGUMENT,
                 str(exc),
@@ -784,7 +890,7 @@ def couplings_import(ctx: Context, p: ImportCouplingsIn) -> ImportCouplingsOut:
 
 # --------------------------------------------------------------------------- project.load / project.export
 class LoadIn(Wire):
-    text: Text
+    text: ProjectText
     expected_science_revision: Revision
 
 
@@ -797,7 +903,7 @@ class LoadOut(Science):
 def project_load(ctx: Context, p: LoadIn) -> LoadOut:
     try:
         project = loads_project(p.text)
-    except FormatError as exc:
+    except (FormatError, ValueError) as exc:  # ValidationError is a ValueError
         raise OperationError(ErrorCode.INVALID_ARGUMENT, str(exc), offending_field="text") from None
 
     def plan(state: SessionState) -> tuple[list[Event], LoadOut]:

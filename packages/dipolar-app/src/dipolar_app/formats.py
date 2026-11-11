@@ -26,12 +26,14 @@ import csv
 import io
 import json
 import math
+import re
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Final
 
 from dipolar_app.project import (
     MAX_ATOMS,
+    MAX_CLASS_SIZE,
     MAX_COUPLINGS,
     PROJECT_SCHEMA_VERSION,
     Coupling,
@@ -166,8 +168,12 @@ def _parse_couplings(text: str, default_sigma_source: str) -> CouplingTable:
         if sigma <= 0:
             raise FormatError(f"row {number}: sigma_Hz must be positive")
         multiplicity_text = raw.get("multiplicity", "").strip() or "1"
-        if not multiplicity_text.isdigit() or int(multiplicity_text) < 1:
-            raise FormatError(f"row {number}: multiplicity must be a positive integer")
+        # ASCII digits only, bounded before int() (round 27): no Unicode digits, no huge numbers.
+        if not re.fullmatch(r"[0-9]{1,7}", multiplicity_text) or not 1 <= int(multiplicity_text) <= MAX_CLASS_SIZE:
+            raise FormatError(f"row {number}: multiplicity must be an integer from 1 to {MAX_CLASS_SIZE}")
+        equivalent = tuple(raw.get("equivalent_pairs", "").split())
+        if len(equivalent) > MAX_CLASS_SIZE:
+            raise FormatError(f"row {number}: more than {MAX_CLASS_SIZE} equivalent pairs")
         rows.append(
             CouplingRow(
                 row=number,
@@ -177,7 +183,7 @@ def _parse_couplings(text: str, default_sigma_source: str) -> CouplingTable:
                 sigma_hz=sigma,
                 sigma_source=raw.get("sigma_source", "").strip() or default_sigma_source,
                 multiplicity=int(multiplicity_text),
-                equivalent_pairs=tuple(raw.get("equivalent_pairs", "").split()),
+                equivalent_pairs=equivalent,
             )
         )
     if not rows:
@@ -230,6 +236,10 @@ def _resolved(table: CouplingTable, mapping: Mapping[str, str], project: Project
     if len(set(targets)) != len(targets):
         raise FormatError("the mapping must be one-to-one: two labels map to the same spin")
     spin_ids = {s.id for s in project.molecule.spins}
+    # Every target, including labels that appear only in equivalent pairs (round 27).
+    for label, target in mapping.items():
+        if target not in spin_ids:
+            raise FormatError(f"the label {label!r} maps to {target!r}, which is not a spin of the project")
     out: dict[tuple[str, str], CouplingRow] = {}
     for row in table.rows:
         ids = []

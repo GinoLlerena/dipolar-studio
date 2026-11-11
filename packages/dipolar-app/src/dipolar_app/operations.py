@@ -41,8 +41,10 @@ def open_example(ctx: Context, p: OpenExampleIn) -> OpenExampleOut:
 
     def plan(state: SessionState) -> tuple[list[Event], OpenExampleOut]:
         S.check_revision(p.expected_science_revision, state)
-        events = S.replace_project(state, project)
-        if state.view.selection and len(events) == 1:  # IDs of the old project never stay selected
+        # IDs of the old project never stay selected, even where an ID also exists in the example
+        # (round 27): always clear, never prune.
+        events = [e for e in S.replace_project(state, project) if e["type"] != "view.selection_set"]
+        if state.view.selection:
             events.append(
                 {
                     "type": "view.selection_set",
@@ -328,6 +330,7 @@ def _register_science(registry: Registry) -> None:
             output_model=S.LoadOut,
             handler=S.project_load,
             revision_check=revision,
+            max_request_bytes=S.LOAD_REQUEST_BYTES,
             examples=({"text": S.ethane_document(), "expected_science_revision": 0},),
         ),
         Operation(
