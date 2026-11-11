@@ -34,7 +34,7 @@ those fixes but returned NOT READY on a new major problem in the redirect-page c
 directory) and three minor ones, all fixed. **Round 12: READY WITH MINOR CHANGES**; both minor
 changes are applied. M0 is the baseline at tag `m0-complete`.
 
-Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` (all pushed; `m1-step1-wip` is local).
+Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m1-step5` (all pushed; `m1-step1-wip` is local).
 
 ## Done
 
@@ -134,10 +134,26 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` (all 
 
 ## Resume here: M2, or the owner's choice
 
-M1 is complete (see the M1 table). M2 starts by wiring imports, the jump model and C2(z)/C1 into
-the operations, and by enforcing the interval policy in the reporting layer. The outline below
-was written before step 3. The outline
-below was written before step 3.
+**Stopping point (2026-11-10, at the owner's request): tag `m1-complete`** (pushed, CI green).
+M1 is complete (see the M1 table). To resume:
+
+1. Check the baseline:
+
+   ```sh
+   uv sync --locked && uv run pytest -q -m "not slow"   # 461 passed
+   ```
+
+2. **The owner chooses** what comes next:
+   - **M2**, which starts by wiring the imports, the jump model and C2(z)/C1 into the operations
+     (`project.describe`, `fit.preview` still serve only the rigid bisector-diagonal template),
+     and by enforcing the interval policy in the reporting layer (no intervals for an
+     unweighted or inadequate fit; see round 21, finding 3);
+   - or **the small batch**: GitHub Actions off Node 20, a licence file in the wheels, a Windows
+     CI job, and caching interval evaluations (which would also cut the 40-min coverage run).
+3. Work under the medium plan (below): at most two review rounds per step, a fresh session per
+   step.
+
+The outline below was written before step 3.
 
 ### Earlier outline (before step 3)
 
