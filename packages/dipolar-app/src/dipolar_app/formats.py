@@ -30,11 +30,13 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Final
 
-from dipolar_app.project import PROJECT_SCHEMA_VERSION, Coupling, Project, canonical_json
+from dipolar_app.project import PROJECT_SCHEMA_VERSION, Coupling, Project, canonical_json, migrate_project
 from dipolar_app.schemas import Hertz, wire_problem
 
 PROJECT_FORMAT: Final = "dipolar-studio-project"
-MAX_ATOMS: Final = 10_000
+#: Bond perception is quadratic in the atom count, so the cap bounds memory (about 24 MB at 1000).
+MAX_ATOMS: Final = 1_000
+MAX_PROJECT_BYTES: Final = 64 * 2**20
 MAX_COUPLINGS: Final = 100_000
 REQUIRED_COLUMNS: Final = ("spin_a", "spin_b", "D_obs_Hz", "sigma_Hz")
 OPTIONAL_COLUMNS: Final = ("sigma_source", "multiplicity", "equivalent_pairs", "observable", "unit")
@@ -116,7 +118,22 @@ def _number(text: str, what: str, row: int) -> float:
 
 
 def parse_couplings_csv(text: str, *, default_sigma_source: str = "not stated") -> CouplingTable:
-    reader = csv.DictReader(io.StringIO(text))
+    """Parse a couplings table. The contract:
+    - one leading byte-order mark is removed (spreadsheet exports write one); CRLF line ends work;
+    - quoting is strict: a malformed or unterminated quoted field is an error, never repaired;
+    - labels are kept verbatim (no trimming), so they match spin labels exactly (D5);
+    - numbers may have surrounding spaces.
+    """
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    try:
+        return _parse_couplings(text, default_sigma_source)
+    except csv.Error as exc:
+        raise FormatError(f"malformed CSV (line {exc.args[0] if exc.args else '?'}): {exc}") from None
+
+
+def _parse_couplings(text: str, default_sigma_source: str) -> CouplingTable:
+    reader = csv.DictReader(io.StringIO(text), strict=True)
     header = tuple(reader.fieldnames or ())
     if len(set(header)) != len(header):
         raise FormatError("header: duplicate column names")
@@ -130,8 +147,8 @@ def parse_couplings_csv(text: str, *, default_sigma_source: str = "not stated") 
             raise FormatError(f"more than {MAX_COUPLINGS} rows")
         if None in raw or any(v is None for v in raw.values()):
             raise FormatError(f"row {number}: the number of fields does not match the header")
-        a, b = raw["spin_a"].strip(), raw["spin_b"].strip()
-        if not a or not b:
+        a, b = raw["spin_a"], raw["spin_b"]
+        if not a.strip() or not b.strip():
             raise FormatError(f"row {number}: spin labels must not be empty")
         if a == b:
             raise FormatError(f"row {number}: a spin cannot couple to itself ({a!r})")
@@ -182,7 +199,15 @@ def _pair_key(a: str, b: str) -> tuple[str, str]:
     return (a, b) if a <= b else (b, a)
 
 
+def _labels_in_order(row: CouplingRow, mapping: Mapping[str, str], c: Coupling) -> tuple[str, str]:
+    """The row's labels in the order of the existing coupling's spins."""
+    return (row.spin_a, row.spin_b) if mapping[row.spin_a] == c.spin_a else (row.spin_b, row.spin_a)
+
+
 def _resolved(table: CouplingTable, mapping: Mapping[str, str], project: Project) -> dict[tuple[str, str], CouplingRow]:
+    targets = list(mapping.values())
+    if len(set(targets)) != len(targets):
+        raise FormatError("the mapping must be one-to-one: two labels map to the same spin")
     spin_ids = {s.id for s in project.molecule.spins}
     out: dict[tuple[str, str], CouplingRow] = {}
     for row in table.rows:
@@ -224,7 +249,10 @@ def reconcile(table: CouplingTable, project: Project, mapping: Mapping[str, str]
     unchanged: list[tuple[str, str]] = []
     for key in sorted(incoming.keys() & current.keys()):
         row, c = incoming[key], current[key]
-        same = (row.value_hz, row.sigma_hz, row.sigma_source) == (c.value.value, c.sigma.value, c.sigma_source)
+        # Every field that apply_import replaces (round 22): science and provenance alike.
+        new = (row.value_hz, row.sigma_hz, row.sigma_source, row.multiplicity, row.equivalent_pairs)
+        old = (c.value.value, c.sigma.value, c.sigma_source, c.multiplicity, c.equivalent_pairs)
+        same = new == old and c.source_labels in (None, _labels_in_order(row, effective, c))
         (unchanged if same else changed).append(key)
     return ImportDiff(
         proposed_mapping=proposed,
@@ -244,15 +272,18 @@ def apply_import(project: Project, table: CouplingTable, confirmed_mapping: Mapp
     the next free ID. The imported labels are kept verbatim in ``source_labels``.
     """
     _resolved(table, confirmed_mapping, project)  # validates the mapping and rejects duplicates
-    current = {_pair_key(c.spin_a, c.spin_b): c.id for c in project.couplings}
+    current = {_pair_key(c.spin_a, c.spin_b): c for c in project.couplings}
     used = [int(c.id[4:]) for c in project.couplings]
-    next_id = max(used, default=0) + 1
+    next_id = max(project.next_coupling_id, max(used, default=0) + 1)  # never reuse a number
     couplings = []
     for row in table.rows:  # file order
         a, b = confirmed_mapping[row.spin_a], confirmed_mapping[row.spin_b]
+        source = (row.spin_a, row.spin_b)
         key = _pair_key(a, b)
         if key in current:
-            cid = current[key]
+            cid = current[key].id
+            if (current[key].spin_a, current[key].spin_b) == (b, a):  # keep the stored orientation
+                a, b, source = b, a, (row.spin_b, row.spin_a)
         else:
             cid, next_id = f"cpl_{next_id:06d}", next_id + 1
         couplings.append(
@@ -266,15 +297,40 @@ def apply_import(project: Project, table: CouplingTable, confirmed_mapping: Mapp
                 sigma_source=row.sigma_source,
                 multiplicity=row.multiplicity,
                 equivalent_pairs=row.equivalent_pairs,
-                source_labels=(row.spin_a, row.spin_b),
+                source_labels=source,
             )
         )
-    return project.model_copy(update={"couplings": tuple(couplings)})
+    return project.model_copy(update={"couplings": tuple(couplings), "next_coupling_id": next_id})
 
 
 # --------------------------------------------------------------------------- project files (D6)
 #: Upgrade steps: MIGRATIONS[v] turns a version-v document into version v + 1.
-MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {}
+MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    1: lambda document: {**document, "project": migrate_project(document["project"])},
+}
+
+
+def _json_depth_exceeds(text: str, limit: int) -> bool:
+    """True if brackets nest deeper than ``limit`` outside strings: a bounded scan run before
+    decoding, so a hostile file cannot exhaust the decoder's recursion (round 22)."""
+    depth, in_string, escaped = 0, False, False
+    for ch in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
+            if depth > limit:
+                return True
+        elif ch in "]}":
+            depth -= 1
+    return False
 
 
 def dumps_project(project: Project) -> str:
@@ -288,6 +344,15 @@ def dumps_project(project: Project) -> str:
 
 
 def loads_project(text: str) -> Project:
+    """Read a project file: bounded, strictly validated, migrated, and checked for consistency
+    (``dipolar_app.science.validate_project``). A draft that is not yet fittable still loads."""
+    from dipolar_app.schemas import MAX_JSON_DEPTH
+    from dipolar_app.science import validate_project
+
+    if len(text) > MAX_PROJECT_BYTES:
+        raise FormatError(f"the file is larger than {MAX_PROJECT_BYTES} characters")
+    if _json_depth_exceeds(text, MAX_JSON_DEPTH):
+        raise FormatError(f"the file is nested deeper than {MAX_JSON_DEPTH} levels")
     try:
         document = json.loads(
             text, parse_constant=lambda c: (_ for _ in ()).throw(FormatError(f"non-finite number {c}"))
@@ -316,7 +381,12 @@ def loads_project(text: str) -> Project:
     project_data = document["project"]
     if not isinstance(project_data, dict) or project_data.get("schema_version") != PROJECT_SCHEMA_VERSION:
         raise FormatError("the project's own schema_version must match the file's")
-    return Project.model_validate_json(canonical_json(project_data), strict=True)
+    project = Project.model_validate_json(canonical_json(project_data), strict=True)
+    try:
+        validate_project(project)
+    except ValueError as exc:
+        raise FormatError(f"inconsistent project: {exc}") from None
+    return project
 
 
 def project_from_xyz(
@@ -348,7 +418,7 @@ def project_from_xyz(
     if len({s.label for s in spins}) != len(spins):
         raise FormatError("spin labels must be unique")
     return Project(
-        schema_version=1,
+        schema_version=2,
         name=name,
         source=source,
         molecule=Molecule(

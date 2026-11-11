@@ -24,7 +24,7 @@ from dipolar_core.context import numerical_context
 from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.journal import JOURNAL_SCHEMA_VERSION, Journal, JournalCorrupt, Recovery
 from dipolar_app.policy import Principal
-from dipolar_app.project import PROJECT_SCHEMA_VERSION, Project, science_hash
+from dipolar_app.project import PROJECT_SCHEMA_VERSION, Project, migrate_project, payload_hash, science_hash
 
 T = TypeVar("T")
 
@@ -59,7 +59,7 @@ def apply_event(state: SessionState, event: Event) -> SessionState:
     """Pure state transition for one event. Unknown event types are an error, never skipped."""
     kind = event["type"]
     if kind == "project.replaced":
-        project = Project.model_validate(event["project"])
+        project = Project.model_validate(migrate_project(event["project"]))
         return replace(state, project=project)
     if kind == "view.selection_set":
         return replace(state, view=replace(state.view, selection=tuple(event["selection"])))
@@ -156,10 +156,27 @@ class Session:
             return result, new_state
 
 
+def _recorded_hash(record: dict[str, Any], state: SessionState, stored: dict[str, Any] | None) -> str:
+    """The hash a record should carry: of the current state, or of the stored payload if the
+    record predates the current project schema."""
+    if record.get("project_schema", PROJECT_SCHEMA_VERSION) < PROJECT_SCHEMA_VERSION and stored is not None:
+        return payload_hash(stored)
+    return state.science_hash
+
+
 def replay(journal: Journal) -> SessionState:
-    """Rebuild the state from the journal, checking sequence, revisions and science hash."""
+    """Rebuild the state from the journal, checking sequence, revisions and science hash.
+
+    A record written under an older project schema is checked against the hash of the project
+    payload *as stored*, then migrated (``migrate_project``, round 22). So old journals replay,
+    and their integrity is still verified.
+    """
     state = SessionState()
+    stored: dict[str, Any] | None = None  # the last project payload as written in the journal
     for record in journal.records():
+        for event in record["events"]:
+            if event.get("type") == "project.replaced":
+                stored = event["project"]
         if record.get("numerical_context") != numerical_context():
             raise JournalCorrupt(
                 f"record seq {record.get('seq')}: written under a different numerical context; "
@@ -171,7 +188,7 @@ def replay(journal: Journal) -> SessionState:
             record["seq"] != state.seq
             or recorded[SCIENCE] != state.science_revision
             or recorded[WORKSPACE] != state.workspace_revision
-            or record["science_hash"] != state.science_hash
+            or record["science_hash"] != _recorded_hash(record, state, stored)
         ):
             raise JournalCorrupt(f"record seq {record['seq']}: replay does not reproduce the recorded state")
     return state

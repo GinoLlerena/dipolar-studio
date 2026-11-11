@@ -173,7 +173,7 @@ The owner approved the re-baseline on 2026-11-09.
 | 1. The D3 stack in dipolar-core | **done** (tag `m1-step1`); rounds 13–18, READY WITH MINOR CHANGES at round 18 | |
 | 2. Frame contract, C2(z) and C1 | **done** (tag `m1-step2`); rounds 19–20, both fixed under the cap | |
 | 3. Four-site jump model | built; round 21 NOT READY (fixed), round 23 pending | |
-| 4. CSV/XYZ import, JSON v1 | built; review pending | |
+| 4. CSV/XYZ import, JSON v1 | built; round 22 NOT READY (fixed), round 24 pending | |
 | 5. Gates (a)–(e), coverage, 8CB | — | |
 
 ### Step 1: the D3 stack
@@ -272,7 +272,7 @@ The fitter is not yet an operation. Operations come in M2, as the beta UI needs 
 Check the baseline before resuming:
 
 ```sh
-uv sync --locked && uv run pytest -q -m "not slow"     # 421 passed
+uv sync --locked && uv run pytest -q -m "not slow"     # 442 passed
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 (cd web && pnpm install --frozen-lockfile && pnpm build)
 LEGACY=path/to/NMRApllication tools/legacy-harness/run.sh
@@ -386,7 +386,8 @@ Tests: `packages/dipolar-core/tests/test_core_jump.py` and `tests/test_engine_ju
     `source_labels`, and keeps each existing pair's stable coupling ID;
   - **`*.dipolar.json` v1**: a format tag and schema version, strict JSON-mode validation, exact
     round trips, and a migration chain. A newer file is refused.
-- **Project schema v1** (additive): a geometry union (template or imported XYZ with a declared
+- **Project schema v2** (round 22: v1 files and journals migrate; see
+  docs/validation/round22-m1-step4.md): a geometry union (template or imported XYZ with a declared
   torsion); spins with atom indices; `source_labels` on couplings; and a model spec with kind
   (rigid or jump4), order, frame and domain. The order model's name is now `bisector-diagonal`,
   matching the core.

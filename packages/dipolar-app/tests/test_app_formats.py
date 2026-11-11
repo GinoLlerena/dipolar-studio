@@ -21,7 +21,7 @@ from dipolar_app.formats import (
     reconcile,
 )
 from dipolar_app.project import ModelSpec, load_example, science_hash
-from dipolar_app.science import check_project, problem_for
+from dipolar_app.science import problem_for, validate_project
 from dipolar_core.biphenyl import BiphenylGeometry, proton_positions
 from dipolar_core.fit import fit
 
@@ -169,7 +169,7 @@ def test_project_files_round_trip_exactly() -> None:
     ("mutate", "message"),
     [
         (lambda d: d.update(format="other"), "not a project file"),
-        (lambda d: d.update(schema_version=2), "reads up to 1"),
+        (lambda d: d.update(schema_version=3), "reads up to 2"),
         (lambda d: d.update(schema_version=True), "positive integer"),
         (lambda d: d.update(extra=1), "unexpected top-level fields"),
         (lambda d: d["project"].update(colour="red"), "Extra inputs are not permitted"),
@@ -186,10 +186,10 @@ def test_bad_project_files_are_refused(mutate, message: str) -> None:  # type: i
 def test_non_finite_numbers_and_an_unreachable_old_schema_are_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(FormatError, match="non-finite"):
         loads_project(dumps_project(EXAMPLE).replace("-1124.726", "NaN", 1))
-    version_1 = dumps_project(EXAMPLE)
-    monkeypatch.setattr(formats, "PROJECT_SCHEMA_VERSION", 2)
-    with pytest.raises(FormatError, match="no migration from schema 1"):
-        loads_project(version_1)
+    current = dumps_project(EXAMPLE)
+    monkeypatch.setattr(formats, "PROJECT_SCHEMA_VERSION", 3)
+    with pytest.raises(FormatError, match="no migration from schema 2"):
+        loads_project(current)
 
 
 # --------------------------------------------------------------------------- end to end
@@ -234,7 +234,7 @@ def _csv(values: np.ndarray) -> str:
 def test_inconsistent_projects_are_refused() -> None:
     jump_c1 = EXAMPLE.model_copy(update={"model": ModelSpec(kind="jump4", order="c1", phi_domain_deg=(0.0, 90.0))})
     with pytest.raises(ValueError, match="jump model uses the bisector-diagonal"):
-        check_project(jump_c1)
+        validate_project(jump_c1)
     molecule = parse_xyz(biphenyl_xyz())
     imported = project_from_xyz(molecule, name="x", source="x", torsion=(1, 0, 6, 7))
     no_torsion = imported.model_copy(
@@ -244,13 +244,165 @@ def test_inconsistent_projects_are_refused() -> None:
             )
         }
     )
+    validate_project(no_torsion)  # a draft without a torsion is a valid project…
     with pytest.raises(ValueError, match="needs a declared torsion"):
-        check_project(no_torsion)
+        problem_for(no_torsion)  # …that is not yet ready to fit
     on_carbon = imported.molecule.spins[0].model_copy(update={"atom": 0})
     bad_spin = imported.model_copy(
         update={"molecule": imported.molecule.model_copy(update={"spins": (on_carbon, *imported.molecule.spins[1:])})}
     )
     with pytest.raises(ValueError, match="must name a hydrogen"):
-        check_project(bad_spin)
+        validate_project(bad_spin)
     with pytest.raises(FormatError, match="not hydrogens"):
         project_from_xyz(molecule, name="x", source="x", torsion=(1, 0, 6, 7), spin_labels={0: "C1"})
+
+
+# --------------------------------------------------------------------------- round 22 counterexamples
+V1_JOURNAL = Path(__file__).parent / "data" / "schema-v1.events.jsonl"
+
+
+def test_a_schema_v1_journal_still_replays(tmp_path: Path) -> None:
+    """Round 22, finding 1. This journal was written by the pre-step-4 code (order
+    "diagonal-bisector", no new fields). Its hash is checked against the payload as stored, then
+    the project is migrated. A new command after it, and a second reopen, both work."""
+    from dipolar_app.journal import Journal
+    from dipolar_app.session import Session
+
+    copy = tmp_path / "events.jsonl"
+    copy.write_bytes(V1_JOURNAL.read_bytes())
+    session = Session(Journal(copy), contract_version="0.1.0")
+    project = session.state.project
+    assert project is not None and project.schema_version == 2
+    assert project.model.order == "bisector-diagonal" and project.next_coupling_id == 15
+    assert Session(Journal(copy), contract_version="0.1.0").state.science_hash == session.state.science_hash
+
+
+def test_a_tampered_v1_journal_is_still_refused(tmp_path: Path) -> None:
+    from dipolar_app.journal import Journal, JournalCorrupt
+    from dipolar_app.session import Session
+
+    record = json.loads(V1_JOURNAL.read_text().splitlines()[0])
+    record["events"][0]["project"]["name"] = "tampered"
+    del record["checksum"]
+    copy = tmp_path / "events.jsonl"
+    Journal(copy).append(record)
+    with pytest.raises(JournalCorrupt, match="does not reproduce"):
+        Session(Journal(copy), contract_version="0.1.0")
+
+
+def test_a_v1_project_file_is_migrated() -> None:
+    record = json.loads(V1_JOURNAL.read_text().splitlines()[0])
+    document = {"format": "dipolar-studio-project", "schema_version": 1, "project": record["events"][0]["project"]}
+    project = loads_project(json.dumps(document))
+    assert project.schema_version == 2 and project.model.order == "bisector-diagonal"
+
+
+def test_deleted_coupling_ids_are_never_reused() -> None:
+    """Round 22, finding 2: keep one coupling, then add a new pair; it must not get cpl_000002."""
+    spin = {s.label: s.id for s in EXAMPLE.molecule.spins}
+    keep = parse_couplings_csv("spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H2',1,1\n")
+    reduced = apply_import(EXAMPLE, keep, {"H2": spin["H2"], "H2'": spin["H2'"]})
+    assert [c.id for c in reduced.couplings] == ["cpl_000001"] and reduced.next_coupling_id == 15
+    added = apply_import(
+        reduced,
+        parse_couplings_csv("spin_a,spin_b,D_obs_Hz,sigma_Hz\nH3,H5,1,1\n"),
+        {"H3": spin["H3"], "H5": spin["H5"]},
+    )
+    assert added.couplings[0].id == "cpl_000015" and added.next_coupling_id == 16
+
+
+def test_labels_are_matched_and_kept_verbatim() -> None:
+    """Round 22, finding 3: a quoted " H2" is not the label "H2", and is kept as written."""
+    table = parse_couplings_csv('spin_a,spin_b,D_obs_Hz,sigma_Hz\n" H2",H3,1,1\n')
+    assert table.rows[0].spin_a == " H2"
+    assert reconcile(table, EXAMPLE).unmatched_labels == (" H2",)
+
+
+def test_the_diff_covers_every_replaced_field() -> None:
+    """Round 22, finding 4: a change of multiplicity or equivalent pairs alone is a change."""
+    lines = SYNTHETIC_CSV.splitlines()
+    edited = lines[1].replace(",H2-H2' H6-H6',2,", ",H2-H2' H6-H6',3,")
+    assert edited != lines[1]
+    text = "\n".join([lines[0], edited, *lines[2:]]) + "\n"
+    diff = reconcile(parse_couplings_csv(text, default_sigma_source=EXAMPLE.couplings[0].sigma_source), EXAMPLE)
+    assert len(diff.changed) == 1 and len(diff.unchanged) == 13
+
+
+def test_a_duplicated_observation_is_refused() -> None:
+    """Round 22, finding 5a: H5–H6 already belongs to the H2–H3 observation class."""
+    spin = {s.label: s.id for s in EXAMPLE.molecule.spins}
+    extra = EXAMPLE.couplings[0].model_copy(
+        update={
+            "id": "cpl_000015",
+            "spin_a": spin["H5"],
+            "spin_b": spin["H6"],
+            "multiplicity": 1,
+            "equivalent_pairs": (),
+        }
+    )
+    with pytest.raises(ValueError, match="repeats an observation"):
+        validate_project(EXAMPLE.model_copy(update={"couplings": (*EXAMPLE.couplings, extra), "next_coupling_id": 16}))
+
+
+@pytest.mark.parametrize("order", ["c2z", "c1"])
+def test_classes_must_be_equivalences_of_the_selected_model(order: str) -> None:
+    """Round 22, finding 5b: the fixture's D2 classes are not equivalences of c2z or c1."""
+    model = EXAMPLE.model.model_copy(update={"order": order})
+    with pytest.raises(ValueError, match="not equivalent under the rigid/" + order):
+        validate_project(EXAMPLE.model_copy(update={"model": model}))
+    validate_project(EXAMPLE)  # they are equivalences of the bisector-diagonal model
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda p: p["molecule"]["spins"][1].update(id="spn_000001"), "spin IDs must be unique"),
+        (lambda p: p["couplings"][0]["sigma"].update(value=-0.5), "sigma must be positive"),
+        (lambda p: p["model"].update(frame="input"), "'bisector' or 'ring-a' frame"),
+        (lambda p: p.update(next_coupling_id=3), "next_coupling_id must exceed"),
+    ],
+)
+def test_project_files_are_checked_for_consistency(mutate, message: str) -> None:  # type: ignore[no-untyped-def]
+    """Round 22, finding 6: structure alone is not enough on load."""
+    document = json.loads(dumps_project(EXAMPLE))
+    mutate(document["project"])
+    with pytest.raises(FormatError, match=message):
+        loads_project(json.dumps(document))
+
+
+@pytest.mark.parametrize(
+    "update",
+    [{"frame": "ring-a"}, {"phi_domain_deg": (0.0, 180.0)}, {"kind": "jump4"}, {"order": "c1"}],
+)
+def test_the_operations_refuse_what_their_outputs_cannot_describe(update: dict) -> None:  # type: ignore[type-arg]
+    """Round 22, finding 7: describe/preview present bisector-frame science on the acute domain."""
+    from dipolar_app.errors import OperationError
+    from dipolar_app.operations import _template_rigid
+
+    with pytest.raises(OperationError, match="bisector frame on the acute domain"):
+        _template_rigid(EXAMPLE.model_copy(update={"model": EXAMPLE.model.model_copy(update=update)}))
+    assert _template_rigid(EXAMPLE) is EXAMPLE.molecule.geometry
+
+
+@pytest.mark.parametrize("field", ['"0.5', '"0".5'])
+def test_malformed_csv_quoting_is_refused(field: str) -> None:
+    """Round 22, finding 8: never repair a malformed field into a number."""
+    with pytest.raises(FormatError, match="malformed CSV"):
+        parse_couplings_csv(f"spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H3,1,{field}\n")
+
+
+def test_deeply_nested_json_is_refused_without_recursion() -> None:
+    """Round 22, finding 9: 20,000 nested arrays once raised RecursionError."""
+    with pytest.raises(FormatError, match="nested deeper"):
+        loads_project("[" * 20_000 + "]" * 20_000)
+    assert formats._json_depth_exceeds('{"a": "[[[[[["}', 3) is False  # brackets inside strings do not count
+
+
+def test_import_contracts_bom_and_one_to_one_mappings() -> None:
+    """Round 22 (B): a leading BOM is removed; a mapping must be one-to-one."""
+    table = parse_couplings_csv("\ufeffspin_a,spin_b,D_obs_Hz,sigma_Hz\r\nH2,H3,1,1\r\n")
+    assert table.rows[0].spin_a == "H2"
+    spin = {s.label: s.id for s in EXAMPLE.molecule.spins}
+    two = parse_couplings_csv("spin_a,spin_b,D_obs_Hz,sigma_Hz\nA,H3,1,1\nB,H4,1,1\n")
+    with pytest.raises(FormatError, match="one-to-one"):
+        apply_import(EXAMPLE, two, {"A": spin["H2"], "B": spin["H2"], "H3": spin["H3"], "H4": spin["H4"]})

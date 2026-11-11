@@ -149,15 +149,13 @@ class DescribeProjectOut(Wire):
 def _template_rigid(project: Project) -> BiphenylTemplate:
     """M1: the operations serve the rigid model on the biphenyl template. Imported geometry and
     the jump model reach the operations in M2."""
-    g = project.molecule.geometry
-    if (
-        not isinstance(g, BiphenylTemplate)
-        or project.model.kind != "rigid"
-        or project.model.order != "bisector-diagonal"
-    ):
+    g, m = project.molecule.geometry, project.model
+    supported = (m.kind, m.order, m.frame, m.phi_domain_deg) == ("rigid", "bisector-diagonal", "bisector", (0.0, 90.0))
+    if not isinstance(g, BiphenylTemplate) or not supported:  # what the outputs' frame and estimand describe
         raise OperationError(
             ErrorCode.OUT_OF_DOMAIN,
-            "this operation supports the rigid bisector-diagonal model on the biphenyl template only",
+            "this operation supports the rigid bisector-diagonal model on the biphenyl template, "
+            "in the bisector frame on the acute domain [0, 90], only",
             hint="imported geometry, the jump model and the C2(z)/C1 order models reach the operations in M2",
         )
     return g

@@ -12,7 +12,10 @@ from pydantic import Field
 
 from dipolar_app.schemas import Angstrom, CouplingId, ExampleName, Hertz, SpinId, Wire
 
-PROJECT_SCHEMA_VERSION = 1
+#: v2 (M1 step 4): the order model "diagonal-bisector" was renamed "bisector-diagonal"; imported
+#: geometry, spin atoms, source labels, the model's kind/frame, and ``next_coupling_id`` were
+#: added. ``migrate_project`` upgrades v1 documents, including those stored in journals.
+PROJECT_SCHEMA_VERSION = 2
 
 
 class Spin(Wire):
@@ -79,12 +82,15 @@ class ModelSpec(Wire):
 
 
 class Project(Wire):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     name: str
     source: str
     molecule: Molecule
     couplings: tuple[Coupling, ...]
     model: ModelSpec
+    #: The next coupling number to assign. It only grows, so a deleted coupling's ID is never
+    #: given to a different observation (D5, round 22).
+    next_coupling_id: Annotated[int, Field(ge=1)] = 1
 
     def spin(self, spin_id: str) -> Spin | None:
         return next((s for s in self.molecule.spins if s.id == spin_id), None)
@@ -112,11 +118,38 @@ def canonical_json(data: Any) -> str:
 
 def science_hash(project: Project | None) -> str:
     """Canonical science identity: the project plus the core's numerical context (D11)."""
-    payload = {
-        "numerical_context": numerical_context(),
-        "project": None if project is None else project.model_dump(mode="json"),
-    }
+    return payload_hash(None if project is None else project.model_dump(mode="json"))
+
+
+def payload_hash(project_payload: dict[str, Any] | None) -> str:
+    """``science_hash`` of a stored project payload as it was written, at any schema version."""
+    payload = {"numerical_context": numerical_context(), "project": project_payload}
     return "sha256:" + hashlib.sha256(canonical_json(payload).encode()).hexdigest()
+
+
+def migrate_project(data: dict[str, Any]) -> dict[str, Any]:
+    """Upgrade a stored project payload to ``PROJECT_SCHEMA_VERSION``, one version at a time.
+
+    A newer version is refused. The input is not modified.
+    """
+    data = json.loads(json.dumps(data))
+    version = data.get("schema_version")
+    if not isinstance(version, int) or isinstance(version, bool) or not 1 <= version <= PROJECT_SCHEMA_VERSION:
+        raise ValueError(
+            f"unsupported project schema_version {version!r} (this version reads 1–{PROJECT_SCHEMA_VERSION})"
+        )
+    if version == 1:
+        model = data.get("model")
+        if isinstance(model, dict) and model.get("order") == "diagonal-bisector":
+            model["order"] = "bisector-diagonal"
+        numbers = [
+            int(c["id"][4:])
+            for c in data.get("couplings", ())
+            if isinstance(c, dict) and str(c.get("id", "")).startswith("cpl_")
+        ]
+        data["next_coupling_id"] = max(numbers, default=0) + 1
+        data["schema_version"] = 2
+    return data
 
 
 def load_example(name: ExampleName) -> Project:
@@ -140,7 +173,8 @@ def load_example(name: ExampleName) -> Project:
         for i, row in enumerate(raw["couplings"])
     )
     return Project(
-        schema_version=1,
+        schema_version=2,
+        next_coupling_id=len(couplings) + 1,
         name=raw["name"],
         source=raw["source"],
         molecule=Molecule(
