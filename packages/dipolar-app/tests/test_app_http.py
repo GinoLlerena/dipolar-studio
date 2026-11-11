@@ -250,3 +250,20 @@ def test_project_load_accepts_a_large_document_over_http(server: Server) -> None
     reply = server.request("POST", "/api/v1/ops/project.load", body, headers=JSON)
     assert reply.status == 200, reply.body[:500]
     assert reply.json()["result"]["science_hash"] == exported["science_hash"]
+
+
+def test_a_unicode_project_reloads_over_http(server: Server) -> None:
+    """Round 28, finding 1: non-ASCII text escaped by the client still fits project.load's limit."""
+    from dipolar_app.formats import dumps_project
+    from dipolar_app.project import load_example
+
+    text = dumps_project(load_example("biphenyl-synthetic").model_copy(update={"source": "😀" * 200_000}))
+    body = json.dumps({"args": {"text": text, "expected_science_revision": 0}}).encode()  # ASCII-escaped
+    assert len(body) > 2 << 20 and len(text) < 1 << 20
+    first = server.request("POST", "/api/v1/ops/project.load", body, headers=JSON)
+    assert first.status == 200, first.body[:500]
+    exported = post(server, "project.export", {"args": {}}).json()["result"]
+    again = json.dumps({"args": {"text": exported["text"], "expected_science_revision": 1}}).encode()
+    reply = server.request("POST", "/api/v1/ops/project.load", again, headers=JSON)
+    assert reply.status == 200, reply.body[:500]
+    assert reply.json()["result"]["science_hash"] == exported["science_hash"]

@@ -21,6 +21,7 @@ transaction.
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Callable
 from functools import lru_cache
@@ -53,12 +54,21 @@ from dipolar_app.session import SCIENCE, WORKSPACE, Event, SessionState
 #: Text arguments are bounded by the HTTP body limit too; this bounds the Python adapter alike.
 MAX_TEXT = 1 << 20
 Text = Annotated[str, Field(max_length=MAX_TEXT)]
-#: The largest project document the operations accept or create (round 27): every project in the
-#: session must export to a document that ``project.load`` accepts back. ``project.load`` declares
-#: an HTTP request limit large enough for this text after JSON escaping (``LOAD_REQUEST_BYTES``).
-MAX_PROJECT_TEXT = 16 << 20
-LOAD_REQUEST_BYTES = 2 * MAX_PROJECT_TEXT + (1 << 20)
-ProjectText = Annotated[str, Field(max_length=MAX_PROJECT_TEXT)]
+#: The largest project the operations accept or create, measured as it travels (rounds 27–28): the
+#: exported document as a JSON string with every non-ASCII character escaped. That is the largest
+#: form any client sends (an astral character is 12 bytes as \uXXXX\uXXXX, 4 in UTF-8), so every
+#: project in the session exports to a document that ``project.load`` accepts back over HTTP.
+MAX_PROJECT_TRANSPORT = 32 << 20
+#: ``project.load``'s HTTP request limit: the document plus the envelope and its other arguments.
+LOAD_REQUEST_BYTES = MAX_PROJECT_TRANSPORT + (1 << 20)
+ProjectText = Annotated[str, Field(max_length=MAX_PROJECT_TRANSPORT)]
+
+
+def transport_size(text: str) -> int:
+    """Bytes of ``text`` as a JSON string with non-ASCII escaped (an upper bound over encodings)."""
+    return len(json.dumps(text))
+
+
 Name = Annotated[str, Field(min_length=1, max_length=200)]
 AtomIndex = Annotated[int, Field(ge=0, lt=1_000)]
 
@@ -182,11 +192,11 @@ def replace_project(state: SessionState, project: Project, *, field: str | None 
         validate_project(project)
     except ValueError as exc:
         raise OperationError(ErrorCode.INVALID_ARGUMENT, str(exc), offending_field=field) from None
-    size = len(dumps_project(project))
-    if size > MAX_PROJECT_TEXT:  # it could not be exported and loaded back (round 27)
+    size = transport_size(dumps_project(project))
+    if size > MAX_PROJECT_TRANSPORT:  # it could not be exported and loaded back (rounds 27–28)
         raise OperationError(
             ErrorCode.INVALID_ARGUMENT,
-            f"the project would be {size} characters as a file, above the limit of {MAX_PROJECT_TEXT}",
+            f"the project would take {size} bytes to send as a file, above the limit of {MAX_PROJECT_TRANSPORT}",
             offending_field=field,
         )
     events: list[Event] = [

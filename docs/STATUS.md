@@ -1,6 +1,6 @@
 # Status
 
-**M2 step 1 (the science operations) is built. Round 27 returned NOT READY on five findings, all fixed; round 28, the last under the cap, is pending.** Every project the
+**M2 step 1 (the science operations) is done: tag `m2-step1`.** Rounds 27 and 28 each returned NOT READY (five and two findings). All were fixed and mutation-checked; the round-28 fixes were not reviewed again, under the cap. Every project the
 core can fit now reaches the operations:
 - imported XYZ geometry with a declared torsion;
 - the four-site jump model;
@@ -144,24 +144,23 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: M2 step 1 review (round 28)
+## Resume here: M2 step 1b (TypeScript from the snapshot), or the owner's choice
 
-**Stopping point (2026-11-10, at the owner's request): tag `m1-complete`** (pushed, CI green).
-M1 is complete (see the M1 table). To resume:
+M2 step 1 is done (tag `m2-step1`). Earlier stopping point: `m1-complete`. To resume:
 
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 461 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 529 passed
    ```
 
 2. **The owner chooses** what comes next:
-   - **M2**, which starts by wiring the imports, the jump model and C2(z)/C1 into the operations
-     (`project.describe`, `fit.preview` still serve only the rigid bisector-diagonal template),
-     and by enforcing the interval policy in the reporting layer (no intervals for an
-     unweighted or inadequate fit; see round 21, finding 3);
-   - or **the small batch**: GitHub Actions off Node 20, a licence file in the wheels, a Windows
-     CI job, and caching interval evaluations (which would also cut the 40-min coverage run).
+   - **M2 step 1b:** generate the web client's TypeScript types from `registry.snapshot.json`,
+     with a CI check that they are current. `web/src/api.ts` is still written by hand.
+   - **M2 step 2:** idempotency keys, dry run, proposals (agents now get `PROPOSAL_REQUIRED`),
+     undo.
+   - **the small batch:** GitHub Actions off Node 20, a licence file in the wheels, a Windows CI
+     job, caching interval evaluations.
 3. Work under the medium plan (below): at most two review rounds per step, a fresh session per
    step.
 
@@ -471,7 +470,7 @@ Tests: 461 pass (`-m "not slow"`), plus the slow coverage rerun.
 
 | M2 step | Status | Owner hours (owner fills in) |
 |---|---|---|
-| 1. Science operations the beta UI needs | built; round 27 fixed, round 28 pending | |
+| 1. Science operations the beta UI needs | **done** (tag `m2-step1`); rounds 27–28, both fixed under the cap | |
 | 1b. TypeScript generated from the registry snapshot | — | |
 | 2. Idempotency, dry run, proposals, undo | — | |
 | 3. Jobs, D11 runs, the authenticated event stream | — | |
@@ -516,7 +515,8 @@ ethane fit recovering its truth. Mutation-checked: the adequacy rule, the policy
 validation before the event, and selection pruning. Round 27's fixes added the derived
 equivalences (`project.describe` → `equivalences`), bounded CSV fields, the 0.5 Å atom rule, a
 readiness check that evaluates the design, per-operation request limits (`project.load` takes up
-to 16 MiB of text), and an always-cleared selection on `project.open_example`. 523 pass in total.
+to 32 MiB as sent, measured in escaped bytes after round 28), shape checks on old documents, and an
+always-cleared selection on `project.open_example`. 529 pass in total.
 
 ## Open items for the owner
 

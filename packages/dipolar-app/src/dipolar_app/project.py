@@ -160,6 +160,8 @@ def migrate_project(data: dict[str, Any]) -> dict[str, Any]:
 
     A newer version is refused. The input is not modified.
     """
+    if not isinstance(data, dict):
+        raise ValueError("the project must be a JSON object")
     data = json.loads(json.dumps(data))
     version = data.get("schema_version")
     if not isinstance(version, int) or isinstance(version, bool) or not 1 <= version <= PROJECT_SCHEMA_VERSION:
@@ -167,6 +169,12 @@ def migrate_project(data: dict[str, Any]) -> dict[str, Any]:
             f"unsupported project schema_version {version!r} (this version reads 1–{PROJECT_SCHEMA_VERSION})"
         )
     if version == 1:
+        # Shapes are checked before they are used: a malformed old document is a clear error, never
+        # an internal one (round 28). Full validation follows the migration.
+        if not isinstance(data.get("couplings", []), list):
+            raise ValueError("couplings must be a list")
+        if not isinstance(data.get("model", {}), dict):
+            raise ValueError("model must be a JSON object")
         model = data.get("model")
         if isinstance(model, dict) and model.get("order") == "diagonal-bisector":
             model["order"] = "bisector-diagonal"

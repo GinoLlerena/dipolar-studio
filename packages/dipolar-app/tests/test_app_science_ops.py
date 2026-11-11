@@ -522,7 +522,7 @@ def test_a_project_too_large_to_reload_is_refused(monkeypatch: pytest.MonkeyPatc
     import dipolar_app.science_ops
 
     c = opened()
-    monkeypatch.setattr(dipolar_app.science_ops, "MAX_PROJECT_TEXT", 2_000)
+    monkeypatch.setattr(dipolar_app.science_ops, "MAX_PROJECT_TRANSPORT", 2_000)
     csv = "spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H3,-1124.6,0.5\n"
     body = error(
         c.call(
@@ -542,3 +542,45 @@ def test_opening_the_example_always_clears_the_selection() -> None:
     ok(c.call("view.select", {"ids": ["spn_000001", "spn_000011"]}))
     ok(c.call("project.open_example", {"name": "biphenyl-synthetic", "expected_science_revision": 1}))
     assert session.state.view.selection == ()
+
+
+# --------------------------------------------------------------------------- round 28 counterexamples
+def test_the_size_limit_is_measured_as_the_document_travels(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Finding 1: characters are not bytes. An emoji is one character but 12 bytes escaped."""
+    import json
+
+    import dipolar_app.science_ops
+    from dipolar_app.formats import dumps_project
+    from dipolar_app.project import load_example
+
+    project = load_example("biphenyl-synthetic").model_copy(update={"source": "😀" * 2_000})
+    text = dumps_project(project)
+    limit = len(text) + 1_000  # above the character count, below the escaped size
+    assert len(text) < limit < len(json.dumps(text))
+    monkeypatch.setattr(dipolar_app.science_ops, "MAX_PROJECT_TRANSPORT", limit)
+    body = error(
+        client(new_session()).call("project.load", {"text": text, "expected_science_revision": 0}), "INVALID_ARGUMENT"
+    )
+    assert "bytes to send" in body["message"]
+
+
+@pytest.mark.parametrize(
+    ("project", "message"),
+    [
+        (None, "must be a JSON object"),
+        ({"schema_version": 1, "couplings": None}, "couplings must be a list"),
+        ({"schema_version": 1, "model": "rigid"}, "model must be a JSON object"),
+        ({"schema_version": 1, "couplings": [{"id": "cpl_" + "9" * 5000}]}, "cannot migrate"),
+    ],
+)
+def test_malformed_old_documents_are_structured_errors(project: object, message: str) -> None:
+    """Finding 2: a v1 document of the wrong shape is INVALID_ARGUMENT, never INTERNAL."""
+    import json
+
+    text = json.dumps({"format": "dipolar-studio-project", "schema_version": 1, "project": project})
+    body = error(
+        client(new_session()).call("project.load", {"text": text, "expected_science_revision": 0}),
+        "INVALID_ARGUMENT",
+        "text",
+    )
+    assert message in body["message"]

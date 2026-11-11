@@ -2399,7 +2399,7 @@
             "type": "integer"
           },
           "text": {
-            "maxLength": 16777216,
+            "maxLength": 33554432,
             "title": "Text",
             "type": "string"
           }

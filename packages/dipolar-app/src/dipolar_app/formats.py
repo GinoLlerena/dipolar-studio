@@ -429,7 +429,10 @@ def loads_project(text: str) -> Project:
     while version < PROJECT_SCHEMA_VERSION:
         if version not in MIGRATIONS:
             raise FormatError(f"no migration from schema {version}")
-        document = MIGRATIONS[version](document)
+        try:
+            document = MIGRATIONS[version](document)
+        except ValueError as exc:  # migrate_project's shape checks (round 28)
+            raise FormatError(f"cannot migrate schema {version}: {exc}") from None
         version += 1
         document["schema_version"] = version
     project_data = document["project"]

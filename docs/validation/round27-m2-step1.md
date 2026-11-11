@@ -57,3 +57,41 @@ in `test_app_http.py`). Each fix was mutation-checked; all six mutations were ca
 - Suggested coverage beyond the counterexamples: numerical checks of imported C2(z) and of more
   template combinations, and replay per operation. Replay is tested through a mixed journal
   (import, model.set, export).
+
+## Round 28: NOT READY on two findings, both fixed under the cap
+
+- **Reviewed:** 641d0d9 (the round-27 fixes) against 8759d92, and the whole step against 8027c97.
+- **Confirmed:** findings 1, 2, 3 and 5 are resolved. Independent probes recovered the
+  equivalence maps for all six combinations and for several custom geometries, with no false
+  equivalence. The estimand texts agree with the core docstring. No path bypasses the size check
+  in `replace_project`.
+
+1. **(A) Characters are not bytes.** The size limit counted characters, but HTTP carries bytes. An
+   example project whose `source` is 9 million emoji was accepted and exported, then refused with
+   413 on reload. A client that escapes non-ASCII (Python's default) sends 12 bytes per emoji.
+   - **Fix:** the limit is now on the document *as it travels*: the exported text as a JSON
+     string with every non-ASCII character escaped (`transport_size`), the largest form any
+     client sends. `MAX_PROJECT_TRANSPORT` is 32 MiB, and `project.load`'s HTTP limit is that
+     plus 1 MiB for the envelope.
+   - **Tests:** a limit between the character count and the escaped size refuses the project; an
+     emoji-heavy project loads, exports and reloads over HTTP with an ASCII-escaped body.
+2. **(A) Malformed v1 documents became internal errors** through the newly exposed
+   `project.load`: `"project": null` (AttributeError) and `"couplings": null` (TypeError).
+   - **Fix:** `migrate_project` checks the shapes it uses (an object, a coupling list, a model
+     object) and raises `ValueError`, which `loads_project` reports as `FormatError`, so the
+     caller sees `INVALID_ARGUMENT` on `text`. No blanket exception catch was added.
+
+Both fixes were mutation-checked; both mutations were caught. Under the two-round cap they were
+not reviewed again. 529 tests pass.
+
+### Class (B) from round 28, documented
+
+- **Broad `ValueError` catches** at the operation boundary turn some programming errors (for
+  example, a design of the wrong shape) into `PROJECT_NOT_READY` or `INVALID_ARGUMENT` instead of
+  `INTERNAL`. Acceptable for this step; typed exceptions would diagnose better.
+- **Resource use before policy.** An authenticated request's JSON is parsed before the capability
+  check, on the event loop: a 2 MB array cost about 88 MB of peak memory and 0.6 s. The Python
+  adapter serializes arguments before the text-length check. Unauthenticated requests are refused
+  before the body is read.
+- **Error attribution.** Coincident XYZ coordinates report `offending_field="torsion"` rather
+  than `xyz`.
