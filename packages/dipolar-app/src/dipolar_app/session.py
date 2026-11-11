@@ -156,10 +156,31 @@ class Session:
             return result, new_state
 
 
-def _recorded_hash(record: dict[str, Any], state: SessionState, stored: dict[str, Any] | None) -> str:
-    """The hash a record should carry: of the current state, or of the stored payload if the
-    record predates the current project schema."""
-    if record.get("project_schema", PROJECT_SCHEMA_VERSION) < PROJECT_SCHEMA_VERSION and stored is not None:
+def _record_schema(record: dict[str, Any], previous: int) -> int:
+    """The record's project schema, validated (round 24). The metadata cannot choose a hash rule
+    on its own:
+    - it is a supported integer;
+    - it never decreases along the journal;
+    - every project payload in the record carries the same schema version.
+    """
+    seq = record.get("seq")
+    version = record.get("project_schema")
+    if not isinstance(version, int) or isinstance(version, bool) or not 1 <= version <= PROJECT_SCHEMA_VERSION:
+        raise JournalCorrupt(f"record seq {seq}: unsupported project_schema {version!r}")
+    if version < previous:
+        raise JournalCorrupt(f"record seq {seq}: project_schema {version} follows a record written under {previous}")
+    for event in record["events"]:
+        if event.get("type") == "project.replaced":
+            payload = event.get("project")
+            if not isinstance(payload, dict) or payload.get("schema_version") != version:
+                raise JournalCorrupt(f"record seq {seq}: a project payload does not match project_schema {version}")
+    return version
+
+
+def _recorded_hash(version: int, state: SessionState, stored: dict[str, Any] | None) -> str:
+    """The hash a record should carry: of the current state, or, for a record written under an
+    older project schema, of the project payload exactly as it was stored."""
+    if version < PROJECT_SCHEMA_VERSION and stored is not None:
         return payload_hash(stored)
     return state.science_hash
 
@@ -173,7 +194,9 @@ def replay(journal: Journal) -> SessionState:
     """
     state = SessionState()
     stored: dict[str, Any] | None = None  # the last project payload as written in the journal
+    schema = 1
     for record in journal.records():
+        schema = _record_schema(record, schema)
         for event in record["events"]:
             if event.get("type") == "project.replaced":
                 stored = event["project"]
@@ -188,7 +211,7 @@ def replay(journal: Journal) -> SessionState:
             record["seq"] != state.seq
             or recorded[SCIENCE] != state.science_revision
             or recorded[WORKSPACE] != state.workspace_revision
-            or record["science_hash"] != _recorded_hash(record, state, stored)
+            or record["science_hash"] != _recorded_hash(schema, state, stored)
         ):
             raise JournalCorrupt(f"record seq {record['seq']}: replay does not reproduce the recorded state")
     return state

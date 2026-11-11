@@ -406,3 +406,108 @@ def test_import_contracts_bom_and_one_to_one_mappings() -> None:
     two = parse_couplings_csv("spin_a,spin_b,D_obs_Hz,sigma_Hz\nA,H3,1,1\nB,H4,1,1\n")
     with pytest.raises(FormatError, match="one-to-one"):
         apply_import(EXAMPLE, two, {"A": spin["H2"], "B": spin["H2"], "H3": spin["H3"], "H4": spin["H4"]})
+
+
+# --------------------------------------------------------------------------- round 24 counterexamples
+def _journal_with(tmp_path: Path, mutate) -> Path:  # type: ignore[no-untyped-def]
+    from dipolar_app.journal import Journal
+
+    record = json.loads(V1_JOURNAL.read_text().splitlines()[0])
+    del record["checksum"]
+    mutate(record)
+    path = tmp_path / "events.jsonl"
+    Journal(path).append(record)
+    return path
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda r: r.update(project_schema=2), "does not match project_schema 2"),
+        (lambda r: r.update(project_schema=3), "unsupported project_schema 3"),
+        (lambda r: r.update(project_schema="1"), "unsupported project_schema '1'"),
+        (lambda r: r.pop("project_schema"), "unsupported project_schema None"),
+        (lambda r: r["events"][0]["project"].update(schema_version=2), "does not match project_schema 1"),
+    ],
+)
+def test_journal_schema_metadata_cannot_choose_the_hash_rule(tmp_path: Path, mutate, message: str) -> None:  # type: ignore[no-untyped-def]
+    """Round 24, finding 1: the record's schema must be a supported integer that matches every
+    payload in it. A v1 payload tagged 2 (or untagged) once replayed under the migrated hash."""
+    from dipolar_app.journal import Journal, JournalCorrupt
+    from dipolar_app.session import Session
+
+    with pytest.raises(JournalCorrupt, match=message):
+        Session(Journal(_journal_with(tmp_path, mutate)), contract_version="0.1.0")
+
+
+def test_imported_classes_are_translated_through_the_confirmed_mapping() -> None:
+    """Round 24, finding 2: a class written in the file's own labels is resolved through the
+    mapping, stored in project labels, and kept verbatim as provenance."""
+    table = parse_couplings_csv("spin_a,spin_b,D_obs_Hz,sigma_Hz,multiplicity,equivalent_pairs\nA,B,1,1,2,A-B C-D\n")
+    unconfirmed = reconcile(table, EXAMPLE)
+    assert unconfirmed.unresolved_pairs == ("C-D",)  # C and D are unknown until mapped
+    spin = {s.label: s.id for s in EXAMPLE.molecule.spins}
+    mapping = {"A": spin["H2"], "B": spin["H3"], "C": spin["H5"], "D": spin["H6"]}
+    diff = reconcile(table, EXAMPLE, mapping)
+    assert diff.unmatched_labels == () and diff.unresolved_pairs == ()
+    project = apply_import(EXAMPLE, table, mapping)
+    (c,) = project.couplings
+    assert c.equivalent_pairs == ("H2-H3", "H5-H6") and c.source_equivalent_pairs == ("A-B", "C-D")
+    validate_project(project)
+    assert loads_project(dumps_project(project)) == project
+
+
+def test_ambiguous_pair_labels_are_refused() -> None:
+    """Round 24 (B): with labels a, b-c, a-b and c, "a-b-c" names two different pairs."""
+    from dipolar_app.project import split_pair_label
+
+    with pytest.raises(ValueError, match="ambiguous"):
+        split_pair_label("a-b-c", {"a", "b-c", "a-b", "c"})
+    assert split_pair_label("H2-H3'", {"H2", "H3'"}) == ("H2", "H3'")
+
+
+@pytest.mark.parametrize(
+    ("torsion", "message"),
+    [((0, 0, 6, 7), "four distinct"), ((2, 0, 1, 3), "in a ring"), ((1, 0, 7, 8), "not bonded")],
+)
+def test_an_invalid_declared_torsion_is_refused_on_load(torsion: tuple[int, int, int, int], message: str) -> None:
+    """Round 24, finding 3: a declared torsion is validated even with no equivalence classes."""
+    project = project_from_xyz(parse_xyz(biphenyl_xyz()), name="x", source="x", torsion=(1, 0, 6, 7))
+    document = json.loads(dumps_project(project))
+    document["project"]["molecule"]["geometry"]["torsion"] = list(torsion)
+    with pytest.raises(FormatError, match=message):
+        loads_project(json.dumps(document))
+
+
+def test_project_files_respect_the_atom_cap() -> None:
+    """Round 24, finding 4: the cap is in the schema, so every load path enforces it."""
+    project = project_from_xyz(parse_xyz(biphenyl_xyz()), name="x", source="x", torsion=(1, 0, 6, 7))
+    document = json.loads(dumps_project(project))
+    atoms = document["project"]["molecule"]["geometry"]["atoms"]
+    document["project"]["molecule"]["geometry"]["atoms"] = (
+        atoms + [{"element": "C", "x": 9.0, "y": 9.0, "z": 9.0}] * 980
+    )
+    with pytest.raises(ValueError, match="at most 1000"):
+        loads_project(json.dumps(document))
+
+
+def test_class_validation_builds_the_geometry_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 24, finding 4: the design function used by the class check builds the torsion
+    geometry (and its quadratic bond graph) once, however many classes and probes it serves."""
+    from dipolar_app import science
+    from dipolar_core import torsion as core_torsion
+
+    project = project_from_xyz(parse_xyz(biphenyl_xyz()), name="x", source="x", torsion=(1, 0, 6, 7))
+    calls = []
+    original = core_torsion.TorsionGeometry.from_atoms.__func__  # type: ignore[attr-defined]
+
+    def counting(cls, *args, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(1)
+        return original(cls, *args, **kwargs)
+
+    monkeypatch.setattr(core_torsion.TorsionGeometry, "from_atoms", classmethod(counting))
+    design = science._design_function(project)
+    for phi in (-150.0, -37.0, 0.0, 60.0):
+        for _ in range(25):
+            design(((0, 1), (2, 3)), phi)
+    assert len(calls) == 1

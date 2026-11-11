@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Collection
 from importlib import resources
 from typing import Annotated, Any, Literal
 
@@ -16,6 +17,30 @@ from dipolar_app.schemas import Angstrom, CouplingId, ExampleName, Hertz, SpinId
 #: geometry, spin atoms, source labels, the model's kind/frame, and ``next_coupling_id`` were
 #: added. ``migrate_project`` upgrades v1 documents, including those stored in journals.
 PROJECT_SCHEMA_VERSION = 2
+
+#: Size caps, enforced by the schema on every path (round 24). Bond perception is quadratic in the
+#: atom count, so this cap bounds memory (about 24 MB at 1000 atoms).
+MAX_ATOMS = 1_000
+MAX_COUPLINGS = 100_000
+MAX_CLASS_SIZE = 1_000
+
+
+def split_pair_label(entry: str, labels: Collection[str]) -> tuple[str, str]:
+    """Split an "A-B" pair label into two known labels; labels may contain hyphens themselves.
+
+    Exactly one split must name two known labels: none, or more than one, is an error, never a
+    guess (round 24). With labels a, b-c, a-b and c, "a-b-c" is ambiguous.
+    """
+    splits = [
+        (entry[:k], entry[k + 1 :])
+        for k, ch in enumerate(entry)
+        if ch == "-" and entry[:k] in labels and entry[k + 1 :] in labels
+    ]
+    if not splits:
+        raise ValueError(f"the pair label {entry!r} does not name two known spin labels")
+    if len(splits) > 1:
+        raise ValueError(f"the pair label {entry!r} is ambiguous: it splits as {splits}")
+    return splits[0]
 
 
 class Spin(Wire):
@@ -44,13 +69,13 @@ class ImportedGeometry(Wire):
     dihedral is the fitted angle (``dipolar_core.torsion``)."""
 
     source_format: Literal["xyz"]
-    atoms: tuple[Atom, ...]
+    atoms: Annotated[tuple[Atom, ...], Field(min_length=1, max_length=MAX_ATOMS)]
     torsion: tuple[int, int, int, int] | None = None
 
 
 class Molecule(Wire):
     geometry: BiphenylTemplate | ImportedGeometry
-    spins: tuple[Spin, ...]
+    spins: Annotated[tuple[Spin, ...], Field(max_length=MAX_ATOMS)]
 
 
 class Coupling(Wire):
@@ -62,8 +87,11 @@ class Coupling(Wire):
     sigma: Hertz
     sigma_source: str
     multiplicity: Annotated[int, Field(ge=1)]  # symmetry copies; never inflates N (D3.3)
-    equivalent_pairs: tuple[str, ...]  # display labels, data only
+    #: The observation class, as "A-B" pairs of the project's spin labels (``split_pair_label``).
+    equivalent_pairs: Annotated[tuple[str, ...], Field(max_length=MAX_CLASS_SIZE)]
     source_labels: tuple[str, str] | None = None  # the labels as imported, kept verbatim (D5)
+    #: The class as imported, verbatim, when it was translated through a confirmed mapping.
+    source_equivalent_pairs: Annotated[tuple[str, ...], Field(max_length=MAX_CLASS_SIZE)] | None = None
 
 
 class ModelSpec(Wire):
@@ -86,7 +114,7 @@ class Project(Wire):
     name: str
     source: str
     molecule: Molecule
-    couplings: tuple[Coupling, ...]
+    couplings: Annotated[tuple[Coupling, ...], Field(max_length=MAX_COUPLINGS)]
     model: ModelSpec
     #: The next coupling number to assign. It only grows, so a deleted coupling's ID is never
     #: given to a different observation (D5, round 22).

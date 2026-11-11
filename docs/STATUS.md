@@ -1,7 +1,11 @@
 # Status
 
-**M1 step 3 (the symmetric four-site jump model) is built and under review (round 21).** Step 4 (CSV/XYZ import, JSON v1) is also built and under review. Both are committed locally and
-not pushed until their reviews pass. The owner asked for steps 3 and 4 on 2026-11-10.
+**M1 steps 3 and 4 are done: tags `m1-step3` (the four-site jump model) and `m1-step4` (XYZ/CSV
+import, D5 reconciliation, `*.dipolar.json` v2).** Each had two review rounds (21 and 23; 22 and
+24). Every finding was fixed and mutation-checked, and the final-round fixes were not reviewed
+again, under the cap. See [round21-m1-step3.md](validation/round21-m1-step3.md) and
+[round22-m1-step4.md](validation/round22-m1-step4.md). **Next: M1 step 5** (gates, coverage,
+8CB), or the owner's choice.
 
 **M1 step 2 (the frame contract, C2(z) and C1, analytic derivatives) is done: tag `m1-step2`.**
 Round 19 returned NOT READY with two class-(A) findings, both fixed. One of them also fixed a
@@ -121,7 +125,11 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` (all 
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: decide the rest of M1, then step 3 (the four-site jump model)
+## Resume here: M1 step 5 (gates, coverage, 8CB), or the owner's choice
+
+Steps 3 and 4 are done (see the M1 table). The outline below was written before step 3.
+
+### Earlier outline (before step 3)
 
 1. Check the baseline:
 
@@ -173,7 +181,7 @@ The owner approved the re-baseline on 2026-11-09.
 | 1. The D3 stack in dipolar-core | **done** (tag `m1-step1`); rounds 13–18, READY WITH MINOR CHANGES at round 18 | |
 | 2. Frame contract, C2(z) and C1 | **done** (tag `m1-step2`); rounds 19–20, both fixed under the cap | |
 | 3. Four-site jump model | **done** (tag `m1-step3`); rounds 21 and 23, both fixed under the cap | |
-| 4. CSV/XYZ import, JSON v1 | built; round 22 NOT READY (fixed), round 24 pending | |
+| 4. CSV/XYZ import, JSON v1 | **done** (tag `m1-step4`); rounds 22 and 24, both fixed under the cap | |
 | 5. Gates (a)–(e), coverage, 8CB | — | |
 
 ### Step 1: the D3 stack
@@ -272,7 +280,7 @@ The fitter is not yet an operation. Operations come in M2, as the beta UI needs 
 Check the baseline before resuming:
 
 ```sh
-uv sync --locked && uv run pytest -q -m "not slow"     # 443 passed
+uv sync --locked && uv run pytest -q -m "not slow"     # 455 passed
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 (cd web && pnpm install --frozen-lockfile && pnpm build)
 LEGACY=path/to/NMRApllication tools/legacy-harness/run.sh

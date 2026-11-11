@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 from dipolar_core.biphenyl import (
     PROTON_LABELS,
@@ -21,20 +23,18 @@ from dipolar_core.biphenyl import (
 from dipolar_core.problem import Problem
 from dipolar_core.torsion import TorsionGeometry, imported_problem
 
-from dipolar_app.project import BiphenylTemplate, Coupling, ImportedGeometry, Project
+from dipolar_app.project import BiphenylTemplate, Coupling, ImportedGeometry, Project, split_pair_label
 
 #: Torsions at which a declared equivalence class must give identical design rows.
 _PROBE_FRACTIONS = (0.137, 0.5, 0.861)
 _ROW_RTOL = 1e-9
 
 
-def _resolve_pair(entry: str, by_label: dict[str, str]) -> frozenset[str] | None:
-    """An ``equivalent_pairs`` entry "A-B" as a pair of spin IDs, splitting at any hyphen that
-    leaves two known labels (labels may themselves contain hyphens)."""
-    for k, ch in enumerate(entry):
-        if ch == "-" and entry[:k] in by_label and entry[k + 1 :] in by_label:
-            return frozenset((by_label[entry[:k]], by_label[entry[k + 1 :]]))
-    return None
+def _resolve_pair(entry: str, by_label: dict[str, str]) -> frozenset[str]:
+    """An ``equivalent_pairs`` entry "A-B" as a pair of spin IDs (``split_pair_label``: exactly
+    one split must name two known labels)."""
+    a, b = split_pair_label(entry, by_label.keys())
+    return frozenset((by_label[a], by_label[b]))
 
 
 def validate_project(project: Project) -> None:
@@ -77,8 +77,12 @@ def validate_project(project: Project) -> None:
                 raise ValueError(f"spin {s.id} must name a hydrogen atom of the imported geometry")
         if len({s.atom for s in spins}) != len(spins):
             raise ValueError("two spins name the same atom")
-        if g.torsion is not None and not all(0 <= k < n for k in g.torsion):
-            raise ValueError("the torsion atoms must exist")
+        if g.torsion is not None:
+            if not all(0 <= k < n for k in g.torsion):
+                raise ValueError("the torsion atoms must exist")
+            # A declared torsion must be a real one: distinct atoms, a bonded, non-ring central bond,
+            # a on the fixed side and b on the moving side (round 24). A missing torsion is a draft.
+            _torsion_geometry(g)
         if hi - lo > 360.0:
             raise ValueError("the torsion domain may span at most 360 deg")
     _validate_observation_classes(project)
@@ -100,10 +104,10 @@ def _validate_observation_classes(project: Project) -> None:
         own = frozenset((c.spin_a, c.spin_b))
         members = [own]
         if c.equivalent_pairs:
-            resolved = [_resolve_pair(e, by_label) for e in c.equivalent_pairs]
-            if any(r is None for r in resolved):
-                raise ValueError(f"coupling {c.id}: an equivalent pair names an unknown spin label")
-            members = [r for r in resolved if r is not None]
+            try:
+                members = [_resolve_pair(e, by_label) for e in c.equivalent_pairs]
+            except ValueError as exc:
+                raise ValueError(f"coupling {c.id}: {exc}") from None
             if own not in members:
                 raise ValueError(f"coupling {c.id}: its equivalent pairs must include its own pair")
             if len(set(members)) != len(members) or c.multiplicity != len(members):
@@ -124,11 +128,12 @@ def _check_class_rows(project: Project, classes: list[tuple[Coupling, list[froze
     m = project.model
     index = {s.id: i for i, s in enumerate(project.molecule.spins)}
     lo, hi = m.phi_domain_deg
+    design = _design_function(project)  # the geometry is built once per validation (round 24)
     for fraction in _PROBE_FRACTIONS:
         phi = lo + fraction * (hi - lo)
         for c, members in classes:
             pairs = tuple(tuple(index[s] for s in sorted(pair)) for pair in members)
-            rows = _design(project, pairs, phi)  # type: ignore[arg-type]
+            rows = design(pairs, phi)  # type: ignore[arg-type]
             scale = max(1.0, float(np.abs(rows).max()))
             if not np.allclose(rows, rows[0], rtol=0, atol=_ROW_RTOL * scale):
                 raise ValueError(
@@ -137,27 +142,35 @@ def _check_class_rows(project: Project, classes: list[tuple[Coupling, list[froze
                 )
 
 
-def _design(project: Project, pairs: tuple[tuple[int, int], ...], phi: float) -> np.ndarray:
+def _torsion_geometry(g: ImportedGeometry) -> TorsionGeometry:
+    assert g.torsion is not None
+    positions = np.array([[a.x, a.y, a.z] for a in g.atoms])
+    return TorsionGeometry.from_atoms([a.element for a in g.atoms], positions, g.torsion)
+
+
+def _design_function(project: Project) -> Callable[[tuple[tuple[int, int], ...], float], np.ndarray]:
+    """design(spin-index pairs, φ) for the project's model, with the geometry built once."""
     g, m = project.molecule.geometry, project.model
     if isinstance(g, BiphenylTemplate):
         geometry = BiphenylGeometry(r_cc=g.r_cc.value, r_ch=g.r_ch.value, r_inter=g.r_inter.value)
         if m.kind == "jump4":
-            return jump_design(phi, pairs, geometry)
-        return rigid_design(phi, pairs, geometry, order=m.order, frame=m.frame)  # type: ignore[arg-type]
+            return lambda pairs, phi: jump_design(phi, pairs, geometry)
+        return lambda pairs, phi: rigid_design(phi, pairs, geometry, order=m.order, frame=m.frame)  # type: ignore[arg-type]
     assert isinstance(g, ImportedGeometry)
-    atom_of = [s.atom for s in project.molecule.spins]
-    atom_pairs = tuple((int(atom_of[a]), int(atom_of[b])) for a, b in pairs)  # type: ignore[arg-type]
-    elements = [a.element for a in g.atoms]
-    positions = np.array([[a.x, a.y, a.z] for a in g.atoms])
-    if g.torsion is None:
-        from dipolar_core.forward import constraint_c1, constraint_c2z, design_rows
+    from dipolar_core.forward import constraint_c1, constraint_c2z, design_rows
 
-        c = constraint_c1() if m.order == "c1" else constraint_c2z()
-        return design_rows(positions, atom_pairs, 1.0) @ c
-    torsion = TorsionGeometry.from_atoms(elements, positions, g.torsion)
-    zeros = np.zeros(len(atom_pairs))
-    problem = imported_problem(torsion, atom_pairs, [("1H", "1H")] * len(atom_pairs), zeros, zeros + 1, order=m.order)
-    return problem.design(np.array([phi]))
+    atom_of = [s.atom for s in project.molecule.spins]
+    c = constraint_c1() if m.order == "c1" else constraint_c2z()
+    fixed = np.array([[a.x, a.y, a.z] for a in g.atoms])
+    torsion = _torsion_geometry(g) if g.torsion is not None else None
+
+    def design(pairs: tuple[tuple[int, int], ...], phi: float) -> np.ndarray:
+        atom_pairs = tuple((int(atom_of[a]), int(atom_of[b])) for a, b in pairs)  # type: ignore[arg-type]
+        positions = fixed if torsion is None else torsion.positions(phi)
+        out: np.ndarray = design_rows(positions, atom_pairs, 1.0) @ c
+        return out
+
+    return design
 
 
 def problem_for(project: Project) -> Problem:
@@ -189,7 +202,4 @@ def problem_for(project: Project) -> Problem:
     atom_of = {s.id: s.atom for s in project.molecule.spins}
     pairs = tuple((int(atom_of[c.spin_a]), int(atom_of[c.spin_b])) for c in project.couplings)  # type: ignore[arg-type]
     isotopes = tuple(("1H", "1H") for _ in project.couplings)
-    torsion = TorsionGeometry.from_atoms(
-        [a.element for a in g.atoms], np.array([[a.x, a.y, a.z] for a in g.atoms]), g.torsion
-    )
-    return imported_problem(torsion, pairs, isotopes, y, sigma, order=m.order, domain_deg=m.phi_domain_deg)
+    return imported_problem(_torsion_geometry(g), pairs, isotopes, y, sigma, order=m.order, domain_deg=m.phi_domain_deg)

@@ -61,3 +61,52 @@ fix was mutation-checked: all 11 mutations were caught.
   domain, zero couplings, or a missing torsion.
 
 442 tests pass (`-m "not slow"`).
+
+# Validation round 24 (final under the two-round cap)
+
+- **Reviewed:** commit a78eb29.
+- **Verdict: NOT READY.** Four class-(A) findings and two class-(B) contracts.
+- **Confirmed:**
+  - mixed v1/v2 journals, and v1 followed by view-only records;
+  - the hashes of new records;
+  - ring-A symmetric classes, and jump domains near 90°: all 498 accepted equivalences also held
+    at 101 angles;
+  - the JSON depth scan, with escapes, unicode and 1,000 randomized cases;
+  - the torsion cross-check.
+
+## Findings and fixes
+
+All have permanent tests, and all 7 mutations were caught.
+
+1. **Journal metadata could choose the hash rule.**
+   - **Fix:** `session._record_schema` requires a supported integer `project_schema`. It must
+     never decrease along the journal, and it must equal the `schema_version` of every project
+     payload in the record.
+   - A missing, forged, string or mismatched value is refused.
+2. **Imported classes were not translated through the mapping.**
+   - **Fix:** `reconcile` resolves class members too. Their labels join the mapping, and entries
+     that name no two known labels are reported as `unresolved_pairs`.
+   - `apply_import` stores the class in project labels, and keeps the original text in
+     `Coupling.source_equivalent_pairs`.
+3. **An invalid declared torsion loaded.**
+   - **Fix:** `validate_project` builds the declared torsion whenever one is present, so repeated
+     atoms, ring bonds and non-bonds are refused on load. A missing torsion is still a valid
+     draft.
+4. **Project files bypassed the atom cap, and the class check repeated quadratic work.**
+   - **Fix:** the caps are in the schema (`MAX_ATOMS`, `MAX_COUPLINGS`, `MAX_CLASS_SIZE`), so every
+     path enforces them before any geometry work.
+   - The class check builds the geometry once per validation (`_design_function`).
+
+## Class (B): contracts
+
+- **"Unchanged" provenance:** the first population of provenance (`source_labels` or
+  `source_equivalent_pairs` going from None to the imported text) is not reported as a change,
+  although it changes the science hash. Any later change of provenance is reported.
+- **Pair labels:** "A-B" is resolved only when exactly one split names two known labels. An
+  ambiguous label is an error, never a guess (`project.split_pair_label`).
+
+## Closing
+
+Under the owner's cap, the round-24 fixes were applied and mutation-checked, and the contracts
+are documented. No further round was run, so **these fixes have not been reviewed
+independently**. 455 tests pass.

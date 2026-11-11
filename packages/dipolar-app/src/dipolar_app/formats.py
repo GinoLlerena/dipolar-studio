@@ -26,18 +26,24 @@ import csv
 import io
 import json
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Final
 
-from dipolar_app.project import PROJECT_SCHEMA_VERSION, Coupling, Project, canonical_json, migrate_project
+from dipolar_app.project import (
+    MAX_ATOMS,
+    MAX_COUPLINGS,
+    PROJECT_SCHEMA_VERSION,
+    Coupling,
+    Project,
+    canonical_json,
+    migrate_project,
+    split_pair_label,
+)
 from dipolar_app.schemas import Hertz, wire_problem
 
 PROJECT_FORMAT: Final = "dipolar-studio-project"
-#: Bond perception is quadratic in the atom count, so the cap bounds memory (about 24 MB at 1000).
-MAX_ATOMS: Final = 1_000
 MAX_PROJECT_BYTES: Final = 64 * 2**20
-MAX_COUPLINGS: Final = 100_000
 REQUIRED_COLUMNS: Final = ("spin_a", "spin_b", "D_obs_Hz", "sigma_Hz")
 OPTIONAL_COLUMNS: Final = ("sigma_source", "multiplicity", "equivalent_pairs", "observable", "unit")
 ELEMENTS: Final = frozenset({"H", "D", "C", "N", "O", "F", "P", "S", "Cl", "Br", "I"})
@@ -187,6 +193,7 @@ class ImportDiff:
 
     proposed_mapping: dict[str, str]  # imported label → spin ID; only exact label matches
     unmatched_labels: tuple[str, ...]  # need a user decision
+    unresolved_pairs: tuple[str, ...] = ()  # equivalent-pair entries that name no two known labels
     added: tuple[tuple[str, str], ...] = ()  # spin-ID pairs new to the project
     removed: tuple[tuple[str, str], ...] = ()  # pairs present now and absent from the import
     changed: tuple[tuple[str, str], ...] = ()  # pairs whose value, σ or source differs
@@ -197,6 +204,20 @@ class ImportDiff:
 def _pair_key(a: str, b: str) -> tuple[str, str]:
     """D is symmetric in its two spins, so a reversed pair is the same observation."""
     return (a, b) if a <= b else (b, a)
+
+
+def _class_labels(row: CouplingRow, labels: Collection[str]) -> list[tuple[str, str]]:
+    """The row's equivalent pairs split into imported labels (``split_pair_label``)."""
+    return [split_pair_label(entry, labels) for entry in row.equivalent_pairs]
+
+
+def _translated_class(row: CouplingRow, mapping: Mapping[str, str], label_of: Mapping[str, str]) -> tuple[str, ...]:
+    """The row's class in the project's own labels, through the confirmed mapping (round 24)."""
+    try:
+        pairs = _class_labels(row, mapping.keys())
+    except ValueError as exc:
+        raise FormatError(f"row {row.row}: {exc}") from None
+    return tuple(f"{label_of[mapping[a]]}-{label_of[mapping[b]]}" for a, b in pairs)
 
 
 def _labels_in_order(row: CouplingRow, mapping: Mapping[str, str], c: Coupling) -> tuple[str, str]:
@@ -234,15 +255,25 @@ def _resolved(table: CouplingTable, mapping: Mapping[str, str], project: Project
 
 def reconcile(table: CouplingTable, project: Project, mapping: Mapping[str, str] | None = None) -> ImportDiff:
     """Propose a mapping (exact label matches only) and, if every label is mapped, the diff."""
-    labels = sorted({label for row in table.rows for label in (row.spin_a, row.spin_b)})
+    own = {label for row in table.rows for label in (row.spin_a, row.spin_b)}
+    universe = own | {s.label for s in project.molecule.spins} | set(mapping or ())
+    found, unresolved = set(own), []
+    for row in table.rows:
+        for entry in row.equivalent_pairs:
+            try:
+                found.update(split_pair_label(entry, universe))
+            except ValueError:
+                unresolved.append(entry)
+    labels = sorted(found)
     by_label: dict[str, list[str]] = {}
     for s in project.molecule.spins:
         by_label.setdefault(s.label, []).append(s.id)
     proposed = {label: by_label[label][0] for label in labels if len(by_label.get(label, ())) == 1}
     effective = dict(mapping) if mapping is not None else proposed
     unmatched = tuple(label for label in labels if label not in effective)
-    if unmatched:
-        return ImportDiff(proposed, unmatched, table=table)
+    if unmatched or unresolved:
+        return ImportDiff(proposed, unmatched, tuple(unresolved), table=table)
+    label_of = {s.id: s.label for s in project.molecule.spins}
     incoming = _resolved(table, effective, project)
     current = {_pair_key(c.spin_a, c.spin_b): c for c in project.couplings}
     changed: list[tuple[str, str]] = []
@@ -250,9 +281,20 @@ def reconcile(table: CouplingTable, project: Project, mapping: Mapping[str, str]
     for key in sorted(incoming.keys() & current.keys()):
         row, c = incoming[key], current[key]
         # Every field that apply_import replaces (round 22): science and provenance alike.
-        new = (row.value_hz, row.sigma_hz, row.sigma_source, row.multiplicity, row.equivalent_pairs)
+        new = (
+            row.value_hz,
+            row.sigma_hz,
+            row.sigma_source,
+            row.multiplicity,
+            _translated_class(row, effective, label_of),
+        )
         old = (c.value.value, c.sigma.value, c.sigma_source, c.multiplicity, c.equivalent_pairs)
-        same = new == old and c.source_labels in (None, _labels_in_order(row, effective, c))
+        # Provenance counts too, except its first population (None → labels), documented (round 24).
+        same = (
+            new == old
+            and c.source_labels in (None, _labels_in_order(row, effective, c))
+            and c.source_equivalent_pairs in (None, row.equivalent_pairs or None)
+        )
         (unchanged if same else changed).append(key)
     return ImportDiff(
         proposed_mapping=proposed,
@@ -273,6 +315,7 @@ def apply_import(project: Project, table: CouplingTable, confirmed_mapping: Mapp
     """
     _resolved(table, confirmed_mapping, project)  # validates the mapping and rejects duplicates
     current = {_pair_key(c.spin_a, c.spin_b): c for c in project.couplings}
+    label_of = {s.id: s.label for s in project.molecule.spins}
     used = [int(c.id[4:]) for c in project.couplings]
     next_id = max(project.next_coupling_id, max(used, default=0) + 1)  # never reuse a number
     couplings = []
@@ -296,8 +339,9 @@ def apply_import(project: Project, table: CouplingTable, confirmed_mapping: Mapp
                 sigma=Hertz(value=row.sigma_hz, unit="Hz"),
                 sigma_source=row.sigma_source,
                 multiplicity=row.multiplicity,
-                equivalent_pairs=row.equivalent_pairs,
+                equivalent_pairs=_translated_class(row, confirmed_mapping, label_of),
                 source_labels=source,
+                source_equivalent_pairs=row.equivalent_pairs or None,
             )
         )
     return project.model_copy(update={"couplings": tuple(couplings), "next_coupling_id": next_id})
