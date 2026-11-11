@@ -39,7 +39,8 @@ class Problem:
 
     ``design_derivative``, when given, returns the analytic ∂D/∂θ as a k × N × p array, and the
     fitter uses it in place of finite differences. ``notes`` returns model-specific labels for a
-    fitted θ, for example the D2d endpoint of the biphenyl template.
+    fitted θ, for example the D2d endpoint of the biphenyl template. ``estimand`` names what θ
+    means under the model, for example "rigid effective phi" or "jump-model phi" (plan §4).
     """
 
     design: DesignFunction
@@ -53,6 +54,7 @@ class Problem:
     covariance: Array | None = None
     design_derivative: DesignFunction | None = None
     notes: NotesFunction | None = None
+    estimand: str = ""
     _whitener: Array | None = field(init=False, repr=False, compare=False, default=None)
 
     def __post_init__(self) -> None:

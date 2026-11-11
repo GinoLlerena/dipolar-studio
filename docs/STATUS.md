@@ -1,5 +1,9 @@
 # Status
 
+**M1 step 3 (the symmetric four-site jump model) is built and under review (round 21).** It is
+committed locally and not pushed until the review passes. Step 4 (CSV/XYZ import, JSON v1)
+follows; the owner asked for steps 3 and 4 on 2026-11-10.
+
 **M1 step 2 (the frame contract, C2(z) and C1, analytic derivatives) is done: tag `m1-step2`.**
 Round 19 returned NOT READY with two class-(A) findings, both fixed. One of them also fixed a
 sibling defect in step 1's finite-difference path. Round 20, the last round under the cap,
@@ -169,7 +173,7 @@ The owner approved the re-baseline on 2026-11-09.
 |---|---|---|
 | 1. The D3 stack in dipolar-core | **done** (tag `m1-step1`); rounds 13–18, READY WITH MINOR CHANGES at round 18 | |
 | 2. Frame contract, C2(z) and C1 | **done** (tag `m1-step2`); rounds 19–20, both fixed under the cap | |
-| 3. Four-site jump model | — | |
+| 3. Four-site jump model | built; review round 21 pending | |
 | 4. CSV/XYZ import, JSON v1 | — | |
 | 5. Gates (a)–(e), coverage, 8CB | — | |
 
@@ -338,6 +342,28 @@ order columns. A global cutoff had discarded a small but exact order direction.
 - Legacy D4 parity of the *reported tensor* (B55) still needs the thesis.
 - The fixture's equivalence classes are D2 classes, so they are valid only for
   `bisector-diagonal`.
+
+### Step 3: the symmetric four-site jump
+
+`biphenyl.jump_problem` models fast exchange among +φ, −φ, 180° − φ and 180° + φ, with equal
+populations. The conformers share one tensor, diagonal in each conformer's acute-bisector frame,
+with t = (Szz, Δ).
+- **The design** is the relabelling shortcut ½·[D(φ, pairs) + D(φ, relabelled pairs)], with its
+  analytic derivative. `jump_design_explicit` averages the four conformers directly.
+- **Gate (e):** explicit averaging equals the shortcut to 1e-9 Hz, and the engine equals the
+  independent reference's explicit average.
+- **The domain** φ ∈ [0°, 90°] is complete at fixed labels: the conformer set does not change
+  under φ → −φ or 180° − φ. The model is invariant under the ring-B relabelling.
+- **At 90°** the Δ column vanishes, so D2d is enforced by the model itself and Δ is reported as
+  unidentified.
+- **Estimands:** `FitResult.estimand` is "jump-model phi" or "rigid effective phi".
+- **The 8CB reproduction** (the step-5 gate, run early): the engine reproduces the frozen jump
+  fits at T_red 0.930 and 0.980 within the frozen tolerances. That covers the unweighted fit (φ,
+  S, predictions, objective, RMS) and the weighted fit with its inadequacy flag. The test skips
+  if the third-party data are removed.
+
+Tests: `packages/dipolar-core/tests/test_core_jump.py` and `tests/test_engine_jump_reference.py`
+(39 tests). They were mutation-checked, and every mutation was caught.
 
 ## Open items for the owner
 

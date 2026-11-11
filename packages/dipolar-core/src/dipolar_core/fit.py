@@ -221,6 +221,7 @@ class FitResult:
     validity: Validity
     names: tuple[str, ...] = field(default=())
     notes: tuple[str, ...] = field(default=())  # model-specific labels (``Problem.notes``)
+    estimand: str = ""  # what θ means under the model (``Problem.estimand``)
 
 
 @dataclass(frozen=True)
@@ -722,6 +723,7 @@ def fit(problem: Problem, settings: Settings | None = None) -> FitResult:
         validity=validity,
         names=names,
         notes=problem.notes(best.theta) if problem.notes is not None else (),
+        estimand=problem.estimand,
     )
 
 
