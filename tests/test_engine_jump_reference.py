@@ -51,3 +51,8 @@ def test_engine_reproduces_the_frozen_8cb_jump_fits(t: str, configuration: str) 
     else:  # the inadequacy flag: p < 1e-3 under the spectral-σ likelihood (frozen adequacy policy)
         assert exp["adequate"] is False
         assert result.p_value is not None and result.p_value < 1e-3
+    # The frozen fixture's interval policy (round 21, finding 3). The unweighted fit has no error
+    # model, and the weighted fit is inadequate, so neither reports intervals. profile_interval does
+    # not judge adequacy itself; the reporting layer (M2) must apply this policy. Recorded here so
+    # that it cannot be lost.
+    assert exp["intervals"].startswith("not supported")

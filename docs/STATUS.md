@@ -172,7 +172,7 @@ The owner approved the re-baseline on 2026-11-09.
 |---|---|---|
 | 1. The D3 stack in dipolar-core | **done** (tag `m1-step1`); rounds 13–18, READY WITH MINOR CHANGES at round 18 | |
 | 2. Frame contract, C2(z) and C1 | **done** (tag `m1-step2`); rounds 19–20, both fixed under the cap | |
-| 3. Four-site jump model | built; review round 21 pending | |
+| 3. Four-site jump model | built; round 21 NOT READY (fixed), round 23 pending | |
 | 4. CSV/XYZ import, JSON v1 | built; review pending | |
 | 5. Gates (a)–(e), coverage, 8CB | — | |
 
@@ -272,7 +272,7 @@ The fitter is not yet an operation. Operations come in M2, as the beta UI needs 
 Check the baseline before resuming:
 
 ```sh
-uv sync --locked && uv run pytest -q -m "not slow"     # 417 passed
+uv sync --locked && uv run pytest -q -m "not slow"     # 421 passed
 uv run ruff check . && uv run ruff format --check . && uv run mypy
 (cd web && pnpm install --frozen-lockfile && pnpm build)
 LEGACY=path/to/NMRApllication tools/legacy-harness/run.sh

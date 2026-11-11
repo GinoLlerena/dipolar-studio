@@ -19,7 +19,7 @@ from dipolar_core.biphenyl import (
     rigid_design,
     rigid_problem,
 )
-from dipolar_core.fit import fit
+from dipolar_core.fit import fit, profile_interval
 
 ALL_PAIRS = tuple(combinations(range(10), 2))
 INSIDE = (0.5, 12.0, 33.0, 37.0, 60.0, 89.0, 89.999)
@@ -96,3 +96,36 @@ def test_noiseless_recovery_with_the_jump_model(phi: float) -> None:
 def test_the_estimand_is_labelled() -> None:
     y = rigid_design(37.0, ALL_PAIRS) @ [0.25, 0.03]
     assert fit(rigid_problem(ALL_PAIRS, y, np.full(len(y), 0.5))).estimand == RIGID_ESTIMAND
+
+
+# --------------------------------------------------------------------------- round 21 counterexamples
+def test_a_full_rank_basin_beside_the_rank_changing_pole_is_found() -> None:
+    """Round 21, finding 1. The grid minimum is the 90° point, where the Δ column vanishes (rank 1).
+    The full-rank basin at 89.999° next to it was missed, and the fit returned χ² ≈ 1.2e12. An
+    extra start at the nearest full-rank grid point finds it."""
+    y = jump_design(89.999, ALL_PAIRS) @ [0.25, 0.1]
+    result = fit(jump_problem(ALL_PAIRS, y, np.full(len(y), 1e-8)))
+    assert result.scan.rank_starts  # the extra start beside the rank change
+    assert result.validity.regular and result.chi2 < 1e-6
+    assert result.theta[0] == pytest.approx(89.999, abs=1e-6)
+    np.testing.assert_allclose(result.order, [0.25, 0.1], rtol=0, atol=1e-6)
+
+
+@pytest.mark.parametrize("phi", [89.9, 89.0])
+def test_a_profile_that_runs_into_the_pole_is_not_supported(phi: float) -> None:
+    """Round 21, finding 2. Toward 90° the profile stays below the threshold, then leaps past it
+    where the inner rank drops. brentq converged onto that jump and returned it as an endpoint,
+    where χ² was 1e-5, not 1. A crossing must meet the threshold."""
+    y = jump_design(phi, ALL_PAIRS) @ [0.25, 0.1]
+    problem = jump_problem(ALL_PAIRS, y, np.full(len(y), 0.5))
+    result = fit(problem)
+    assert result.validity.regular
+    interval = profile_interval(problem, result, "phi_deg")
+    assert not interval.supported and "jumps across the threshold" in interval.note
+
+
+def test_an_interval_away_from_the_pole_is_still_supported() -> None:
+    y = jump_design(60.0, ALL_PAIRS) @ [0.25, 0.1]
+    problem = jump_problem(ALL_PAIRS, y, np.full(len(y), 0.5))
+    interval = profile_interval(problem, fit(problem), "phi_deg")
+    assert interval.supported and interval.lower is not None and interval.lower < 60.0 < (interval.upper or 0)

@@ -36,6 +36,10 @@ The error covariance Σ is known and never rescaled (``dipolar_core.problem``). 
    Crossings are searched by geometric sampling outward from the optimum, and every interval is
    then verified by sampling it evenly. A feature narrower than the sampling can still be missed.
    The label states the one-parameter coverage of the raw Δχ² threshold under regular asymptotics.
+   An endpoint must meet the threshold: a jump in the profile (a rank change) is not a crossing.
+   Intervals do not judge model adequacy. A caller that reports them must refuse them when there
+   is no error model, or when the fit is inadequate (for example p < 1e-3), as the frozen 8CB
+   policy requires (round 21).
 6. **Validity.** The flags are independent of each other: inner rank and condition number, joint
    rank, convergence, admissibility, bounds and interval support.
 
@@ -62,7 +66,7 @@ from dipolar_core.problem import Problem as Problem
 Array = NDArray[np.float64]
 
 #: Version of this stack's numerical choices (enters the numerical context when an operation uses it).
-FIT_VERSION: Final = "varpro-trf.6"
+FIT_VERSION: Final = "varpro-trf.7"
 #: Relative distance (in units of the bound range) under which two refined optima are one basin.
 BASIN_RTOL: Final = 1e-6
 #: A geometry parameter is at a bound if TRF reports the bound active, or if it lies within
@@ -83,6 +87,8 @@ ATTAINABLE_FACTOR: Final = 10.0
 TRUST_FACTOR: Final = 10.0
 #: Multiplier of the rounding allowances of derivative columns (``_solve_error``, ``_analytic_error``).
 ROUNDING_FACTOR: Final = 8.0
+#: A located interval endpoint must meet the threshold to within ENDPOINT_RTOL · Δχ² (round 21).
+ENDPOINT_RTOL: Final = 1e-6
 #: Backtracking halvings of the certificate's trial step (see ``_converged``).
 TRIAL_HALVINGS: Final = 40
 #: Constrained re-minimizations in a profile start from at most this many known basins.
@@ -155,6 +161,11 @@ class Scan:
     inner_condition: Array
     joint_rank: NDArray[np.int64]
     admissible: NDArray[np.bool_] | None
+    #: Extra starts beside rank changes (round 21). For each start whose inner rank is below the
+    #: scan's highest, this holds the nearest point that has the highest rank. A minimum where a
+    #: design column vanishes (for example the jump model's Δ at 90°) can hide a full-rank basin
+    #: next to it, which the local refinement cannot reach from the low-rank side.
+    rank_starts: tuple[int, ...] = ()
 
     @property
     def minima(self) -> tuple[int, ...]:  # the name used for one-parameter grids
@@ -286,6 +297,15 @@ def scan(problem: Problem, settings: Settings) -> Scan:
     else:
         unit_points = (points - problem.lower) / (problem.upper - problem.lower)
         starts = _neighbour_minima(unit_points, values, settings.n_starts)
+    ranks = np.array([s.rank for s in inner])
+    unit = (points - problem.lower) / (problem.upper - problem.lower)
+    full = np.flatnonzero(ranks == ranks.max())
+    rank_starts: list[int] = []
+    for i in starts:
+        if ranks[i] < ranks.max():
+            nearest = int(full[np.argmin(np.linalg.norm(unit[full] - unit[i], axis=1))])
+            if nearest not in starts and nearest not in rank_starts:
+                rank_starts.append(nearest)
     joint = []
     for pt, sol in zip(points, inner, strict=True):
         jac, error = _full_jacobian(problem, pt, sol.params)
@@ -301,6 +321,7 @@ def scan(problem: Problem, settings: Settings) -> Scan:
         inner_condition=np.array([s.condition for s in inner]),
         joint_rank=np.array(joint, dtype=np.int64),
         admissible=admissible,
+        rank_starts=tuple(rank_starts),
     )
 
 
@@ -655,7 +676,7 @@ def _near(value: float, bound: float) -> bool:
 def fit(problem: Problem, settings: Settings | None = None) -> FitResult:
     settings = settings or Settings()
     sc = scan(problem, settings)
-    trials = [_refine(problem, sc.points[i], settings) for i in sc.starts]
+    trials = [_refine(problem, sc.points[i], settings) for i in (*sc.starts, *sc.rank_starts)]
     converged = [t for t in trials if t.converged]
     reference = min(t.chi2 for t in (converged or trials))
     basins = _dedupe(problem, converged, reference)
@@ -906,7 +927,18 @@ def _interval(
                 for sub in np.linspace(previous, mark, SUBDIVISIONS + 1)[1:]:
                     if excess(estimate + direction * float(sub)) > 0:
                         lo, hi = sorted((estimate + direction * sub_prev, estimate + direction * float(sub)))
-                        return float(brentq(excess, lo, hi, xtol=1e-14, rtol=1e-14, maxiter=200))
+                        root = float(brentq(excess, lo, hi, xtol=1e-14, rtol=1e-14, maxiter=200))
+                        # A sign change is not a crossing unless the profile reaches the threshold
+                        # there. brentq also converges onto a jump, for example where the inner rank
+                        # drops and χ² leaps past the threshold (round 21).
+                        miss = abs(excess(root))
+                        if miss > ENDPOINT_RTOL * delta_chi2:
+                            raise _Unsupported(
+                                f"the profile jumps across the threshold at {name} = {root:.10g} "
+                                f"(off by {miss:.3g} in χ²): it is discontinuous there, for example where "
+                                "the inner rank changes"
+                            )
+                        return root
                     sub_prev = float(sub)
             previous = mark
         return None
