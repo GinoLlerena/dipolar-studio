@@ -20,6 +20,7 @@ runs in parallel (about 15–25 min on 10 workers). The slow test
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -42,6 +43,16 @@ def _inputs() -> tuple[dict[str, Any], dict[str, Any]]:
     spec = json.loads((EXPECTED / "spec.json").read_text())
     noiseless = json.loads((EXPECTED / "noiseless.json").read_text())
     return spec, noiseless
+
+
+def provenance() -> dict[str, Any]:
+    """What the record depends on: the fitter version and the frozen inputs (round 25). A record
+    whose provenance differs from the current one is stale and must be regenerated."""
+    from dipolar_core.fit import FIT_VERSION
+
+    names = ("spec.json", "noiseless.json")
+    inputs = {name: hashlib.sha256((EXPECTED / name).read_bytes()).hexdigest() for name in names}
+    return {"fit_version": FIT_VERSION, "inputs_sha256": inputs}
 
 
 def seed_result(k: int) -> dict[str, Any]:
@@ -90,6 +101,7 @@ def run(n_seeds: int, workers: int) -> dict[str, Any]:
                 hits[name] += 1
     return {
         "description": "coverage achieved by the engine (dipolar-core) under spec.json 'coverage'",
+        "provenance": provenance(),
         "n_seeds": n_seeds,
         "hits": hits,
         "coverage": {k: v / n_seeds for k, v in hits.items()},

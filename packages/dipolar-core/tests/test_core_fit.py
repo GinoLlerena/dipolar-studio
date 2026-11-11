@@ -86,9 +86,9 @@ def test_profile_intervals(noisy: tuple[Problem, FitResult, dict[str, Any]]) -> 
     for name, atol in (("phi_deg", TOL["phi_interval_endpoint_atol_deg"]), ("Szz", TOL["S_interval_endpoint_atol"])):
         interval = profile_interval(problem, result, name)
         assert interval.supported and interval.kind == "profile" and interval.label == "68.3% one-parameter (Δχ² = 1)"
-        np.testing.assert_allclose([interval.lower, interval.upper], ref[name], atol=atol)
+        np.testing.assert_allclose([interval.lower, interval.upper], ref[name], rtol=0, atol=atol)
     delta = profile_interval(problem, result, "Delta")
-    np.testing.assert_allclose([delta.lower, delta.upper], ref["Delta"], atol=TOL["S_interval_endpoint_atol"])
+    np.testing.assert_allclose([delta.lower, delta.upper], ref["Delta"], rtol=0, atol=TOL["S_interval_endpoint_atol"])
 
 
 def test_slices_are_not_profiles(noisy: tuple[Problem, FitResult, dict[str, Any]]) -> None:

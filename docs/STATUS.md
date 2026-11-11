@@ -1,10 +1,11 @@
 # Status
 
-**M1 step 5 (the acceptance gates) is built and under review (round 25).** Every frozen gate now
+**M1 step 5 (the acceptance gates) is built.** Round 25 returned NOT READY on two test-assertion
+gaps, both fixed; round 26, the last under the cap, is pending. Every frozen gate now
 names an engine test, and a ledger test fails if one goes missing. Gate (c) holds on the engine:
 over the 1000 frozen seeds the 68.3% profile intervals cover φ, Szz and Δ in 70.1%, 69.1% and 68.4%
 of seeds. That is inside the 64.5–72.1% band, every interval is supported, and the counts equal the
-reference implementation's (701, 691, 684). See
+reference implementation's (701, 691, 684). The record names the fitter version and its inputs. See
 [round25-m1-step5.md](validation/round25-m1-step5.md).
 
 **M1 steps 3 and 4 are done: tags `m1-step3` (the four-site jump model) and `m1-step4` (XYZ/CSV
@@ -131,9 +132,9 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` (all 
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: M1 step 5 review (round 25), then M2
+## Resume here: M1 step 5 review (round 26), then M2
 
-Step 5 is built (see "Step 5: the acceptance gates" below); its review is round 25. The outline
+Step 5 is built (see "Step 5: the acceptance gates" below); round 25 is fixed and round 26 is the last under the cap. The outline
 below was written before step 3.
 
 ### Earlier outline (before step 3)
@@ -189,7 +190,7 @@ The owner approved the re-baseline on 2026-11-09.
 | 2. Frame contract, C2(z) and C1 | **done** (tag `m1-step2`); rounds 19–20, both fixed under the cap | |
 | 3. Four-site jump model | **done** (tag `m1-step3`); rounds 21 and 23, both fixed under the cap | |
 | 4. CSV/XYZ import, JSON v1 | **done** (tag `m1-step4`); rounds 22 and 24, both fixed under the cap | |
-| 5. Gates (a)–(e), coverage, 8CB | built; review round 25 pending | |
+| 5. Gates (a)–(e), coverage, 8CB | built; round 25 fixed, round 26 pending | |
 
 ### Step 1: the D3 stack
 
@@ -426,8 +427,9 @@ total.
   protocol and records every seed in `docs/validation/data/m1-gate-c-engine-coverage.json`.
   - Result: φ 70.1%, Szz 69.1%, Δ 68.4% (band 64.5–72.1%), no unsupported interval; the hit
     counts equal the reference implementation's.
-  - The default suite checks the record (band, counts, agreement with the reference within 3
-    seeds) and reproduces seeds 0 and 617. The slow test reruns all 1000 seeds and compares them
+  - The default suite recomputes the record's summary from its seeds (band, hits, no unsupported
+    interval), checks its provenance (`FIT_VERSION` and input hashes) and reproduces seeds 0 and
+    617. The slow test reruns all 1000 seeds and compares them
     with the record.
   - Cost: 9–26 CPU-s per seed, almost all in the Szz and Δ profile searches, so the full run takes
     about 40 min on 11 workers. Caching interval evaluations (an open item) would cut this; the

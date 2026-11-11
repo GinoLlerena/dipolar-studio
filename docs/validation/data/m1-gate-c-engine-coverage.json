@@ -1,5 +1,12 @@
 {
  "description": "coverage achieved by the engine (dipolar-core) under spec.json 'coverage'",
+ "provenance": {
+  "fit_version": "varpro-trf.8",
+  "inputs_sha256": {
+   "spec.json": "30852aede85bc800809b7d52e6e4270d25d29b2ca293cffab3efc80d81d0be85",
+   "noiseless.json": "6dc225f0e3d3d3d6ab72b84d33548a0629cb9eccca91762f5f0f9f70753d98d0"
+  }
+ },
  "n_seeds": 1000,
  "hits": {
   "phi_deg": 701,

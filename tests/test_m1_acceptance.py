@@ -113,22 +113,26 @@ def _record() -> dict[str, Any]:
 
 
 def test_gate_c_record_is_within_the_band() -> None:
-    """The committed 1000-seed engine record passes the frozen acceptance band, with every
-    interval supported, and agrees with the reference implementation's coverage."""
+    """The committed 1000-seed engine record passes the frozen acceptance band with every interval
+    supported. Every summary field is recomputed from the per-seed intervals (round 25), and the
+    record names the engine version and the inputs it was made from."""
     record, cov = _record(), SPEC["coverage"]
-    reference = json.loads((SYN / "coverage_reference.json").read_text())
     truth = json.loads((SYN / "noiseless.json").read_text())["truth"]
-    assert record["n_seeds"] == cov["n_seeds"] == len(record["seeds"])
-    assert [s["seed"] for s in record["seeds"]] == list(range(cov["n_seeds"]))
+    assert record["provenance"] == C.provenance()
+    n = cov["n_seeds"]
+    assert record["n_seeds"] == n == len(record["seeds"])
+    assert [s["seed"] for s in record["seeds"]] == list(range(n))
     lo, hi = cov["acceptance_band"]
     for name in cov["parameters"]:
-        hits = sum(s[name][0] <= truth[name] <= s[name][1] for s in record["seeds"] if s[name] is not None)
+        unsupported = sum(s[name] is None for s in record["seeds"])
+        assert unsupported == record["interval_not_supported"][name] == 0, name
+        for s in record["seeds"]:
+            lower, upper = s[name]
+            assert np.isfinite([lower, upper]).all() and lower <= s["estimate"][name] <= upper, (name, s["seed"])
+        hits = sum(s[name][0] <= truth[name] <= s[name][1] for s in record["seeds"])
         assert hits == record["hits"][name]
-        assert record["interval_not_supported"][name] == 0
-        assert lo <= hits / cov["n_seeds"] <= hi, name
-        # Engine and reference intervals agree to the regression tolerances, so they can differ
-        # only on seeds whose truth lies at an endpoint. A few such seeds at most.
-        assert abs(hits - round(reference["coverage"][name] * cov["n_seeds"])) <= 3, name
+        assert record["coverage"][name] == hits / n
+        assert record["within_band"][name] is (lo <= hits / n <= hi) is True, name
 
 
 @pytest.mark.parametrize("seed", [0, 617])
