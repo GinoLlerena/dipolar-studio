@@ -14,4 +14,29 @@ independent reference implementation in [tools/reference/](../tools/reference/).
 `spec.json` (frame, estimand, optimum convention, tolerances, gates), the full-precision results,
 and a `MANIFEST.sha256` that detects hand edits. The engine's tests compare against these files.
 
+## Removing a third-party dataset
+
+Third-party datasets are used **only to validate** the engine. Today that is
+`biphenyl-8CB-dipietro2013/`. If a rights holder asks, remove it like this. Nothing in the
+product depends on it.
+
+1. **Delete it:** `git rm -r datasets/biphenyl-8CB-dipietro2013`.
+2. **Remove its row** from the table above, and its reference entry in `CITATION.cff`.
+3. **Run the checks:** `uv run pytest -q -m "not slow"`.
+   - The 8CB tests skip by themselves ("the third-party 8CB dataset is not present").
+   - Everything else passes. This was verified on 2026-11-10: 321 passed, 5 skipped.
+   - `tools/reference/make_expected.py` skips the dataset when it is absent.
+4. **Rewrite history only if asked.** Removing the files from git *history* as well needs a
+   rewrite (`git filter-repo --path datasets/biphenyl-8CB-dipietro2013 --invert-paths`) and a
+   force push. That is a separate, deliberate step.
+
+**What keeps it removable:**
+- `tests/test_boundaries.py::test_shipped_code_never_depends_on_third_party_data` fails if any
+  package source, web source or packaging script mentions the dataset.
+- The datasets are never packaged into the wheels.
+- Gate (e) (explicit averaging equals the relabelling shortcut) uses all 45 synthetic pairs, not
+  the 8CB pair list.
+- Its M1 gate is conditional on its presence. Without it, another experimental dataset from the
+  V0 corpus takes the role.
+
 The prototype scripts need only Python 3 and NumPy: `python3 generate.py`, `python3 check_fit.py`.

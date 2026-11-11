@@ -300,5 +300,6 @@ def dipietro() -> None:
 
 if __name__ == "__main__":
     synthetic(run_coverage="--no-coverage" not in sys.argv)
-    dipietro()
+    if (R.DIPIETRO_DIR / "couplings.csv").exists():  # third-party data, removable (datasets/README.md)
+        dipietro()
     print("frozen:", R.SYNTHETIC_DIR / "expected", R.DIPIETRO_DIR / "expected")

@@ -125,3 +125,22 @@ def test_the_app_starts_without_the_optimizer() -> None:
     )
     loaded = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True).stdout.strip()
     assert loaded == "[]", loaded
+
+
+#: Third-party data used for validation only, removable on request (datasets/README.md).
+THIRD_PARTY_DATA = ("biphenyl-8CB-dipietro2013", "dipietro")
+
+
+def test_shipped_code_never_depends_on_third_party_data() -> None:
+    """Removing a third-party dataset must not affect the product: no shipped source mentions it.
+
+    Shipped means the packages' sources, the web page and the packaging script. The tests, the
+    reference tools and the docs may refer to it; they skip or document its absence.
+    """
+    root = Path(__file__).resolve().parents[1]
+    shipped = [*root.glob("packages/*/src/**/*.py"), *root.glob("web/src/**/*.ts*"), root / "tools/package/build.sh"]
+    assert shipped
+    for path in shipped:
+        text = path.read_text().lower()
+        for name in THIRD_PARTY_DATA:
+            assert name.lower() not in text, f"{path.relative_to(root)} refers to third-party data {name!r}"

@@ -9,6 +9,7 @@ la structure, l'ordre et la conformation de molécules organiques*, PhD thesis, 
 Paris-Sud / Università della Calabria (co-tutelle), defended 14 Dec 2013.
 Chapter 3, **Table 3.1** (pp. 167–168 of the thesis, PDF pages 179–180) and **Table 3.2** (p. 172).
 Open copy: <https://lisa.unical.it/bitstreams/1deb8605-44d0-4c62-9a8f-d4f7eb6cafe1/download>
+(repository record <http://hdl.handle.net/10955/1001>, Università della Calabria, LISA).
 
 - **Sample:** biphenyl (2P) 2.8 wt% in 8CB, with 1,3,5-trichlorobenzene as orientational probe.
 - **Spectra:** Bruker Avance 500 MHz; temperatures 273–307 K.
@@ -35,6 +36,19 @@ repository. Open access to the PDF and citation do not by themselves establish a
 licence, so this dataset is **excluded from the repository's BSD-3 licence**. It will be removed
 on request from the rights holders, and we will ask the author for explicit permission before
 any packaged redistribution (for example inside PyPI wheels).
+
+**The repository's licence record** (checked 2026-11-10 through the DSpace REST API):
+- The item has no `dc.rights` or `dc.rights.uri` metadata.
+- Its LICENSE bundle holds one file whose entire text is "Creative Commons". It gives no version,
+  no licence deed, and no rights holder.
+- So the terms (for example CC BY or CC BY-NC) cannot be determined from the record.
+- The record lists the English title "NMR in different partially ordered media: a route for
+  structure, order and conformation of small organic compounds" (2013-11-20).
+
+**Use: validation only.**
+- Nothing in the product depends on this directory.
+- It can be deleted without affecting the work. See "Removing a third-party dataset" in
+  `datasets/README.md`.
 
 ## Files
 

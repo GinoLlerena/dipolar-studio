@@ -129,7 +129,8 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` (all 
 2. **The owner decides the scope** of the rest of M1 from real usage, as agreed on 2026-11-10.
    - Step 3: the four-site jump model.
    - Step 4: CSV/XYZ import and JSON v1.
-   - Step 5: gates (a)–(e), coverage, and the 8CB data.
+   - Step 5: gates (a)–(e), coverage, and the 8CB data. The 8CB gate applies only while that
+     third-party dataset is present; it is removable on request (datasets/README.md).
 3. **Step 3, if chosen.** The symmetric four-site jump (±φ, 180° ± φ, equal populations, one
    tensor shared in each conformer's acute-bisector frame), as plan §4 Phase 1 describes. What it
    builds on:
@@ -344,7 +345,10 @@ order columns. A global cutoff had discarded a small but exact order direction.
   estimate.
 - Approve plan v0.6 formally (the "go" started M0).
 - Supply the thesis PDF. It is needed for B55/D4, the ρ formula and Phase 2 V3/V6.
-- Get Di Pietro's permission to redistribute the 8CB couplings.
+- Get Di Pietro's permission to redistribute the 8CB couplings. This is needed only for packaged
+  redistribution. The data are used for validation only and are removable at any time
+  (datasets/README.md). The repository record's licence file says only "Creative Commons", with
+  no version.
 - Decide whether Marco Idrogo should be listed as a co-author of the new software in
   `CITATION.cff`.
 

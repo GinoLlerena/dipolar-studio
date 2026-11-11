@@ -19,6 +19,11 @@ import pytest
 
 SYN = R.SYNTHETIC_DIR / "expected"
 DIP = R.DIPIETRO_DIR / "expected"
+#: The 8CB couplings are third-party data (datasets/biphenyl-8CB-dipietro2013/README.md). They are
+#: used for validation only and can be removed on request: deleting the directory skips these tests
+#: and changes nothing else (datasets/README.md, "Removing a third-party dataset").
+HAS_8CB = (R.DIPIETRO_DIR / "couplings.csv").exists()
+needs_8cb = pytest.mark.skipif(not HAS_8CB, reason="the third-party 8CB dataset is not present")
 
 
 def load(path: Path) -> dict:  # type: ignore[type-arg]
@@ -28,7 +33,7 @@ def load(path: Path) -> dict:  # type: ignore[type-arg]
 TOL = load(SYN / "spec.json")["tolerances"]["regression"]
 
 
-@pytest.mark.parametrize("directory", [SYN, DIP], ids=["synthetic", "8CB"])
+@pytest.mark.parametrize("directory", [SYN, pytest.param(DIP, marks=needs_8cb)], ids=["synthetic", "8CB"])
 def test_manifest_matches(directory: Path) -> None:
     lines = (directory / "MANIFEST.sha256").read_text().split("\n")
     listed = dict(reversed(line.split("  ")) for line in lines if line)
@@ -130,6 +135,7 @@ def test_coverage_reference_within_band() -> None:
         assert lo <= cov["coverage"][name] <= hi, name
 
 
+@needs_8cb
 @pytest.mark.parametrize("t", ["0.930", "0.980"])
 def test_8cb_reproduces(t: str) -> None:
     fx = load(DIP / f"T{t}.json")
@@ -148,6 +154,7 @@ def test_8cb_reproduces(t: str) -> None:
     assert fx["expected"]["weighted"]["adequate"] is False
 
 
+@needs_8cb
 @pytest.mark.parametrize("t", ["0.930", "0.980"])
 def test_8cb_inputs_match_csv(t: str) -> None:
     fx = load(DIP / f"T{t}.json")
@@ -160,8 +167,8 @@ def test_8cb_inputs_match_csv(t: str) -> None:
 
 @pytest.mark.parametrize("phi", [1.0, 17.5, 33.0, 60.0, 89.0])
 def test_jump_explicit_equals_shortcut(phi: float) -> None:
-    fx = load(DIP / "T0.930.json")
-    pairs = [tuple(p) for p in fx["pairs"]]
+    # All 45 pairs: gate (e) needs no experimental data.
+    pairs = [(a, b) for i, a in enumerate(R.LABELS) for b in R.LABELS[i + 1 :]]
     np.testing.assert_allclose(
         R.design_jump_explicit(phi, pairs), R.design_jump_shortcut(phi, pairs), rtol=0, atol=1e-9
     )
