@@ -1,4 +1,4 @@
-# Validation round 25: M1 step 5 (the acceptance gates)
+# Validation rounds 25 and 26: M1 step 5 (the acceptance gates)
 
 - **Reviewer:** GPT-6.1-Sol (high effort), independent and read-only.
 - **Reviewed:** the step-5 commit against 61a80d7 (`m1-step4`).
@@ -62,3 +62,18 @@ Each fix was mutation-checked; all three mutations were caught.
 - **BLAS threads under `fork`.** The thread limits take effect in freshly spawned workers (the
   macOS default). Under `fork`, an already-imported NumPy keeps its thread pool, which affects
   speed only.
+
+## Round 26: READY
+
+- **Reviewed:** cad2d74 (the round-25 fixes) against b15a963, and the whole step against 61a80d7.
+- **Verdict: READY**, with no class-(A) findings. Both round-25 blockers are resolved; the
+  reviewer's in-memory mutations were rejected. Seeds 0, 617 and 5 reproduced.
+- **Class (B), documented:**
+  - The fast checks establish that the record is consistent, not that it is authentic: a
+    fabricated seed that is not among the two sampled ones, with a matching summary, would pass.
+    The slow test reruns and compares all 1000 seeds.
+  - `FIT_VERSION` is a manual label. A digest of the engine and generator sources would detect a
+    stale record even if someone changed the fitter without bumping the version. A possible
+    later improvement; the engine is unchanged here.
+  - Exact equality of `coverage` with hits / n is safe for this record: every thousandth ratio
+    round-trips through JSON exactly.
