@@ -1,11 +1,17 @@
 # Status
 
+**M1 step 5 (the acceptance gates) is built and under review (round 25).** Every frozen gate now
+names an engine test, and a ledger test fails if one goes missing. Gate (c) holds on the engine:
+over the 1000 frozen seeds the 68.3% profile intervals cover φ, Szz and Δ in 70.1%, 69.1% and 68.4%
+of seeds. That is inside the 64.5–72.1% band, every interval is supported, and the counts equal the
+reference implementation's (701, 691, 684). See
+[round25-m1-step5.md](validation/round25-m1-step5.md).
+
 **M1 steps 3 and 4 are done: tags `m1-step3` (the four-site jump model) and `m1-step4` (XYZ/CSV
 import, D5 reconciliation, `*.dipolar.json` v2).** Each had two review rounds (21 and 23; 22 and
 24). Every finding was fixed and mutation-checked, and the final-round fixes were not reviewed
 again, under the cap. See [round21-m1-step3.md](validation/round21-m1-step3.md) and
-[round22-m1-step4.md](validation/round22-m1-step4.md). **Next: M1 step 5** (gates, coverage,
-8CB), or the owner's choice.
+[round22-m1-step4.md](validation/round22-m1-step4.md).
 
 **M1 step 2 (the frame contract, C2(z) and C1, analytic derivatives) is done: tag `m1-step2`.**
 Round 19 returned NOT READY with two class-(A) findings, both fixed. One of them also fixed a
@@ -125,9 +131,10 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` (all 
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: M1 step 5 (gates, coverage, 8CB), or the owner's choice
+## Resume here: M1 step 5 review (round 25), then M2
 
-Steps 3 and 4 are done (see the M1 table). The outline below was written before step 3.
+Step 5 is built (see "Step 5: the acceptance gates" below); its review is round 25. The outline
+below was written before step 3.
 
 ### Earlier outline (before step 3)
 
@@ -182,7 +189,7 @@ The owner approved the re-baseline on 2026-11-09.
 | 2. Frame contract, C2(z) and C1 | **done** (tag `m1-step2`); rounds 19–20, both fixed under the cap | |
 | 3. Four-site jump model | **done** (tag `m1-step3`); rounds 21 and 23, both fixed under the cap | |
 | 4. CSV/XYZ import, JSON v1 | **done** (tag `m1-step4`); rounds 22 and 24, both fixed under the cap | |
-| 5. Gates (a)–(e), coverage, 8CB | — | |
+| 5. Gates (a)–(e), coverage, 8CB | built; review round 25 pending | |
 
 ### Step 1: the D3 stack
 
@@ -406,6 +413,27 @@ Tests: `packages/dipolar-core/tests/test_core_jump.py` and `tests/test_engine_ju
 
 Tests: `test_core_torsion.py` (16) and `test_app_formats.py` (35), mutation-checked; 417 pass in
 total.
+
+### Step 5: the acceptance gates
+
+- **The gate ledger** (`tests/test_m1_acceptance.py`): `GATE_TESTS` names the engine test of every
+  gate in the frozen `spec.json` files, and a test checks that each named test exists. The 8CB
+  gates are checked only while that dataset is present.
+- **Gate (a)** on the engine against the spec's tolerances; **gate (d)** on the engine: reversed
+  pairs and every symmetry class of `forward.json`, at 0°, 37° and 90°. Gates (b), (e) and the 8CB
+  fits already had engine tests (steps 1 and 3).
+- **Gate (c), coverage, on the engine:** `tools/coverage/engine_coverage.py` runs the frozen
+  protocol and records every seed in `docs/validation/data/m1-gate-c-engine-coverage.json`.
+  - Result: φ 70.1%, Szz 69.1%, Δ 68.4% (band 64.5–72.1%), no unsupported interval; the hit
+    counts equal the reference implementation's.
+  - The default suite checks the record (band, counts, agreement with the reference within 3
+    seeds) and reproduces seeds 0 and 617. The slow test reruns all 1000 seeds and compares them
+    with the record.
+  - Cost: 9–26 CPU-s per seed, almost all in the Szz and Δ profile searches, so the full run takes
+    about 40 min on 11 workers. Caching interval evaluations (an open item) would cut this; the
+    fitter was left unchanged here.
+
+Tests: 461 pass (`-m "not slow"`), plus the slow coverage rerun.
 
 ## Open items for the owner
 
