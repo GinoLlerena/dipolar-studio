@@ -17,7 +17,15 @@
 - Wire integers stay within 2⁵³ − 1.
 - The snapshot publishes the success and error envelopes, including every error code.
 
+## M2 step 1b (2026-11-11)
+
+- The web client's types are generated from the committed snapshot by
+  `tools/codegen/ts_contract.py` into `web/src/generated/`. The generator fails closed on any
+  schema feature it cannot represent exactly. CI fails if the generated files are stale.
+- `callOperation` is typed by operation name: the arguments and the result follow the registry.
+
 ## Verified by
 
 Registry snapshot and contract tests (M0 slice onward); `spikes/test_spike_json_serialization.py`
 checks every schema, example, result and error code with the independent `jsonschema` validator.
+`tests/test_ts_contract.py` and `web/src/contract.typetest.ts` check the generated TypeScript.

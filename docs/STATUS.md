@@ -1,5 +1,10 @@
 # Status
 
+**M2 step 1b (TypeScript generated from the registry snapshot) is done locally, under review.**
+`tools/codegen/ts_contract.py` writes `web/src/generated/contract.ts` and `conformance.ts`
+from `registry.snapshot.json`, and `callOperation` is typed by operation name. CI fails if the
+generated files are stale. See "Step 1b" below.
+
 **M2 step 1 (the science operations) is done: tag `m2-step1`.** Rounds 27 and 28 each returned NOT READY (five and two findings). All were fixed and mutation-checked; the round-28 fixes were not reviewed again, under the cap. Every project the
 core can fit now reaches the operations:
 - imported XYZ geometry with a declared torsion;
@@ -126,7 +131,8 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
   stream. The page polls `render.describe_view` every 2 s until the event stream exists.
 - **Damaged journals.** Settled in step 4: a torn tail is recovered, any other damage is refused,
   and a fail-stopped session needs a restart.
-- **The TypeScript client.** Its types are hand-written. M2 generates them from the registry.
+- **The TypeScript client.** Its types were hand-written in M0. Since M2 step 1b they are
+  generated from the registry snapshot.
 
 - **Step 4, the spikes.** Evidence, findings and decisions:
   [docs/spikes/m0-spikes.md](spikes/m0-spikes.md). Every spike is an executable module in
@@ -471,7 +477,7 @@ Tests: 461 pass (`-m "not slow"`), plus the slow coverage rerun.
 | M2 step | Status | Owner hours (owner fills in) |
 |---|---|---|
 | 1. Science operations the beta UI needs | **done** (tag `m2-step1`); rounds 27–28, both fixed under the cap | |
-| 1b. TypeScript generated from the registry snapshot | — | |
+| 1b. TypeScript generated from the registry snapshot | **done locally**, under review | |
 | 2. Idempotency, dry run, proposals, undo | — | |
 | 3. Jobs, D11 runs, the authenticated event stream | — | |
 | 4. Scene description, `describe_view`, the SVG renderer | — | |
@@ -517,6 +523,38 @@ equivalences (`project.describe` → `equivalences`), bounded CSV fields, the 0.
 readiness check that evaluates the design, per-operation request limits (`project.load` takes up
 to 32 MiB as sent, measured in escaped bytes after round 28), shape checks on old documents, and an
 always-cleared selection on `project.open_example`. 529 pass in total.
+
+### Step 1b: TypeScript generated from the registry snapshot
+
+- **`tools/codegen/ts_contract.py`** (standard library only) reads the committed snapshot and
+  writes two files under `web/src/generated/`:
+  - **`contract.ts`**: one type per schema definition and per operation input and output;
+    `Operations`, which maps each name to its input and output types; the envelopes, with
+    `SuccessEnvelope<N>` specialised per operation; `ErrorCode`; `CONTRACT_VERSION`; and
+    `OPERATIONS`, each operation's metadata (kind, effect, capability, cost, request limit). The
+    header carries the snapshot's sha256.
+  - **`conformance.ts`**: every registry example must satisfy its operation's input type
+    (`satisfies`, so unknown properties fail too). Nothing imports it; `tsc` checks it.
+- **It fails closed.** A keyword it cannot represent exactly (`allOf`, `oneOf`, `not`,
+  `patternProperties`, an object `const`, a non-local or dangling `$ref`, a variable-length
+  `prefixItems`, …) is an error. So are one definition name with two schemas, a type name used
+  twice, and a success envelope whose shape no longer matches the template. Bounds, lengths and
+  patterns cannot be expressed in TypeScript; they become doc comments, and the server enforces
+  them. Optional input properties (defaults) are `?:`. Under `exactOptionalPropertyTypes` they
+  can be left out but not set to `undefined`. An argument-free input is exactly the empty object.
+- **`web/src/api.ts`**: `callOperation<N>(name, args: OperationInput<N>, token)` returns
+  `Envelope<N>`, so arguments and results always match the registry. The hand-written types are
+  gone; the page uses the generated ones.
+- **Checks.** `tests/test_ts_contract.py` (42 tests): the committed files are current, the chain
+  from the live registry to TypeScript, every operation and definition is emitted, the renderer
+  cases, and every fail-closed path. `web/src/contract.typetest.ts` uses `@ts-expect-error` to
+  check that the generated types reject what the schema rejects: unknown operations, wrong unit
+  literals, missing or unknown properties, explicit `undefined`, short tuples, values outside an
+  enum, the wrong result type, unknown error codes. CI runs `ts_contract.py --check` in the
+  Python job, and the web job's `tsc` checks both generated files. Mutation-checked: 9 mutations
+  of the generated types (all caught by `tsc`) and 16 of the generator (all caught by the tests).
+- **Not in scope:** `callOperation` still trusts the server's reply (a cast, not a runtime
+  validation), and a network failure still rejects, as before.
 
 ## Open items for the owner
 

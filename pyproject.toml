@@ -43,7 +43,7 @@ ignore = ["RUF001", "RUF002", "RUF003"]  # Greek letters and primes are intentio
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["packages/dipolar-core/src", "packages/dipolar-app/src", "tools/robot", "spikes"]
+files = ["packages/dipolar-core/src", "packages/dipolar-app/src", "tools/robot", "tools/codegen", "spikes"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]

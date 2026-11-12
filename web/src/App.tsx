@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   callOperation,
-  type DescribeView,
-  type Envelope,
-  type OpenExample,
-  type OperationError,
-  type Preview,
-  type Select,
+  type DescribeViewOut,
+  type ErrorBody,
+  type OperationInput,
+  type OperationName,
+  type OperationOutput,
+  type PreviewOut,
   startTabSession,
   type TabSession,
 } from "./api";
@@ -37,7 +37,7 @@ const fmt = (value: number, digits = 3) => value.toFixed(digits);
 
 // Revisions never decrease (04 §8.1), so a view response older than the one shown is a late
 // response and is discarded (D11).
-function isNotOlder(next: DescribeView, shown: DescribeView | null): boolean {
+function isNotOlder(next: DescribeViewOut, shown: DescribeViewOut | null): boolean {
   return (
     shown === null ||
     (next.science_revision >= shown.science_revision && next.workspace_revision >= shown.workspace_revision)
@@ -48,17 +48,21 @@ export function App() {
   const [token, setToken] = useState(() => sessionStorage.getItem(TOKEN_KEY) ?? "");
   const [pending, setPending] = useState(exchange !== null);
   const [connected, setConnected] = useState(false);
-  const [view, setView] = useState<DescribeView | null>(null);
-  const [preview, setPreview] = useState<Preview | null>(null);
+  const [view, setView] = useState<DescribeViewOut | null>(null);
+  const [preview, setPreview] = useState<PreviewOut | null>(null);
   const [phi, setPhi] = useState("37");
-  const [error, setError] = useState<OperationError | null>(null);
+  const [error, setError] = useState<ErrorBody | null>(null);
   const previewRequest = useRef(0); // only the latest preview request may update the page
 
   // isCurrent lets a caller drop a superseded response entirely: neither its result nor its
   // error may reach the page (D11 late-response rule).
   const run = useCallback(
-    async <T,>(name: string, args: object, isCurrent: () => boolean = () => true): Promise<T | null> => {
-      const envelope: Envelope<T> = await callOperation<T>(name, args, token);
+    async <N extends OperationName>(
+      name: N,
+      args: OperationInput<N>,
+      isCurrent: () => boolean = () => true,
+    ): Promise<OperationOutput<N> | null> => {
+      const envelope = await callOperation(name, args, token);
       if (!isCurrent()) return null;
       if (!envelope.ok) {
         if (envelope.error.code === "UNAUTHENTICATED") {
@@ -77,7 +81,7 @@ export function App() {
   );
 
   const refreshView = useCallback(async () => {
-    const result = await run<DescribeView>("render.describe_view", {});
+    const result = await run("render.describe_view", {});
     if (result) {
       setView((shown) => (isNotOlder(result, shown) ? result : shown));
       setConnected(true);
@@ -119,7 +123,7 @@ export function App() {
   const openExample = async () => {
     const current = await refreshView();
     if (!current) return;
-    const opened = await run<OpenExample>("project.open_example", {
+    const opened = await run("project.open_example", {
       name: "biphenyl-synthetic",
       expected_science_revision: current.science_revision,
     });
@@ -133,12 +137,12 @@ export function App() {
   const runPreview = async () => {
     const request = ++previewRequest.current;
     const isCurrent = () => request === previewRequest.current;
-    const result = await run<Preview>("fit.preview", { phi: { value: Number(phi), unit: "deg" } }, isCurrent);
+    const result = await run("fit.preview", { phi: { value: Number(phi), unit: "deg" } }, isCurrent);
     if (result) setPreview(result);
   };
 
   const select = async (id: string) => {
-    const result = await run<Select>("view.select", { ids: [id] });
+    const result = await run("view.select", { ids: [id] });
     if (result) await refreshView();
   };
 

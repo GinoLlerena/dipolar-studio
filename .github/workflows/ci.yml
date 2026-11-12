@@ -27,6 +27,8 @@ jobs:
         run: uv run ruff format --check .
       - name: Mypy (strict, packages)
         run: uv run mypy
+      - name: Generated TypeScript contract is current
+        run: uv run python tools/codegen/ts_contract.py --check
       - name: Tests (frozen fixtures, boundaries)
         run: uv run pytest -m "not slow"
 
