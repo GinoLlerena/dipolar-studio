@@ -70,7 +70,6 @@ KNOWN = STRUCTURAL | frozenset(DOCUMENTED) | IGNORED
 JSON_VALUE = "JsonValue"
 IDENTIFIER = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
 PRIMITIVES = {"string": "string", "number": "number", "integer": "number", "boolean": "boolean", "null": "null"}
-SUCCESS_FIELDS = {"ok", "operation", "result", "revisions"}
 METADATA = ("kind", "effect", "capability", "cost", "idempotent", "revision_check", "max_request_bytes")
 
 
@@ -84,6 +83,8 @@ def _key(name: str) -> str:
 
 
 def _literal(value: Any, where: str) -> str:
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)  # one JSON number; TypeScript's 2 and 2.0 are the same literal type
     if value is None or isinstance(value, bool | int | float | str):
         return json.dumps(value, ensure_ascii=False)
     raise Unsupported(f"{where}: only primitive const/enum values are supported, not {value!r}")
@@ -102,6 +103,20 @@ def _union(parts: Iterable[str]) -> str:
     return " | ".join(seen)  # unions flatten; array element unions are parenthesised in _array
 
 
+def _has_type(value: Any, kind: Any) -> bool:
+    kinds = kind if isinstance(kind, list) else [kind]
+    checks = {
+        "string": lambda v: isinstance(v, str),
+        "boolean": lambda v: isinstance(v, bool),
+        "null": lambda v: v is None,
+        "number": lambda v: isinstance(v, int | float) and not isinstance(v, bool),
+        "integer": lambda v: (
+            (isinstance(v, int) and not isinstance(v, bool)) or (isinstance(v, float) and v.is_integer())
+        ),
+    }
+    return any(k in checks and checks[k](value) for k in kinds)
+
+
 def _constraints(schema: Mapping[str, Any]) -> str:
     notes = ["integer"] if schema.get("type") == "integer" else []
     for keyword in DOCUMENTED:
@@ -117,6 +132,9 @@ def _constraints(schema: Mapping[str, Any]) -> str:
 class _Renderer:
     """Renders JSON Schema (the subset Pydantic emits) to TypeScript type expressions."""
 
+    def __init__(self, defs: Mapping[str, Any]) -> None:
+        self.defs = defs
+
     def render(self, schema: Any, where: str, indent: str = "") -> str:
         if schema is True or schema == {}:
             return JSON_VALUE
@@ -129,24 +147,25 @@ class _Renderer:
             self._check_property_names(schema["propertyNames"], f"{where}.propertyNames")
 
         if "$ref" in schema:
-            extra = set(schema) - {"$ref"} - IGNORED - set(DOCUMENTED)
-            if extra:
-                raise Unsupported(f"{where}: $ref alongside {sorted(extra)}")
+            self._only(schema, {"$ref"}, where)
             return self._ref(schema["$ref"], where)
-        if "const" in schema:
-            return _literal(schema["const"], where)
-        if "enum" in schema:
-            values = schema["enum"]
+        if "const" in schema or "enum" in schema:
+            if "const" in schema and "enum" in schema:
+                raise Unsupported(f"{where}: const alongside enum")
+            self._only(schema, {"const", "enum", "type"}, where)
+            values = [schema["const"]] if "const" in schema else schema["enum"]
             if not isinstance(values, list) or not values:
                 raise Unsupported(f"{where}: enum must be a non-empty list")
-            return _union(_literal(v, where) for v in values)
+            literals = [_literal(v, where) for v in values]
+            if "type" in schema and not all(_has_type(v, schema["type"]) for v in values):
+                raise Unsupported(f"{where}: a const/enum value does not have the declared type")
+            return _union(literals)
         if "anyOf" in schema:
-            if set(schema) & {"type", "properties", "items", "prefixItems"}:
-                raise Unsupported(f"{where}: anyOf alongside structural keywords")
+            self._only(schema, {"anyOf"}, where)
             branches = schema["anyOf"]
             if not isinstance(branches, list) or not branches:
                 raise Unsupported(f"{where}: anyOf must be a non-empty list")
-            return _union(self.render(b, f"{where}.anyOf[{i}]", indent) for i, b in enumerate(branches))
+            return self._any_of(branches, where, indent)
 
         kind = schema.get("type")
         if kind is None:
@@ -160,6 +179,71 @@ class _Renderer:
                 raise Unsupported(f"{where}: a type list with object or array")
             return _union(self._typed(schema, k, where, indent) for k in kind)
         return self._typed(schema, kind, where, indent)
+
+    def _only(self, schema: Mapping[str, Any], allowed: set[str], where: str) -> None:
+        """Beside these keywords only annotations and value constraints may appear: anything
+        structural would be silently dropped by the early return that follows (round 29)."""
+        extra = set(schema) - allowed - IGNORED - set(DOCUMENTED)
+        if extra:
+            raise Unsupported(f"{where}: {sorted(allowed)} alongside {sorted(extra)}")
+
+    def _resolve(self, schema: Any) -> Any:
+        seen: set[str] = set()
+        while isinstance(schema, Mapping) and isinstance(schema.get("$ref"), str):
+            name = schema["$ref"].removeprefix("#/$defs/")
+            if name in seen or name not in self.defs:
+                return schema
+            seen.add(name)
+            schema = self.defs[name]
+        return schema
+
+    def _shape(self, schema: Any) -> str:
+        """'closed' (a closed object with named properties), 'object' (any other object),
+        'array', 'any' (any JSON value) or 'scalar'."""
+        target = self._resolve(schema)
+        if (
+            target is True
+            or target == {}
+            or (isinstance(target, Mapping) and target.get("$ref") == f"#/$defs/{JSON_VALUE}")
+        ):
+            return "any"
+        if not isinstance(target, Mapping):
+            return "scalar"
+        if "anyOf" in target:
+            shapes = {self._shape(b) for b in target["anyOf"]}
+            return "any" if "any" in shapes else ("object" if shapes & {"closed", "object"} else "scalar")
+        kind = target.get("type")
+        if kind == "object":
+            closed = target.get("additionalProperties", True) is False and bool(target.get("properties"))
+            return "closed" if closed else "object"
+        if kind == "array":
+            return "array"
+        if kind is None and not (set(target) & {"const", "enum"}):
+            return "any"
+        return "scalar"
+
+    def _any_of(self, branches: list[Any], where: str, indent: str) -> str:
+        """A union. TypeScript unions of object types are not exclusive: a value may mix the keys
+        of two closed branches, which both branches reject. So the closed branches are made
+        exclusive (each forbids the others' keys), and any other mix of object or array branches
+        is refused (round 29)."""
+        rendered = [self.render(b, f"{where}.anyOf[{i}]", indent) for i, b in enumerate(branches)]
+        shapes = [self._shape(b) for b in branches]
+        if "any" in shapes:
+            return JSON_VALUE  # one branch accepts every JSON value, so the union does too
+        objects = [i for i, s in enumerate(shapes) if s in ("closed", "object")]
+        if len(objects) > 1 and any(shapes[i] != "closed" for i in objects):
+            raise Unsupported(f"{where}: a union of object branches that are not all closed")
+        if shapes.count("array") > 1:
+            raise Unsupported(f"{where}: a union of several array branches")
+        if len(objects) > 1:
+            keys = {i: set(self._resolve(branches[i])["properties"]) for i in objects}
+            for i in objects:
+                foreign = sorted(set().union(*(keys[j] for j in objects if j != i)) - keys[i])
+                if foreign:
+                    never = "; ".join(f"{_key(k)}?: never" for k in foreign)
+                    rendered[i] = f"({rendered[i]} & {{ {never} }})"
+        return _union(rendered)
 
     def _check_property_names(self, schema: Any, where: str) -> None:
         if not isinstance(schema, Mapping) or (set(schema) - set(DOCUMENTED) - IGNORED - {"type"}):
@@ -215,10 +299,8 @@ class _Renderer:
         extra = schema.get("additionalProperties", True)
         inner = indent + "  "
         lines: list[str] = []
-        types: list[str] = []
         for name, child in properties.items():
             text = self.render(child, f"{where}.{name}", inner)
-            types.append(text)
             note = _constraints(child) if isinstance(child, Mapping) else ""
             if note:
                 lines.append(_doc(note, inner))
@@ -229,8 +311,10 @@ class _Renderer:
                 return "{ [key: string]: never }"  # exactly the empty object; `{}` would accept anything
         else:
             value = self.render(extra, f"{where}.additionalProperties", inner)
-            if properties:  # every named property must also fit the index signature
-                value = _union([value, *types]) if value != JSON_VALUE else JSON_VALUE
+            if properties and value != JSON_VALUE:
+                # TypeScript's index signature must also admit the named properties' types, which
+                # would admit those types under every other key too: looser than the schema.
+                raise Unsupported(f"{where}: typed additionalProperties beside named properties")
             note = _constraints(extra) if isinstance(extra, Mapping) else ""
             if note:
                 lines.append(_doc(note, inner))
@@ -289,20 +373,67 @@ def _top_level(schema: Mapping[str, Any], where: str) -> tuple[str, dict[str, An
     return title, {k: v for k, v in schema.items() if k != "$defs"}
 
 
+#: The success envelope the SuccessEnvelope<N> template assumes, titles removed. Revisions is
+#: rendered from the snapshot like any definition.
+EXPECTED_SUCCESS = {
+    "$defs": ["JsonValue", "Revisions"],
+    "additionalProperties": False,
+    "properties": {
+        "ok": {"const": True, "type": "boolean"},
+        "operation": {"type": "string"},
+        "result": {"additionalProperties": {"$ref": "#/$defs/JsonValue"}, "type": "object"},
+        "revisions": {"$ref": "#/$defs/Revisions"},
+    },
+    "required": ["ok", "operation", "result", "revisions"],
+    "type": "object",
+}
+
+
+def _untitled(schema: Any) -> Any:
+    if isinstance(schema, Mapping):
+        return {k: _untitled(v) for k, v in schema.items() if k != "title"}
+    return schema
+
+
 def _check_success_envelope(schema: Mapping[str, Any]) -> None:
-    """The success envelope is specialised per operation by hand-written template text below; it
-    must therefore have exactly the shape that text assumes."""
-    props = schema.get("properties", {})
-    ok = (
-        set(props) == SUCCESS_FIELDS
-        and set(schema.get("required", [])) == SUCCESS_FIELDS
-        and schema.get("additionalProperties") is False
-        and props["ok"].get("const") is True
-        and props["operation"].get("type") == "string"
-        and props["revisions"].get("$ref") == "#/$defs/Revisions"
-    )
-    if not ok:
+    """The success envelope is specialised per operation by hand-written template text; it must
+    therefore be exactly the schema that text assumes (round 29: every keyword, `result` too)."""
+    actual = _untitled({k: v for k, v in schema.items() if k != "$defs"})
+    actual["$defs"] = sorted(schema.get("$defs", {}))
+    if actual != EXPECTED_SUCCESS:
         raise Unsupported("envelopes.success: shape changed; update the SuccessEnvelope template")
+
+
+#: Template text for the call boundary (round 29). TypeScript object types are structural: a value
+#: held in a variable may carry keys its type does not declare, and the strict server refuses them
+#: (additionalProperties: false). `Exact` closes that gap where it matters, at `callOperation`.
+CALL_HELPERS = """/** `N` when it is a single operation name, otherwise `never`: a call names one operation, so
+ * its arguments and its result can be checked against that operation's types. */
+export type SingleName<N extends OperationName> = { [K in N]: [Exclude<N, K>] extends [never] ? K : never }[N];
+
+type JsonScalar = null | boolean | number | string;
+
+/** `A` checked as exactly `T`, at every depth: a key that `T` does not declare must be absent,
+ * even when `A` is not a fresh object literal. Used as `args: A & Exact<T, A>`. It distributes
+ * over unions in `T`, so `A` must fit one branch exactly. */
+export type Exact<T, A> = T extends unknown ? ExactBranch<T, A> : never;
+type ExactBranch<T, A> = T extends JsonScalar | undefined
+  ? T
+  : T extends readonly unknown[]
+    ? A extends readonly unknown[]
+      ? T & { [I in keyof A]: Exact<I extends keyof T ? T[I] : T[number], A[I]> }
+      : T
+    : A extends object
+      ? T & {
+          [K in keyof A]: K extends keyof T
+            ? Exact<T[K], A[K]>
+            : string extends keyof T
+              ? Exact<T[string & keyof T], A[K]>
+              : never;
+        }
+      : T;
+
+"""
 
 
 # --------------------------------------------------------------------------- generation
@@ -321,7 +452,6 @@ def generate(snapshot: Mapping[str, Any], *, source: str = "packages/dipolar-app
     if set(envelopes) != {"success", "error"} or not isinstance(operations, list):
         raise Unsupported("the snapshot needs envelopes.success, envelopes.error and an operations list")
 
-    renderer = _Renderer()
     defs = _Definitions()
     tops: list[tuple[str, dict[str, Any], str]] = []  # (name, schema, where)
 
@@ -350,6 +480,7 @@ def generate(snapshot: Mapping[str, Any], *, source: str = "packages/dipolar-app
             raise Unsupported(f"{where}: the type name {top!r} is used twice")
         if top in defs.schemas or top == JSON_VALUE:
             raise Unsupported(f"{where}: the type name {top!r} is also a definition")
+    renderer = _Renderer(defs.schemas)
     for name, schema in defs.schemas.items():
         defs.check_refs(schema, defs.origin[name])
     for _, schema, where in tops:
@@ -379,13 +510,11 @@ def generate(snapshot: Mapping[str, Any], *, source: str = "packages/dipolar-app
     out.append("// ---------------------------------------------------------------- envelopes\n\n")
     out.append(f"export type {error_name} = {renderer.render(error_schema, 'envelopes.error')};\n\n")
     out.append(
-        "/** A successful call of operation `N`; `result` has that operation's output type. */\n"
-        "export type SuccessEnvelope<N extends OperationName = OperationName> = {\n"
-        "  ok: true;\n"
-        "  operation: N;\n"
-        "  result: OperationOutput<N>;\n"
-        "  revisions: Revisions;\n"
-        "};\n\n"
+        "/** A successful call of operation `N`; `result` has that operation's output type. It\n"
+        " * distributes over a union of names, so `operation` and `result` always belong together. */\n"
+        "export type SuccessEnvelope<N extends OperationName = OperationName> = N extends OperationName\n"
+        "  ? { ok: true; operation: N; result: OperationOutput<N>; revisions: Revisions }\n"
+        "  : never;\n\n"
         f"export type Envelope<N extends OperationName = OperationName> = SuccessEnvelope<N> | {error_name};\n\n"
     )
 
@@ -412,6 +541,7 @@ def generate(snapshot: Mapping[str, Any], *, source: str = "packages/dipolar-app
         'export type OperationInput<N extends OperationName> = Operations[N]["input"];\n'
         'export type OperationOutput<N extends OperationName> = Operations[N]["output"];\n\n'
     )
+    out.append(CALL_HELPERS)
 
     out.append("/** Each operation's metadata from the registry. */\n")
     out.append("export const OPERATIONS = {\n")

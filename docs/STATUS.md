@@ -3,7 +3,9 @@
 **M2 step 1b (TypeScript generated from the registry snapshot) is done locally, under review.**
 `tools/codegen/ts_contract.py` writes `web/src/generated/contract.ts` and `conformance.ts`
 from `registry.snapshot.json`, and `callOperation` is typed by operation name. CI fails if the
-generated files are stale. See "Step 1b" below.
+generated files are stale. Round 29 returned NOT READY with five class-(A) findings, all fixed;
+round 30 (the final round) is pending. See "Step 1b" below and
+[round29-m2-step1b.md](validation/round29-m2-step1b.md).
 
 **M2 step 1 (the science operations) is done: tag `m2-step1`.** Rounds 27 and 28 each returned NOT READY (five and two findings). All were fixed and mutation-checked; the round-28 fixes were not reviewed again, under the cap. Every project the
 core can fit now reaches the operations:
@@ -545,7 +547,17 @@ always-cleared selection on `project.open_example`. 529 pass in total.
 - **`web/src/api.ts`**: `callOperation<N>(name, args: OperationInput<N>, token)` returns
   `Envelope<N>`, so arguments and results always match the registry. The hand-written types are
   gone; the page uses the generated ones.
-- **Checks.** `tests/test_ts_contract.py` (42 tests): the committed files are current, the chain
+- **Round 29 hardening.**
+  - Unions of closed objects are exclusive: each branch forbids the others' keys.
+  - Typed `additionalProperties` beside named properties, other mixes of object branches, and
+    structural siblings of `$ref`/`anyOf`/`const`/`enum` are all refused.
+  - The success envelope must match its template exactly.
+  - At the call boundary, `callOperation(name: N & SingleName<N>, args: A & Exact<…>)` takes one
+    operation name and exactly its arguments. That holds even for a variable, at every depth.
+  - `SuccessEnvelope<N>` distributes over unions.
+  - Remaining limit: outside `callOperation`, TypeScript's structural typing still lets a
+    variable carry undeclared keys.
+- **Checks.** `tests/test_ts_contract.py` (66 tests after round 29): the committed files are current, the chain
   from the live registry to TypeScript, every operation and definition is emitted, the renderer
   cases, and every fail-closed path. `web/src/contract.typetest.ts` uses `@ts-expect-error` to
   check that the generated types reject what the schema rejects: unknown operations, wrong unit

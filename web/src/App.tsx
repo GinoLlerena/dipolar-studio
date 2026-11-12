@@ -3,7 +3,7 @@ import {
   callOperation,
   type DescribeViewOut,
   type ErrorBody,
-  type OperationInput,
+  type Envelope,
   type OperationName,
   type OperationOutput,
   type PreviewOut,
@@ -54,15 +54,16 @@ export function App() {
   const [error, setError] = useState<ErrorBody | null>(null);
   const previewRequest = useRef(0); // only the latest preview request may update the page
 
-  // isCurrent lets a caller drop a superseded response entirely: neither its result nor its
-  // error may reach the page (D11 late-response rule).
+  // `call` makes one typed registry call with this tab's token; each call site names a single
+  // operation, so its arguments are checked exactly (validation round 29). isCurrent lets a caller
+  // drop a superseded response entirely: neither its result nor its error may reach the page (D11
+  // late-response rule).
   const run = useCallback(
     async <N extends OperationName>(
-      name: N,
-      args: OperationInput<N>,
+      call: (token: string) => Promise<Envelope<N>>,
       isCurrent: () => boolean = () => true,
     ): Promise<OperationOutput<N> | null> => {
-      const envelope = await callOperation(name, args, token);
+      const envelope = await call(token);
       if (!isCurrent()) return null;
       if (!envelope.ok) {
         if (envelope.error.code === "UNAUTHENTICATED") {
@@ -81,7 +82,7 @@ export function App() {
   );
 
   const refreshView = useCallback(async () => {
-    const result = await run("render.describe_view", {});
+    const result = await run((t) => callOperation("render.describe_view", {}, t));
     if (result) {
       setView((shown) => (isNotOlder(result, shown) ? result : shown));
       setConnected(true);
@@ -123,10 +124,13 @@ export function App() {
   const openExample = async () => {
     const current = await refreshView();
     if (!current) return;
-    const opened = await run("project.open_example", {
-      name: "biphenyl-synthetic",
-      expected_science_revision: current.science_revision,
-    });
+    const opened = await run((t) =>
+      callOperation(
+        "project.open_example",
+        { name: "biphenyl-synthetic", expected_science_revision: current.science_revision },
+        t,
+      ),
+    );
     if (opened) {
       previewRequest.current++; // a preview still in flight belongs to the replaced project
       setPreview(null);
@@ -137,12 +141,15 @@ export function App() {
   const runPreview = async () => {
     const request = ++previewRequest.current;
     const isCurrent = () => request === previewRequest.current;
-    const result = await run("fit.preview", { phi: { value: Number(phi), unit: "deg" } }, isCurrent);
+    const result = await run(
+      (t) => callOperation("fit.preview", { phi: { value: Number(phi), unit: "deg" } }, t),
+      isCurrent,
+    );
     if (result) setPreview(result);
   };
 
   const select = async (id: string) => {
-    const result = await run("view.select", { ids: [id] });
+    const result = await run((t) => callOperation("view.select", { ids: [id] }, t));
     if (result) await refreshView();
   };
 

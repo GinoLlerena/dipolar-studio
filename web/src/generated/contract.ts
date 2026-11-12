@@ -188,13 +188,11 @@ export type ErrorEnvelope = {
   operation: string | null;
 };
 
-/** A successful call of operation `N`; `result` has that operation's output type. */
-export type SuccessEnvelope<N extends OperationName = OperationName> = {
-  ok: true;
-  operation: N;
-  result: OperationOutput<N>;
-  revisions: Revisions;
-};
+/** A successful call of operation `N`; `result` has that operation's output type. It
+ * distributes over a union of names, so `operation` and `result` always belong together. */
+export type SuccessEnvelope<N extends OperationName = OperationName> = N extends OperationName
+  ? { ok: true; operation: N; result: OperationOutput<N>; revisions: Revisions }
+  : never;
 
 export type Envelope<N extends OperationName = OperationName> = SuccessEnvelope<N> | ErrorEnvelope;
 
@@ -373,7 +371,7 @@ export type DescribeProjectOut = {
   equivalences: string[];
   estimand: string;
   frame: string;
-  geometry: TemplateOut | ImportedOut;
+  geometry: (TemplateOut & { atoms?: never; source_format?: never; torsion?: never }) | (ImportedOut & { r_cc?: never; r_ch?: never; r_inter?: never; template?: never });
   model: ModelOut;
   name: string;
   not_ready_reason: string | null;
@@ -524,6 +522,32 @@ export interface Operations {
 export type OperationName = keyof Operations;
 export type OperationInput<N extends OperationName> = Operations[N]["input"];
 export type OperationOutput<N extends OperationName> = Operations[N]["output"];
+
+/** `N` when it is a single operation name, otherwise `never`: a call names one operation, so
+ * its arguments and its result can be checked against that operation's types. */
+export type SingleName<N extends OperationName> = { [K in N]: [Exclude<N, K>] extends [never] ? K : never }[N];
+
+type JsonScalar = null | boolean | number | string;
+
+/** `A` checked as exactly `T`, at every depth: a key that `T` does not declare must be absent,
+ * even when `A` is not a fresh object literal. Used as `args: A & Exact<T, A>`. It distributes
+ * over unions in `T`, so `A` must fit one branch exactly. */
+export type Exact<T, A> = T extends unknown ? ExactBranch<T, A> : never;
+type ExactBranch<T, A> = T extends JsonScalar | undefined
+  ? T
+  : T extends readonly unknown[]
+    ? A extends readonly unknown[]
+      ? T & { [I in keyof A]: Exact<I extends keyof T ? T[I] : T[number], A[I]> }
+      : T
+    : A extends object
+      ? T & {
+          [K in keyof A]: K extends keyof T
+            ? Exact<T[K], A[K]>
+            : string extends keyof T
+              ? Exact<T[string & keyof T], A[K]>
+              : never;
+        }
+      : T;
 
 /** Each operation's metadata from the registry. */
 export const OPERATIONS = {

@@ -132,9 +132,10 @@ def test_closed_and_open_objects() -> None:
     assert "  [key: string]: JsonValue;" in _render(_obj({"a": {"type": "string"}}))
     record = _render({"type": "object", "additionalProperties": {"type": "number"}})
     assert record == "export type ProbeIn = { [key: string]: number };"
-    # Named properties plus an index signature: each property must fit the signature.
-    mixed = _render(_obj({"a": {"type": "string"}}, additionalProperties={"type": "number"}))
-    assert "  [key: string]: number | string;" in mixed
+    # Named properties beside a typed index signature cannot be expressed exactly (round 29,
+    # finding 1): the signature would have to admit the named types under every other key.
+    with pytest.raises(Unsupported, match="typed additionalProperties beside named properties"):
+        _render(_obj({"a": {"type": "string"}}, additionalProperties={"type": "number"}))
 
 
 def test_literals_unions_and_arrays() -> None:
@@ -165,6 +166,92 @@ def test_literals_unions_and_arrays() -> None:
     assert "  j: JsonValue;" in out
 
 
+def test_const_and_enum_keep_a_matching_type() -> None:
+    out = _render(
+        _obj(
+            {"c": {"const": "deg", "type": "string"}, "i": {"enum": [1, 2.0], "type": "integer"}},
+            additionalProperties=False,
+        )
+    )
+    assert '  c: "deg";' in out and "  i: 1 | 2;" in out
+
+
+def test_unions_of_closed_objects_are_exclusive() -> None:
+    """Round 29, finding 2: each closed branch forbids the other branches' keys."""
+    left = _obj({"kind": {"const": "l"}, "a": {"type": "integer"}}, additionalProperties=False)
+    right = _obj({"kind": {"const": "r"}, "b": {"type": "string"}}, additionalProperties=False)
+    out = _render(_obj({"u": {"anyOf": [left, right, {"type": "null"}]}}, additionalProperties=False))
+    assert "& { b?: never })" in out and "& { a?: never })" in out and out.rstrip(";").endswith("| null;\n}")
+    # Through references too, and a branch accepting any JSON value makes the union JsonValue.
+    via_refs = _snapshot(
+        {**_obj({"u": {"anyOf": [{"$ref": "#/$defs/L"}, {"$ref": "#/$defs/R"}]}}), "$defs": {"L": left, "R": right}}
+    )
+    assert "u: (L & { b?: never }) | (R & { a?: never });" in generate(via_refs)
+    assert "  u: JsonValue;" in _render(_obj({"u": {"anyOf": [left, {}]}}))
+
+
+def test_real_pydantic_models() -> None:
+    """The reviewer's round-29 models, from Pydantic itself rather than hand-written schemas."""
+    from typing import Annotated, Literal
+
+    from pydantic import BaseModel, ConfigDict, Field
+
+    class TypedExtra(BaseModel):
+        model_config = ConfigDict(extra="allow")
+        label: str
+        __pydantic_extra__: dict[str, int] = Field(init=False)
+
+    with pytest.raises(Unsupported, match="typed additionalProperties"):
+        generate(_snapshot(TypedExtra.model_json_schema()))
+
+    class Left(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        a: int
+
+    class Right(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        b: str
+
+    class UnionIn(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        choice: Left | Right
+
+    assert "choice: (Left & { b?: never }) | (Right & { a?: never });" in generate(
+        _snapshot(UnionIn.model_json_schema())
+    )
+
+    class Cat(BaseModel):
+        kind: Literal["cat"]
+
+    class Dog(BaseModel):
+        kind: Literal["dog"]
+
+    class Discriminated(BaseModel):
+        pet: Annotated[Cat | Dog, Field(discriminator="kind")]
+
+    with pytest.raises(Unsupported, match="unsupported keyword"):
+        generate(_snapshot(Discriminated.model_json_schema()))
+
+    class Optional(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        optional: str | None = None
+        required_nullable: str | None
+        pair: tuple[int, str]
+        mapping: dict[str, str | int]
+
+    out = generate(_snapshot(Optional.model_json_schema()))
+    for line in ("optional?: string | null;", "required_nullable: string | null;", "pair: [number, string];"):
+        assert line in out
+    assert "mapping: { [key: string]: string | number };" in out
+
+
+def test_call_helpers_are_emitted() -> None:
+    text = generate(SNAPSHOT)
+    assert "export type SingleName<N extends OperationName>" in text
+    assert "export type Exact<T, A> = T extends unknown ? ExactBranch<T, A> : never;" in text
+    assert "export type SuccessEnvelope<N extends OperationName = OperationName> = N extends OperationName" in text
+
+
 def test_keys_and_doc_comments_are_escaped() -> None:
     out = _render(_obj({"needs-quote": {"type": "string", "pattern": "a*/b"}}, additionalProperties=False))
     assert '  "needs-quote": string;' in out
@@ -191,8 +278,37 @@ def test_keys_and_doc_comments_are_escaped() -> None:
         ({"properties": {"a": {}}}, "without a type"),
         ({"type": "object", "required": ["a"]}, "no property schema"),
         ({"type": "string", "properties": {}}, "on a string"),
-        ({"anyOf": [{"type": "string"}], "type": "string"}, "anyOf alongside"),
+        ({"anyOf": [{"type": "string"}], "type": "string"}, "alongside"),
         ({"type": "object", "propertyNames": {"enum": ["a"]}}, "keys"),
+        # Round 29, finding 3: structural siblings of anyOf/const/enum are refused, not dropped.
+        ({"anyOf": [_obj({"a": {"type": "string"}}, [], additionalProperties=False)], "required": ["a"]}, "alongside"),
+        ({"anyOf": [{"type": "object"}], "additionalProperties": False}, "alongside"),
+        ({"anyOf": [{"type": "string"}], "properties": {}}, "alongside"),
+        ({"anyOf": [{"type": "string"}], "const": "x"}, "alongside"),
+        ({"const": "x", "type": "number"}, "declared type"),
+        ({"enum": ["x", 1], "type": "string"}, "declared type"),
+        ({"enum": [1.5], "type": "integer"}, "declared type"),
+        ({"const": "x", "enum": ["x"]}, "const alongside enum"),
+        ({"const": "x", "properties": {}}, "alongside"),
+        ({"$ref": "#/$defs/Revisions", "anyOf": [{"type": "string"}]}, "alongside"),
+        # Unions that TypeScript cannot make exact.
+        (
+            {"anyOf": [_obj({"a": {"type": "string"}}, additionalProperties=False), {"type": "object"}]},
+            "not all closed",
+        ),
+        (
+            {
+                "anyOf": [
+                    _obj({"a": {"type": "string"}}, additionalProperties=False),
+                    {"type": "object", "additionalProperties": {"type": "string"}},
+                ]
+            },
+            "not all closed",
+        ),
+        (
+            {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "array", "items": {"type": "number"}}]},
+            "several array",
+        ),
     ],
 )
 def test_unrepresentable_schemas_fail_closed(schema: dict[str, Any], message: str) -> None:
@@ -243,6 +359,14 @@ def test_snapshot_level_problems_fail_closed(mutate: Any, message: str) -> None:
         lambda e: e.update(additionalProperties=True),
         lambda e: e["properties"]["ok"].update(const=False),
         lambda e: e["properties"]["revisions"].update({"$ref": "#/$defs/Other"}),
+        # Round 29, finding 4: every keyword counts, `result` included.
+        lambda e: e["properties"].update(result={"type": "array", "items": {"type": "string"}}),
+        lambda e: e["properties"]["operation"].update(enum=["fit.run"]),
+        lambda e: e["properties"]["revisions"].update({"not": {}}),
+        lambda e: e.update({"not": {}}),
+        lambda e: e.update(unevaluatedProperties=False),
+        lambda e: e["$defs"].update(Extra={"type": "string"}),
+        lambda e: e["required"].append("ok"),
     ],
 )
 def test_success_envelope_template_tracks_the_schema(mutate: Any) -> None:
