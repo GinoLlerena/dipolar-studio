@@ -752,6 +752,50 @@ See [round33-m2-step3.md](validation/round33-m2-step3.md).
 `tests/test_app_jobs.py` (17), with real worker processes and a cancel that kills one. 10
 mutations of the job guarantees were each caught.
 
+### Step 4: scene description, `describe_view` and the SVG renderer
+
+The 04 D15, D16 and §8.4 contracts. An agent perceives exactly what the user sees, without a
+browser.
+
+**View state** (D15). The shared view now has:
+- a perspective **camera** (position, target and up in Å; vertical field of view; near and far
+  planes);
+- a **viewport**, **layers** (labels, bonds, coupling lines) and **highlights**, next to the
+  selection.
+
+The new commands are `view.set_camera` (`null` fits the molecule automatically),
+`view.highlight` and `view.set_layers`. They are absolute sets that advance only the workspace
+revision, so a camera move never marks a fit stale (§8.6). Highlights follow the project as the
+selection does: they are pruned within a document and cleared when another document replaces it.
+
+**One scene description** (§8.4): `render.scene`, built by `dipolar_app.scene`. It contains:
+- atoms with stable IDs (spin IDs, or `atm_NNNNNN`), coordinates at the displayed torsion, and
+  projected screen positions with depth and visibility;
+- bonds (imported geometry) and couplings with their lengths and the current run's residuals;
+- the camera, the layers, the selection, the highlights and the far-to-near draw order.
+
+The displayed torsion comes from the current run, else the imported dihedral, else a 45° default.
+`phi_source` says which, so a picture never passes for a fit result.
+
+**Perception** (D16):
+- `render.describe_view` is the exact, compact channel. It reports the revisions, the run it
+  reflects and whether that run is **stale**, the torsion and its source, the visible objects, the
+  selection, the highlights, the five largest residuals and warnings.
+- `render.view_svg` renders the scene on the server. Labels are escaped and every element carries
+  its object ID.
+
+**Projection parity** (§8.4):
+- `web/src/scene/projection.ts` implements the same projection as the Python renderer: a
+  three.js-style perspective camera, screen y down, and near, far and frustum clipping.
+- Python generates the parity fixtures (`web/src/scene/parity-fixtures.json`), which cover
+  auto-fitted landscape and portrait views, an oblique camera with clipping, and near and far
+  clipping.
+- `pnpm run parity` (in the CI web job and in pytest) checks the positions, depths, visibility and
+  draw order against them. The largest difference is 6e-14 px.
+
+**Contract:** 0.5.0. **Tests:** `tests/test_app_scene.py` (18), including a negative parity test
+(a 1 px change fails). Eight mutations of the Python and TypeScript code were each caught.
+
 ## Open items for the owner
 
 - Log your hours per M1 step in the table above. The re-baseline needs them for a first date

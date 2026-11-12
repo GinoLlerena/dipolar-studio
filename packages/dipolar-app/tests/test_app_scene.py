@@ -86,7 +86,7 @@ def test_the_scene_shows_the_current_run_and_marks_it_stale_after_an_edit() -> N
     _, c = opened()
     fit = ok(run_fit(c))
     scene = ok(c.call("render.scene"))
-    assert scene["phi_source"] == "run" and scene["run"] == {"run_id": "run_000001", "stale": False}
+    assert scene["phi_source"] == "run" and scene["run"] == {"run_id": "run_000001", "stale": False, "available": True}
     assert scene["phi"]["value"] == pytest.approx(fit["theta"][0]["value"])
     residuals = {x["id"]: x["residual"]["value"] for x in fit["couplings"]}
     assert {x["id"]: x["residual"]["value"] for x in scene["couplings"]} == residuals
@@ -97,7 +97,9 @@ def test_the_scene_shows_the_current_run_and_marks_it_stale_after_an_edit() -> N
     kinds = {"kind": "jump4", "order": "bisector-diagonal", "frame": "bisector", "phi_domain": [deg(0), deg(90)]}
     ok(c.call("model.set", {**kinds, "expected_science_revision": 1}))
     stale = ok(c.call("render.describe_view"))
-    assert stale["run"] == {"run_id": "run_000001", "stale": True} and stale["phi_source"] == "default"
+    assert (
+        stale["run"] == {"run_id": "run_000001", "stale": True, "available": True} and stale["phi_source"] == "default"
+    )
     assert stale["top_residuals"] == [] and any("stale" in w for w in stale["warnings"])
 
 
@@ -273,3 +275,84 @@ def test_the_parity_check_catches_a_difference(tmp_path: Path) -> None:
         timeout=60,
     )
     assert out.returncode == 1 and "point 0 x" in out.stderr
+
+
+# --------------------------------------------------------------------------- round 35
+def test_describe_view_reads_one_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    from dipolar_app import view_ops
+
+    s, c = opened()
+    other = client(s)
+    real = view_ops.selected
+    calls = {"n": 0}
+
+    def racing(project: Any, ids: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 1:  # another client changes the project mid-call
+            other.call("project.import_xyz", {"xyz": ETHANE_XYZ, "name": "ethane", "expected_science_revision": 1})
+        return real(project, ids)
+
+    monkeypatch.setattr(view_ops, "selected", racing)
+    env = c.call("render.describe_view")
+    view = ok(env)
+    assert view["project_name"].startswith("Synthetic biphenyl") and len(view["visible"]) == 10
+    assert view["science_revision"] == env["revisions"]["science"] == 1
+    assert s.state.science_revision == 2  # the change did happen, after the snapshot
+
+
+def test_an_unreadable_run_result_is_reported_not_shown(tmp_path: Path) -> None:
+    _, c = opened(tmp_path)
+    ok(run_fit(c))
+    for blob in (tmp_path / "runs").glob("*.json"):
+        blob.unlink()
+    view = ok(c.call("render.describe_view"))
+    assert view["run"] == {"run_id": "run_000001", "stale": False, "available": False}
+    assert view["phi_source"] == "default" and view["fit"] is None and view["top_residuals"] == []
+    assert any("cannot be read" in w for w in view["warnings"])
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"fov": deg(1e-322)}, "field of view"),
+        ({"fov": deg(179.9)}, "field of view"),
+        ({"near": {"value": 1e-9, "unit": "Å"}}, "near plane"),
+        ({"position": {"xyz": [0.0, 0.0, 1e300], "unit": "Å"}}, "within"),
+    ],
+)
+def test_numerically_unsafe_cameras_are_refused(change: dict[str, Any], message: str) -> None:
+    s, c = opened()
+    args = camera_args([0.0, 0.0, 20.0], [0.0, 1.0, 0.0])
+    args["camera"].update(change)
+    body = error(c.call("view.set_camera", args), "INVALID_ARGUMENT", "camera")
+    assert message in body["message"] and s.state.view.camera is None
+
+
+def test_long_labels_are_cut_in_perception_outputs() -> None:
+    from dipolar_app.scene import MAX_LABEL_OUT
+
+    c = client(new_session())
+    ok(c.call("project.import_xyz", {"xyz": ETHANE_XYZ, "name": "ethane", "expected_science_revision": 0}))
+    doc = json.loads(ok(c.call("project.export"))["text"])
+    doc["project"]["molecule"]["spins"][0]["label"] = "H" * 100_000
+    ok(c.call("project.load", {"text": json.dumps(doc), "expected_science_revision": 1}))
+    spin = doc["project"]["molecule"]["spins"][0]["id"]
+    scene = ok(c.call("render.scene"))
+    assert max(len(a["label"]) for a in scene["atoms"]) == MAX_LABEL_OUT
+    assert len(json.dumps(scene)) < 20_000  # the 100 000-character label is not copied out
+    assert len(ok(c.call("view.select", {"ids": [spin]}))["selection"][0]["label"]) == MAX_LABEL_OUT
+    assert len(ok(c.call("render.describe_view"))["selection"][0]["label"]) == MAX_LABEL_OUT
+
+
+def test_describe_view_reports_an_inadequate_fit() -> None:
+    _, c = opened()
+    doc = json.loads(ok(c.call("project.export"))["text"])
+    for coupling in doc["project"]["couplings"]:
+        coupling["sigma"]["value"] = 0.05  # σ far below the actual noise
+    ok(c.call("project.load", {"text": json.dumps(doc), "expected_science_revision": 1}))
+    ok(run_fit(c))
+    view = ok(c.call("render.describe_view"))
+    assert view["fit"]["adequate"] is False and view["fit"]["p_value"] < 1e-3 and view["fit"]["regular"]
+    assert any("inadequate" in w for w in view["warnings"])
+    good = ok(run_fit(opened()[1]))
+    assert good["adequate"] is True

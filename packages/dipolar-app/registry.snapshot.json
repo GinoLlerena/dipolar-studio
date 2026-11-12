@@ -4635,6 +4635,66 @@
             "title": "Degrees",
             "type": "object"
           },
+          "FitSummary": {
+            "additionalProperties": false,
+            "description": "The active run's verdict on itself (D16, round 35): read it before trusting the picture.",
+            "properties": {
+              "adequate": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Adequate"
+              },
+              "at_bound": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "At Bound",
+                "type": "array"
+              },
+              "converged": {
+                "title": "Converged",
+                "type": "boolean"
+              },
+              "notes": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Notes",
+                "type": "array"
+              },
+              "p_value": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "P Value"
+              },
+              "regular": {
+                "title": "Regular",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "adequate",
+              "p_value",
+              "regular",
+              "converged",
+              "at_bound",
+              "notes"
+            ],
+            "title": "FitSummary",
+            "type": "object"
+          },
           "Hertz": {
             "additionalProperties": false,
             "properties": {
@@ -4682,6 +4742,10 @@
           "SceneRun": {
             "additionalProperties": false,
             "properties": {
+              "available": {
+                "title": "Available",
+                "type": "boolean"
+              },
               "run_id": {
                 "pattern": "^run_[0-9]{6}$",
                 "title": "Run Id",
@@ -4694,7 +4758,8 @@
             },
             "required": [
               "run_id",
-              "stale"
+              "stale",
+              "available"
             ],
             "title": "SceneRun",
             "type": "object"
@@ -4731,6 +4796,16 @@
         },
         "additionalProperties": false,
         "properties": {
+          "fit": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/FitSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "hidden": {
             "title": "Hidden",
             "type": "integer"
@@ -4841,6 +4916,7 @@
           "phi",
           "phi_source",
           "run",
+          "fit",
           "visible",
           "hidden",
           "top_residuals",
@@ -4911,6 +4987,66 @@
               "unit"
             ],
             "title": "Degrees",
+            "type": "object"
+          },
+          "FitSummary": {
+            "additionalProperties": false,
+            "description": "The active run's verdict on itself (D16, round 35): read it before trusting the picture.",
+            "properties": {
+              "adequate": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Adequate"
+              },
+              "at_bound": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "At Bound",
+                "type": "array"
+              },
+              "converged": {
+                "title": "Converged",
+                "type": "boolean"
+              },
+              "notes": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Notes",
+                "type": "array"
+              },
+              "p_value": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "P Value"
+              },
+              "regular": {
+                "title": "Regular",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "adequate",
+              "p_value",
+              "regular",
+              "converged",
+              "at_bound",
+              "notes"
+            ],
+            "title": "FitSummary",
             "type": "object"
           },
           "Hertz": {
@@ -5044,10 +5180,6 @@
                 "title": "Id",
                 "type": "string"
               },
-              "label": {
-                "title": "Label",
-                "type": "string"
-              },
               "length": {
                 "$ref": "#/$defs/Angstrom"
               },
@@ -5076,7 +5208,6 @@
               "id",
               "spin_a",
               "spin_b",
-              "label",
               "residual",
               "length"
             ],
@@ -5110,6 +5241,10 @@
           "SceneRun": {
             "additionalProperties": false,
             "properties": {
+              "available": {
+                "title": "Available",
+                "type": "boolean"
+              },
               "run_id": {
                 "pattern": "^run_[0-9]{6}$",
                 "title": "Run Id",
@@ -5122,7 +5257,8 @@
             },
             "required": [
               "run_id",
-              "stale"
+              "stale",
+              "available"
             ],
             "title": "SceneRun",
             "type": "object"
@@ -5242,6 +5378,16 @@
             "title": "Draw Order",
             "type": "array"
           },
+          "fit": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/FitSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "highlights": {
             "items": {
               "pattern": "^(spn|cpl)_[0-9]{6}$",
@@ -5301,6 +5447,7 @@
           "phi",
           "phi_source",
           "run",
+          "fit",
           "camera",
           "viewport",
           "layers",

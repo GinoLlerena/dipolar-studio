@@ -39,6 +39,18 @@ from dipolar_app.session import Camera, SessionState, Vec3
 
 DEFAULT_PHI_DEG = 45.0
 DEFAULT_FOV_DEG = 45.0
+#: Numerically safe camera bounds (round 35): angles in degrees, lengths in Å.
+MIN_FOV_DEG, MAX_FOV_DEG = 1.0, 170.0
+MIN_NEAR, MAX_EXTENT = 1e-3, 1e6
+#: Labels in perception outputs are cut to this many characters (round 35): an output never
+#: grows with a label's full length, however long the document's labels are.
+MAX_LABEL_OUT = 64
+
+
+def short(label: str) -> str:
+    return label if len(label) <= MAX_LABEL_OUT else label[: MAX_LABEL_OUT - 1] + "…"
+
+
 #: The auto-fitted camera keeps the molecule's bounding sphere inside the view with this margin.
 FIT_MARGIN = 1.15
 
@@ -66,18 +78,25 @@ def _unit(a: Vec3) -> Vec3:
 
 
 def check_camera(camera: Camera) -> str | None:
-    """Why ``camera`` cannot project, or None."""
+    """Why ``camera`` cannot project safely, or None."""
+    values = [*camera.position, *camera.target, *camera.up, camera.fov_deg, camera.near, camera.far]
+    if not all(math.isfinite(v) for v in values):
+        return "camera values must be finite"
+    if max(abs(v) for v in (*camera.position, *camera.target, camera.far)) > MAX_EXTENT:
+        return f"camera coordinates and planes must lie within {MAX_EXTENT:g} Å"
+    if not MIN_FOV_DEG <= camera.fov_deg <= MAX_FOV_DEG:
+        return f"the field of view must be between {MIN_FOV_DEG:g} and {MAX_FOV_DEG:g} degrees"
+    if not MIN_NEAR <= camera.near:
+        return f"the near plane must be at least {MIN_NEAR:g} Å"
     forward = _sub(camera.target, camera.position)
-    if not _dot(forward, forward) > 0:
+    if not _dot(forward, forward) > 1e-12:
         return "the camera position and target coincide"
-    if not _dot(camera.up, camera.up) > 0:
+    if not _dot(camera.up, camera.up) > 1e-12:
         return "the up vector is zero"
     side = _cross(forward, camera.up)
     if not _dot(side, side) > 1e-12 * _dot(forward, forward) * _dot(camera.up, camera.up):
         return "the up vector is parallel to the viewing direction"
-    if not 0 < camera.fov_deg < 180:
-        return "the field of view must be between 0 and 180 degrees"
-    if not 0 < camera.near < camera.far:
+    if not camera.near < camera.far:
         return "the planes need 0 < near < far"
     return None
 
@@ -90,6 +109,8 @@ def project(camera: Camera, width: int, height: int, points: Sequence[Vec3]) -> 
     up = _cross(side, forward)
     t = math.tan(math.radians(camera.fov_deg) / 2.0)
     aspect = width / height
+    if not (t > 0 and math.isfinite(t)):
+        raise ValueError("the field of view cannot project")
     out = []
     for p in points:
         v = _sub(p, camera.position)
@@ -174,6 +195,7 @@ def geometry(project: Project, phi_deg: float) -> tuple[list[str], list[str], li
 
 
 def displayed_phi(state: SessionState, result: dict[str, Any] | None, current: bool) -> tuple[float, PhiSource]:
+    """φ from the run only when the run is current *and* its result is readable."""
     project = state.project
     assert project is not None
     if result is not None and current:
@@ -186,26 +208,42 @@ def displayed_phi(state: SessionState, result: dict[str, Any] | None, current: b
     return DEFAULT_PHI_DEG, "default"
 
 
+def _fit_summary(result: dict[str, Any]) -> dict[str, Any]:
+    v = result["validity"]
+    return {
+        "adequate": result["adequate"],
+        "p_value": result["p_value"],
+        "regular": v["regular"],
+        "converged": v["converged"],
+        "at_bound": list(v["at_bound"]),
+        "notes": [short(n) for n in result["notes"]][:8],
+    }
+
+
 def build_scene(state: SessionState, blobs: Any) -> dict[str, Any]:
     """The scene as plain JSON-ready data (validated by ``render.scene``'s output model)."""
     prj = state.project
     assert prj is not None
     run, result = _active_run(state, blobs)
     current = run is not None and run.science_revision == state.science_revision
-    phi, source = displayed_phi(state, result, current)
+    # A current run whose result cannot be read is reported as unavailable, never shown as the
+    # fit (round 35).
+    usable = current and result is not None
+    phi, source = displayed_phi(state, result, usable)
     ids, elements, coords, bonds = geometry(prj, phi)
     width, height = state.view.viewport
     camera = state.view.camera or auto_camera(coords, width, height)
     projected = project(camera, width, height, coords)
-    residuals = {c["id"]: c["residual"]["value"] for c in result["couplings"]} if result and current else {}
-    labels = {s.id: s.label for s in prj.molecule.spins}
+    residuals = {c["id"]: c["residual"]["value"] for c in result["couplings"]} if usable and result else {}
+    labels = {s.id: short(s.label) for s in prj.molecule.spins}
     position = dict(zip(ids, coords, strict=True))
     return {
         "science_revision": state.science_revision,
         "workspace_revision": state.workspace_revision,
         "phi": {"value": phi, "unit": "deg"},
         "phi_source": source,
-        "run": None if run is None else {"run_id": run.id, "stale": not current},
+        "run": None if run is None else {"run_id": run.id, "stale": not current, "available": result is not None},
+        "fit": _fit_summary(result) if usable and result else None,
         "camera": {
             "position": {"xyz": list(camera.position), "unit": "Å"},
             "target": {"xyz": list(camera.target), "unit": "Å"},
@@ -237,7 +275,6 @@ def build_scene(state: SessionState, blobs: Any) -> dict[str, Any]:
                 "id": c.id,
                 "spin_a": c.spin_a,
                 "spin_b": c.spin_b,
-                "label": prj.coupling_label(c),
                 "residual": None if c.id not in residuals else {"value": residuals[c.id], "unit": "Hz"},
                 "length": {"value": math.dist(position[c.spin_a], position[c.spin_b]), "unit": "Å"},
             }
@@ -350,6 +387,11 @@ def parity_fixtures() -> dict[str, Any]:
     case("oblique, z up, with clipping", oblique, 640, 480, off, off_ids, False)
     tight = Camera((0.0, 12.0, 0.0), (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), 20.0, 11.0, 13.0)
     case("near and far clip", tight, 500, 500, off, off_ids, False)
+    # Equal depths in an order that is not the ID order: the tie-break must sort by ID (round 35).
+    ring: list[Vec3] = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (-1.0, 0.0, 0.0), (0.0, -1.0, 0.0), (0.5, 0.5, -2.0)]
+    scrambled = ["spn_000004", "spn_000002", "spn_000003", "spn_000001", "atm_000009"]
+    front = Camera((0.0, 0.0, 10.0), (0.0, 0.0, 0.0), (0.0, 1.0, 0.0), 45.0, 1.0, 50.0)
+    case("equal depths, scrambled IDs", front, 300, 300, ring, scrambled, False)
     return {
         "description": "Projection parity fixtures (04 §8.4), generated by dipolar_app.scene.parity_fixtures",
         "tolerance_px": 1e-9,

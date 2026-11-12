@@ -24,7 +24,7 @@ from pydantic import Field
 from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.project import Project
 from dipolar_app.registry import Context
-from dipolar_app.scene import build_scene, check_camera, render_svg
+from dipolar_app.scene import build_scene, check_camera, render_svg, short
 from dipolar_app.schemas import Angstrom, Degrees, Hertz, ObjectId, RunIdStr, Wire
 from dipolar_app.session import WORKSPACE, Camera, Event, SessionState
 
@@ -189,9 +189,8 @@ class SceneBond(Wire):
 
 class SceneCoupling(Wire):
     id: ObjectId
-    spin_a: ObjectId
+    spin_a: ObjectId  # labels are on the atoms (never repeated per coupling; round 35)
     spin_b: ObjectId
-    label: str
     residual: Hertz | None  # from the active run, when it is current
     length: Angstrom
 
@@ -219,7 +218,19 @@ class SceneViewport(Wire):
 
 class SceneRun(Wire):
     run_id: RunIdStr
-    stale: bool
+    stale: bool  # computed before the latest science change
+    available: bool  # false: its stored result cannot be read (round 35)
+
+
+class FitSummary(Wire):
+    """The active run's verdict on itself (D16, round 35): read it before trusting the picture."""
+
+    adequate: bool | None
+    p_value: float | None
+    regular: bool
+    converged: bool
+    at_bound: tuple[str, ...]
+    notes: tuple[str, ...]
 
 
 class SceneIn(Wire):
@@ -232,6 +243,7 @@ class SceneOut(Wire):
     phi: Degrees
     phi_source: Literal["run", "imported", "default"]
     run: SceneRun | None
+    fit: FitSummary | None  # the current, readable run's validity; None otherwise
     camera: SceneCamera
     viewport: SceneViewport
     layers: SceneLayers
@@ -243,12 +255,12 @@ class SceneOut(Wire):
     highlights: tuple[ObjectId, ...]
 
 
-def _scene(ctx: Context) -> tuple[SessionState, SceneOut]:
-    state = ctx.read()
+def _scene(ctx: Context, state: SessionState) -> SceneOut:
+    """The scene of exactly ``state`` (one snapshot per call; round 35)."""
     _require(state)
     try:
-        return state, SceneOut.model_validate(build_scene(state, ctx.session.blobs))
-    except ValueError as exc:
+        return SceneOut.model_validate(build_scene(state, ctx.session.blobs))
+    except (ValueError, ArithmeticError) as exc:
         raise OperationError(
             ErrorCode.INVALID_ARGUMENT,
             f"the view cannot be projected: {exc}",
@@ -257,7 +269,7 @@ def _scene(ctx: Context) -> tuple[SessionState, SceneOut]:
 
 
 def render_scene(ctx: Context, _: SceneIn) -> SceneOut:
-    return _scene(ctx)[1]
+    return _scene(ctx, ctx.read())
 
 
 class SvgIn(Wire):
@@ -273,7 +285,7 @@ class SvgOut(Wire):
 
 
 def render_view_svg(ctx: Context, _: SvgIn) -> SvgOut:
-    scene = _scene(ctx)[1]
+    scene = _scene(ctx, ctx.read())
     return SvgOut(
         science_revision=scene.science_revision,
         workspace_revision=scene.workspace_revision,
@@ -310,6 +322,7 @@ class DescribeViewOut(Wire):
     phi: Degrees | None
     phi_source: Literal["run", "imported", "default"] | None
     run: SceneRun | None  # the run the view reflects
+    fit: FitSummary | None
     visible: tuple[str, ...]  # the visible atoms, far to near
     hidden: int  # atoms outside the view
     top_residuals: Annotated[tuple[ResidualOut, ...], Field(max_length=TOP_RESIDUALS)]
@@ -322,7 +335,7 @@ def selected(project: Project | None, ids: tuple[str, ...]) -> tuple[SelectedObj
         found = project.label_of(object_id) if project else None
         if found is not None:
             kind, label = found
-            out.append(SelectedObject(id=object_id, kind="spin" if kind == "spin" else "coupling", label=label))
+            out.append(SelectedObject(id=object_id, kind="spin" if kind == "spin" else "coupling", label=short(label)))
     return tuple(out)
 
 
@@ -343,33 +356,47 @@ def describe_view(ctx: Context, _: DescribeViewIn) -> DescribeViewOut:
             phi=None,
             phi_source=None,
             run=None,
+            fit=None,
             visible=(),
             hidden=0,
             top_residuals=(),
             warnings=("no project is open",),
         )
-    scene = _scene(ctx)[1]
+    scene = _scene(ctx, state)
     warnings: list[str] = []
     if scene.run is None:
         warnings.append("no fit has run: the torsion shown is not a result")
     elif scene.run.stale:
         warnings.append(f"{scene.run.run_id} was computed before the latest science change: it is stale")
+    elif not scene.run.available:
+        warnings.append(f"the stored result of {scene.run.run_id} cannot be read: it is not shown")
+    fit = scene.fit
+    if fit is not None:
+        if fit.adequate is False:
+            warnings.append(f"the fit is inadequate under the stated σ (p = {fit.p_value:.3g})")
+        if not fit.regular:
+            warnings.append("the optimum is not regular: no standard errors or intervals apply")
+        if fit.at_bound:
+            warnings.append(f"the optimum lies on a bound ({', '.join(fit.at_bound)})")
     if scene.phi_source != "run":
         warnings.append(f"the torsion shown ({scene.phi.value:.1f}°) is the {scene.phi_source} value, not a fit")
     hidden = sum(not a.screen.visible for a in scene.atoms)
     if hidden:
         warnings.append(f"{hidden} atoms are outside the view")
     with_residual = [(c, c.residual) for c in scene.couplings if c.residual is not None]
-    ranked = sorted(with_residual, key=lambda pair: -abs(pair[1].value))
+    ranked = sorted(with_residual, key=lambda pair: (-abs(pair[1].value), pair[0].id))
+    atom_label = {a.id: a.label for a in scene.atoms}  # already cut to MAX_LABEL_OUT
     return DescribeViewOut(
         **base,
         phi=scene.phi,
         phi_source=scene.phi_source,
         run=scene.run,
+        fit=fit,
         visible=scene.draw_order,
         hidden=hidden,
         top_residuals=tuple(
-            ResidualOut(id=c.id, label=c.label, residual=residual) for c, residual in ranked[:TOP_RESIDUALS]
+            ResidualOut(id=c.id, label=f"{atom_label[c.spin_a]}–{atom_label[c.spin_b]}", residual=residual)
+            for c, residual in ranked[:TOP_RESIDUALS]
         ),
         warnings=tuple(warnings),
     )

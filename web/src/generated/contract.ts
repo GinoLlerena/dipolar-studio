@@ -1,5 +1,5 @@
 // GENERATED FILE: do not edit. Regenerate with `uv run python tools/codegen/ts_contract.py`.
-// Source: packages/dipolar-app/registry.snapshot.json (sha256 dbfe011a8278bbf0630e9091fc0f2791b2dee11827308f1f83e648c3296b8e00).
+// Source: packages/dipolar-app/registry.snapshot.json (sha256 71bfde1b145fcf93ca2e2f6dc45ca3871674b43ba4a91d8b00df2dfe0858ddf7).
 // CI fails if this file is stale (tests/test_ts_contract.py).
 //
 // Value constraints that TypeScript cannot express (bounds, lengths, patterns) appear as doc
@@ -118,6 +118,15 @@ export type FitRunOut = {
   theta: NamedValue[];
   unidentified: NamedValue[][];
   validity: FitValidity;
+};
+
+export type FitSummary = {
+  adequate: boolean | null;
+  at_bound: string[];
+  converged: boolean;
+  notes: string[];
+  p_value: number | null;
+  regular: boolean;
 };
 
 export type FitValidity = {
@@ -324,7 +333,6 @@ export type SceneCamera = {
 export type SceneCoupling = {
   /** pattern "^(spn|cpl)_[0-9]{6}$" */
   id: string;
-  label: string;
   length: Angstrom;
   residual: Hertz | null;
   /** pattern "^(spn|cpl)_[0-9]{6}$" */
@@ -340,6 +348,7 @@ export type SceneLayers = {
 };
 
 export type SceneRun = {
+  available: boolean;
   /** pattern "^run_[0-9]{6}$" */
   run_id: string;
   stale: boolean;
@@ -904,6 +913,7 @@ export type DescribeViewIn = { [key: string]: never };
 
 /** `render.describe_view` output. */
 export type DescribeViewOut = {
+  fit: FitSummary | null;
   /** integer */
   hidden: number;
   highlights: SelectedObject[];
@@ -933,6 +943,7 @@ export type SceneOut = {
   camera: SceneCamera;
   couplings: SceneCoupling[];
   draw_order: string[];
+  fit: FitSummary | null;
   highlights: string[];
   layers: SceneLayers;
   phi: Degrees;
