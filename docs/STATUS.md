@@ -1,6 +1,6 @@
 # Status
 
-**The M2 exit audit passed: tag `m2-exit-audit`.** Every M2 exit criterion and every 04 §7 and
+**The M2 exit audit passed: tag `m2-exit-audit`.** Rounds 37 and 38 (three and two class-(A) findings, all about overstated evidence) were fixed; the round-38 fixes were not reviewed again, under the cap. Every M2 exit criterion and every 04 §7 and
 §8.6 check maps to a passing test, with the deviations recorded (SVG instead of PNG; the Python
 adapter's path stands in for the UI's until M3). The benchmark is published, and the robot now
 runs the full M2 scenario over HTTP. See [m2-exit-audit.md](validation/m2-exit-audit.md) and
@@ -194,7 +194,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 752 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 753 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
    (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity)
    ```

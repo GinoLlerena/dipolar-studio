@@ -20,7 +20,7 @@ also records where the evidence differs from the letter of the plan, and why. Th
 | Replay | Every journal record carries the science hash, and replay checks it per record (`session.replay_full`). `test_app_agent_safety`, `test_app_jobs` and `test_app_scene` assert `replay(journal) == session.state`. The robot test restarts the server and compares the science hash and revisions. | Pass |
 | Proposals | The robot, as the `agent` (propose tier), creates a two-step change set. The test accepts the dependency-closed subset `[0]` and is refused the non-closed `[1]` (`missing: [0]`). Also `test_app_agent_safety.py::test_only_dependency_closed_subsets_are_accepted`. | Pass |
 | Concurrency | `test_app_m2_exit.py::test_two_clients_at_the_same_revision_lose_no_update`: a human and the robot over HTTP at the same revision; the second edit gets `REVISION_CONFLICT` and the first stands. Also `test_app_dispatch.py::test_revision_conflict_mutates_nothing`. | Pass |
-| Perception | In the robot test, `render.describe_view` reflects the robot's `view.highlight` and `render.view_svg` draws it (`data-id`). The server half of "within 200 ms" is measured: highlight, then `describe_view`, median 5.1 ms and p95 5.9 ms. | Server half: pass. The browser half arrives with M3. |
+| Perception | In the robot test, `render.describe_view` reflects the robot's `view.highlight` and `render.view_svg` draws it (`data-id`). The server half of "within 200 ms" is measured: highlight, then `describe_view`, median 5.0 ms and p95 6.0 ms. | Server half: pass. The browser half arrives with M3. |
 | Contract | `test_app_m2_exit.py::test_every_operation_returns_the_same_envelope_on_both_adapters` runs one stateful sequence that covers the registry exactly and asserts each step's expected outcome. **Every one of the 32 operations succeeds at least once on both adapters**, including a human's `proposal.accept` and `proposal.reject` through the `user` credential. The only refusal is the one the step expects (the robot's non-human accept). Envelopes are identical over HTTP and in-process (timestamps normalized). A dispatcher that refused everything now fails the test (round 37). Also: the snapshot test, and `tests/test_ts_contract.py`. The serialization spike checks every example, result and dry run against the published schemas with an independent validator, **through the Python adapter only**. | Pass |
 
 **What the robot test does.** The stdlib-only robot runs in a clean process (`python -I`, no
@@ -30,8 +30,11 @@ virtualenv or `PYTHON*` variables), over HTTP only:
 3. it selects and highlights the worst coupling;
 4. it checks `describe_view` and the SVG, then exports.
 
-Its fit equals the Python adapter's within the frozen, quantity-specific tolerances (§8.6), and φ
-equals the frozen answer.
+Its fit equals the Python adapter's within the frozen, quantity-specific tolerances (§8.6). The
+comparison covers φ and the order parameters, χ², the predictions, the **standard errors**
+(`stderr_rtol`), the validity flags, ν, adequacy, the p-value, and the interval endpoints. φ also
+equals the frozen answer. `test_the_comparison_rejects_a_changed_result` proves that the
+comparison catches a changed standard error, interval, validity flag or p-value (round 38).
 
 **Deviations, recorded:**
 - **No PNG.** The §7 tutorial says "render a PNG". The beta renders SVG (`render.view_svg`), and
@@ -82,7 +85,8 @@ the JSON (round 37 rerun). The fixture is the synthetic biphenyl problem
 
 **A thread-limit experiment, not a core-scaling study** (round 37). The kernel ran with the OMP,
 OpenBLAS, MKL and vecLib thread variables set to 1 and compared against the inherited environment.
-The differences are within run-to-run noise. The BLAS backend's effective thread counts are not
+The observed differences are small (a few percent). Whether they are only noise is a hypothesis:
+each setting ran in one process, so run-to-run variation was not measured (round 38). The BLAS backend's effective thread counts are not
 recorded, and the HTTP timings ran only in the inherited environment.
 
 | End to end (`dipolar serve`, HTTP on loopback) | Value |
@@ -139,3 +143,14 @@ or documented above:
 | 4 | B | **The core comparison claimed more than it tested.** | It is relabelled as a thread-limit experiment, with its environment recorded. |
 | 5 | B | **The server's peak memory was not measured.** | Declared as not measured; the MiB figures are rounded correctly. |
 | 6 | B | **Performance attributions were stated as fact.** | Labelled as hypotheses. |
+
+## Validation: round 38 (final under the cap)
+
+Round 38 verified the six round-37 responses, including both mutations, and found three more
+items. All are fixed and, under the two-round cap, **not reviewed again**.
+
+| # | Class | Finding | Resolution |
+|---|---|---|---|
+| 1 | A | **The robot comparison omitted the standard errors.** An HTTP-only mutation that multiplied them by 10⁶ passed. | `assert_same_science` now compares the standard errors (`stderr_rtol`), the validity flags, ν, adequacy and the p-value. `test_the_comparison_rejects_a_changed_result` checks that it rejects changed standard errors, intervals, validity flags and p-values. |
+| 2 | A | **One table kept obsolete perception timings** (5.1 and 5.9 ms). | Updated from the committed JSON to 5.0 and 6.0 ms. |
+| 3 | B | **"Within run-to-run noise" was asserted without being measured.** | Relabelled as a hypothesis: run-to-run variation was not measured. |

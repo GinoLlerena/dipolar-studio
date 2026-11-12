@@ -74,6 +74,15 @@ def assert_same_science(a: dict[str, Any], b: dict[str, Any]) -> None:
     for x, y in zip(a["couplings"], b["couplings"], strict=True):
         assert x["id"] == y["id"]
         assert x["calculated"]["value"] == pytest.approx(y["calculated"]["value"], abs=tol["predictions_atol_Hz"])
+    # Standard errors, validity and adequacy are part of the result too (round 38).
+    assert (a["stderr"] is None) == (b["stderr"] is None)
+    if a["stderr"] is not None:
+        for x, y in zip(a["stderr"], b["stderr"], strict=True):
+            assert x["name"] == y["name"] and x["value"] == pytest.approx(y["value"], rel=tol["stderr_rtol"])
+    assert a["validity"] == b["validity"] and (a["nu"], a["adequate"]) == (b["nu"], b["adequate"])
+    assert (a["p_value"] is None) == (b["p_value"] is None)
+    if a["p_value"] is not None:
+        assert a["p_value"] == pytest.approx(b["p_value"], rel=tol["objective_rtol"])
     endpoint = {"phi_deg": tol["phi_interval_endpoint_atol_deg"], "Szz": tol["S_interval_endpoint_atol"]}
     endpoint["Delta"] = endpoint["Szz"]
     for x, y in zip(a["intervals"], b["intervals"], strict=True):
@@ -81,6 +90,26 @@ def assert_same_science(a: dict[str, Any], b: dict[str, Any]) -> None:
         if x["supported"]:
             assert x["lower"] == pytest.approx(y["lower"], abs=endpoint[x["parameter"]])
             assert x["upper"] == pytest.approx(y["upper"], abs=endpoint[x["parameter"]])
+
+
+def test_the_comparison_rejects_a_changed_result() -> None:
+    """The robot's comparison is not vacuous: standard errors, intervals or validity that differ
+    fail it (round 38: a 10⁶× standard error had passed)."""
+    import copy
+
+    fit = python_path()["fit"]
+    assert_same_science(fit, copy.deepcopy(fit))
+    mutations = [
+        lambda f: f["stderr"][0].update(value=f["stderr"][0]["value"] * 1e6),
+        lambda f: f["intervals"][0].update(upper=f["intervals"][0]["upper"] + 1.0),
+        lambda f: f["validity"].update(regular=not f["validity"]["regular"]),
+        lambda f: f.update(p_value=f["p_value"] * 2),
+    ]
+    for mutate in mutations:
+        changed = copy.deepcopy(fit)
+        mutate(changed)
+        with pytest.raises(AssertionError):
+            assert_same_science(changed, fit)
 
 
 def test_the_robot_completes_the_m2_scenario_over_http_only(tmp_path: Path, clean_env: dict[str, str]) -> None:
