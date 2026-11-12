@@ -40,7 +40,7 @@ import uvicorn
 from dipolar_app.auth import LAUNCH_CODE_TTL_S, Credentials
 from dipolar_app.http import create_app
 from dipolar_app.jobs import JobRunner
-from dipolar_app.journal import Journal
+from dipolar_app.journal import Journal, make_durable_dirs
 from dipolar_app.operations import build_registry
 from dipolar_app.policy import Principal, Tier
 from dipolar_app.registry import CONTRACT_VERSION
@@ -181,7 +181,7 @@ def _exit_on_sigterm(signum: int, frame: object) -> None:
 
 
 def serve(project_dir: Path, ready_file: Path, static_dir: Path | None, *, open_browser: bool = False) -> None:
-    project_dir.mkdir(parents=True, exist_ok=True)
+    make_durable_dirs(project_dir)  # every new directory is fsynced into its parent (round 34)
     lock_fd = lock_project(project_dir)  # before anything that touches the journal or the ready file
     # Holding the lock proves no live instance owns an existing ready file: it is stale (a crash).
     ready_file.unlink(missing_ok=True)

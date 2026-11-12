@@ -416,6 +416,7 @@ class BlobStore:
     def __init__(self, directory: Path | None) -> None:
         self.directory = directory
         self._memory: dict[str, str] = {}
+        self._mkdir_lock = threading.Lock()
 
     def put(self, data: dict[str, Any]) -> str:
         text = canonical_json(data)
@@ -426,9 +427,10 @@ class BlobStore:
         target = self.directory / f"{digest}.json"
         if self.text(digest) == text:
             return digest  # already stored intact; a damaged file is rewritten below (round 33)
-        if not self.directory.exists():
-            self.directory.mkdir(mode=0o700)
-            fsync_dir(self.directory.parent)  # the new directory itself is durable (round 33)
+        with self._mkdir_lock:  # one creator; the others wait until the directory is durable (round 34)
+            if not self.directory.exists():
+                self.directory.mkdir(mode=0o700)
+                fsync_dir(self.directory.parent)  # the new directory itself is durable (round 33)
         tmp = self.directory / f".{digest}.{uuid.uuid4().hex}.tmp"
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
@@ -452,7 +454,7 @@ class BlobStore:
         path = self.directory / f"{digest}.json"
         try:
             text = path.read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeDecodeError):  # missing, unreadable or not even UTF-8: damaged (round 34)
             return None
         return text if hashlib.sha256(text.encode()).hexdigest() == digest else None
 
@@ -507,6 +509,9 @@ class Session:
                 self._live.pop(job_id, None)
                 self._changed.notify_all()
                 return
+            job = self._state.job(job_id)
+            if job is None or job.status in TERMINAL:
+                return  # a finished (e.g. cancelled) job never goes back to "running" (round 34)
             self._live[job_id] = status
             self._publish({"kind": "job", "job_id": job_id, "status": status})
 

@@ -75,12 +75,15 @@ def compute(kind: str, project_json: str, options: dict[str, Any], revision: int
     return result.model_dump(mode="json")
 
 
-def _child(path: str, args: tuple[str, str, dict[str, Any], int, str]) -> None:
-    """The entry point of a worker process. It writes its outcome to ``path`` and exits; the parent
-    reads the file only after the process has exited, so a partial write can never block it
-    (round 33)."""
+def _child(input_path: str, path: str) -> None:
+    """The entry point of a worker process. It reads its input from ``input_path`` (so starting it
+    sends only two short paths through the spawn pipe, round 34), writes its outcome to ``path``
+    and exits; the parent reads the file only after the process has exited, so a partial write
+    can never block it (round 33)."""
     try:
-        outcome: list[Any] = ["ok", compute(*args)]
+        with open(input_path, encoding="utf-8") as handle:
+            kind, project_json, options, revision, science_hash = json.load(handle)
+        outcome: list[Any] = ["ok", compute(kind, project_json, options, revision, science_hash)]
     except OperationError as exc:
         outcome = ["error", exc.code.value, exc.message]
     except BaseException as exc:  # reported to the parent, which fails the job
@@ -89,8 +92,14 @@ def _child(path: str, args: tuple[str, str, dict[str, Any], int, str]) -> None:
         json.dump(outcome, handle, allow_nan=False)
 
 
+#: The largest outcome file the parent reads (a fit result is tens of kilobytes; round 34).
+MAX_OUTCOME_BYTES = 16 << 20
+
+
 def _read_outcome(path: str, exitcode: int | None) -> Outcome:
     try:
+        if os.path.getsize(path) > MAX_OUTCOME_BYTES:
+            return ("error", "INTERNAL", f"the worker's result exceeds {MAX_OUTCOME_BYTES} bytes")
         with open(path, encoding="utf-8") as handle:
             message = json.load(handle)
     except (OSError, ValueError):
@@ -255,9 +264,11 @@ class JobRunner:
             except Exception as exc:
                 return ("error", "INTERNAL", f"the computation failed ({type(exc).__name__})")
             return ("cancelled",) if task.cancel.is_set() else ("ok", result)
-        workdir = tempfile.mkdtemp(prefix="dipolar-job-")
-        path = os.path.join(workdir, "outcome.json")
-        process = multiprocessing.get_context("spawn").Process(target=_child, args=(path, args), daemon=True)
+        workdir = tempfile.mkdtemp(prefix="dipolar-job-")  # private: mode 0700
+        input_path, path = os.path.join(workdir, "input.json"), os.path.join(workdir, "outcome.json")
+        with open(input_path, "w", encoding="utf-8") as handle:
+            json.dump(list(args), handle)
+        process = multiprocessing.get_context("spawn").Process(target=_child, args=(input_path, path), daemon=True)
         deadline = time.monotonic() + JOB_TIMEOUT_S
         try:
             process.start()

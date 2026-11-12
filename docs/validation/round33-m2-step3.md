@@ -24,6 +24,21 @@ The reviewer's other checks passed:
 | 8 | A | **An accepted fit reported `proposed_by: null`.** The proposer was stamped on the event after the step's result had been built, and an idempotent retry stored the wrong answer. | Acceptance re-reads every reported job from the state that the stamped events produce. Test: `test_an_accepted_fit_reports_its_proposer`. |
 | 9 | B | **Blob storage is not bounded by state pruning.** Pruned runs and dropped late results leave blobs on disk. | Documented. Garbage collection must keep every blob that a journal record references (replay verifies them), so it belongs with journal snapshots and compaction. |
 
+## Round 34 (final under the cap): NOT READY (five A, one B), on commit 81a78df
+
+The reviewer confirmed the following held up: worker recovery, stream-slot cleanup, listener lock
+ordering, paired snapshots, the wait cap and proposer stamping. Five siblings were found. All are
+fixed and mutation-checked, and, under the two-round cap, **not reviewed again**.
+
+| # | Class | Finding | Resolution |
+|---|---|---|---|
+| 1 | A | **Spawning still sent the project through a pipe.** `Process.start()` pickled the input snapshot into the bootstrap pipe, so a stalled child could block before any timeout. | The input goes to a private file (the 0700 temporary directory), and the process receives two short paths. Test: `test_a_worker_receives_its_input_through_a_file`. |
+| 2 | A | **Two first results could race to create `runs/`.** One got `FileExistsError`, and its valid job failed. | The directory is created and its parent fsynced under a lock, so other publishers wait until it is durable. Test: `test_concurrent_first_publications_both_succeed`. |
+| 3 | A | **Non-UTF-8 damage defeated the repair.** `text()` raised `UnicodeDecodeError`. | A decoding failure counts as damage, and the blob is rewritten. Test: `test_a_blob_that_is_not_utf8_is_treated_as_damaged`. |
+| 4 | A | **Progress could go from `cancelled` back to `running`.** A cancel committed between the worker's check and `set_live`. | `set_live` checks the job under the same lock that publishes commits, and never announces progress for a finished or missing job. Test: `test_a_finished_job_never_goes_back_to_running`. |
+| 5 | A | **New project directories were not durable.** `serve` created the project directory and missing ancestors without fsyncing their parents. | `make_durable_dirs` creates each missing directory (mode 0700) and fsyncs its parent before any work is accepted. Test: `test_new_project_directories_are_made_durable`. |
+| 6 | B | **Outcome size was unbounded.** The parent loaded the whole outcome file. | The parent refuses an outcome above 16 MiB before loading it. Test: `test_an_oversized_outcome_is_refused`. |
+
 ## Documented limits (B)
 
 - **Blob growth** (finding 9).
@@ -32,5 +47,9 @@ The reviewer's other checks passed:
 - **Thread mode** (tests only) cannot interrupt a running computation; its late result is dropped.
 - **No progress beyond `running`.** The fitter exposes no progress callback.
 - **Waits beyond the cap** return at once rather than queueing.
+- **Outcome parsing** reads up to 16 MiB in the server process, without checking for cancellation
+  while it parses (round 34).
+- **Directory durability rests on the platform's fsync.** It was checked by instrumentation; power
+  loss was not simulated, consistent with the beta scope (spike 4).
 - **The event stream starts again on every boot.** A client resyncs (the `boot_id` changes), and
   entries older than the last 1000 are dropped, which also triggers a resync.

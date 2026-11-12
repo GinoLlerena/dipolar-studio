@@ -59,6 +59,19 @@ def fsync_dir(path: Path) -> None:
         os.close(dir_fd)
 
 
+def make_durable_dirs(path: Path) -> None:
+    """Create ``path`` and its missing ancestors, fsyncing each new directory's parent, so that the
+    directory holding acknowledged records survives a power loss (round 34)."""
+    missing: list[Path] = []
+    current = path
+    while not current.exists():
+        missing.append(current)
+        current = current.parent
+    for directory in reversed(missing):
+        directory.mkdir(mode=0o700, exist_ok=True)
+        fsync_dir(directory.parent)
+
+
 def _verify_line(number: int, raw: bytes) -> dict[str, Any]:
     try:
         stored = json.loads(raw)

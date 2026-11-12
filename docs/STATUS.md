@@ -1,5 +1,15 @@
 # Status
 
+**M2 step 3 (jobs, D11 runs, the authenticated event stream) is done: tag `m2-step3`.**
+- `fit.run` returns a job at once; the fit runs in a supervised worker process.
+- Results are durable runs, verified by hash and reported `stale` after an edit.
+- Agents propose fits.
+- `GET /api/v1/events` streams every change.
+
+Rounds 33 and 34 each returned NOT READY (eight and five class-(A) findings). All were fixed and
+mutation-checked; the round-34 fixes were not reviewed again, under the cap. See "Step 3" below
+and [round33-m2-step3.md](validation/round33-m2-step3.md).
+
 **M2 step 2 (idempotency keys, dry run, proposals, undo) is done: tag `m2-step2`.**
 - Commands take a `request_id` and are applied at most once, even across a restart.
 - Any command can be dry-run.
@@ -163,24 +173,28 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: M2 step 3, or the owner's choice
+## Resume here: M2 step 4, or the owner's choice
 
-**Stopping point: tag `m2-step2`.** Earlier stopping points: `m1-complete`, `m2-step1`,
-`m2-step1b`. To resume:
+**Stopping point: tag `m2-step3`.** Earlier stopping points: `m1-complete`, `m2-step1`,
+`m2-step1b`, `m2-step2`. To resume:
 
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 661 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 705 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
    (cd web && pnpm install --frozen-lockfile && pnpm run build)
    ```
 
 2. **The owner chooses** what comes next:
-   - **M2 step 3:** jobs as resources (`fit.run` becomes a job, with input snapshots and stale
-     results), D11 runs, the authenticated event stream, and compute proposals for agents.
-   - **the small batch:** GitHub Actions off Node 20, a licence file in the wheels, a Windows CI
-     job, caching interval evaluations.
+   - **M2 step 4:** the scene description, `describe_view` and the SVG renderer, with projection
+     parity (the last M2 step).
+   - **the small batch:**
+     - GitHub Actions off Node 20;
+     - a licence file in the wheels;
+     - a Windows CI job;
+     - caching interval evaluations;
+     - blob and journal compaction (the B limits of steps 2 and 3).
 3. Work under the medium plan (below): at most two review rounds per step, a fresh session per
    step.
 4. **When the registry changes,** regenerate the snapshot, then run
@@ -497,7 +511,7 @@ Tests: 461 pass (`-m "not slow"`), plus the slow coverage rerun.
 | 1. Science operations the beta UI needs | **done** (tag `m2-step1`); rounds 27–28, both fixed under the cap | |
 | 1b. TypeScript generated from the registry snapshot | **done** (tag `m2-step1b`); rounds 29–30, both fixed under the cap | |
 | 2. Idempotency, dry run, proposals, undo | **done** (tag `m2-step2`); rounds 31–32, both fixed under the cap | |
-| 3. Jobs, D11 runs, the authenticated event stream | — | |
+| 3. Jobs, D11 runs, the authenticated event stream | **done** (tag `m2-step3`); rounds 33–34, both fixed under the cap | |
 | 4. Scene description, `describe_view`, the SVG renderer | — | |
 
 The plan's step 1 is "operations the beta UI needs, with TypeScript generated from the
@@ -723,6 +737,16 @@ authenticated fetch (D10). Any tier may listen. The line kinds:
 - `resync`: entries were dropped, or belong to an earlier boot.
 
 The stream is a read: arguments and labels never appear in it. At most 8 streams may be open.
+
+**Validation:** rounds 33 and 34 each returned NOT READY (eight and five class-(A) findings). All
+were fixed and mutation-checked; the round-34 fixes were not reviewed again, under the cap. The
+fixes cover:
+- worker survival and bounded IPC;
+- durable directories and blob repair;
+- event-stream slots and consistent snapshots;
+- the wait cap, attribution, and progress ordering.
+
+See [round33-m2-step3.md](validation/round33-m2-step3.md).
 
 **Contract:** 0.4.0, because `fit.run`'s input and output changed. Tests:
 `tests/test_app_jobs.py` (17), with real worker processes and a cancel that kills one. 10

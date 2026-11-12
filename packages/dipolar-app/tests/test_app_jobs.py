@@ -530,3 +530,91 @@ def test_disconnected_event_streams_free_their_slots() -> None:
         return status[0]
 
     assert asyncio.run(run()) == 200
+
+
+# --------------------------------------------------------------------------- round 34
+def test_a_worker_receives_its_input_through_a_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Starting a worker sends two short paths through the spawn pipe, never the project."""
+    seen: list[tuple[Any, ...]] = []
+    real = jobs_module.multiprocessing.get_context
+
+    class Recording:
+        def Process(self, *a: Any, **k: Any) -> Any:
+            seen.append(tuple(k.get("args", ())))
+            return real("spawn").Process(*a, **k)
+
+    monkeypatch.setattr(jobs_module.multiprocessing, "get_context", lambda _m: Recording())
+    session = Session(Journal(tmp_path / "project.events.jsonl"), contract_version=CONTRACT_VERSION)
+    runner = JobRunner(session, mode="process")
+    try:
+        c = LocalClient(build_registry(), session, USER)
+        ok(c.call("project.open_example", OPEN))
+        assert wait(c, submit(c))["status"] == "succeeded"
+    finally:
+        runner.close()
+    ((input_path, outcome_path),) = seen
+    assert all(isinstance(x, str) and len(x) < 1024 for x in (input_path, outcome_path))
+
+
+def test_concurrent_first_publications_both_succeed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from dipolar_app import session as session_module
+    from dipolar_app.session import BlobStore
+
+    real = session_module.fsync_dir
+    monkeypatch.setattr(session_module, "fsync_dir", lambda p: (time.sleep(0.2), real(p))[1])  # widen the window
+    store = BlobStore(tmp_path / "runs")
+    barrier = threading.Barrier(2)
+    digests: list[str] = []
+    errors: list[BaseException] = []
+
+    def publish(k: int) -> None:
+        barrier.wait()
+        try:
+            digests.append(store.put({"k": k}))
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=publish, args=(k,)) for k in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors and len(digests) == 2 and all(store.text(d) is not None for d in digests)
+
+
+def test_a_blob_that_is_not_utf8_is_treated_as_damaged(tmp_path: Path) -> None:
+    from dipolar_app.session import BlobStore
+
+    store = BlobStore(tmp_path / "runs")
+    digest = store.put({"chi2": 1.0})
+    (tmp_path / "runs" / f"{digest}.json").write_bytes(b"\xff\xfe\x80")
+    assert store.text(digest) is None
+    assert store.put({"chi2": 1.0}) == digest and store.text(digest) is not None  # rewritten
+
+
+def test_a_finished_job_never_goes_back_to_running(gate: threading.Event) -> None:
+    s, c = opened()
+    job_id = submit(c)
+    s.wait_for(lambda _: s.live_status(job_id) == "running", 10)
+    ok(c.call("job.cancel", {"job_id": job_id}))
+    cursor = s.cursor
+    s.set_live(job_id, "running")  # a worker that checked before the cancel committed
+    assert s.cursor == cursor and ok(c.call("job.status", {"job_id": job_id}))["job"]["status"] == "cancelled"
+    gate.set()
+
+
+def test_new_project_directories_are_made_durable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from dipolar_app import journal as journal_module
+
+    synced: list[Path] = []
+    monkeypatch.setattr(journal_module, "fsync_dir", lambda p: synced.append(p))
+    journal_module.make_durable_dirs(tmp_path / "a" / "b" / "c")
+    assert (tmp_path / "a" / "b" / "c").is_dir()
+    assert synced == [tmp_path, tmp_path / "a", tmp_path / "a" / "b"]
+
+
+def test_an_oversized_outcome_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(jobs_module, "MAX_OUTCOME_BYTES", 100)
+    path = tmp_path / "outcome.json"
+    path.write_text(json.dumps(["ok", {"x": "y" * 200}]))
+    assert jobs_module._read_outcome(str(path), 0)[:2] == ("error", "INTERNAL")
