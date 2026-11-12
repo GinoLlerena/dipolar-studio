@@ -1,5 +1,7 @@
 # Dipolar Studio
 
+[![M8ven Score](https://m8ven.ai/badge/mcp/ginollerena-dipolar-studio-o2a1cz?v=d810f43779f322c57c176bca9ff149f4)](https://m8ven.ai/mcp/ginollerena-dipolar-studio-o2a1cz?s=readme)
+
 **Rescuing a 1998 graduation thesis with a new, AI-assisted implementation.**
 
 In 1998 **Gino Llerena and Marco Idrogo** wrote *Proyecto* as their joint graduation thesis,
