@@ -237,11 +237,29 @@ def test_projection_basics() -> None:
     assert all(p[3] for p in project(auto, 300, 600, pts))  # portrait: fitted to the narrow side
 
 
+def _same(a: Any, b: Any, rel: float, where: str = "") -> None:
+    """Equal structure, strings, booleans and draw orders; numbers within ``rel`` (the math
+    libraries of different platforms may round tan, sin and atan differently in the last bit)."""
+    if isinstance(a, bool) or isinstance(b, bool) or isinstance(a, str):
+        assert a == b, where
+    elif isinstance(a, int | float):
+        assert isinstance(b, int | float) and math.isclose(a, b, rel_tol=rel, abs_tol=rel), (where, a, b)
+    elif isinstance(a, dict):
+        assert isinstance(b, dict) and set(a) == set(b), where
+        for k in a:
+            _same(a[k], b[k], rel, f"{where}.{k}")
+    else:
+        assert isinstance(a, list) and isinstance(b, list) and len(a) == len(b), where
+        for i, (x, y) in enumerate(zip(a, b, strict=True)):
+            _same(x, y, rel, f"{where}[{i}]")
+
+
 def test_the_parity_fixtures_are_current() -> None:
-    current = json.dumps(parity_fixtures(), indent=1, sort_keys=True) + "\n"
+    current = parity_fixtures()
     if os.environ.get("DIPOLAR_UPDATE_SNAPSHOT") == "1":
-        FIXTURES.write_text(current, encoding="utf-8")
-    assert FIXTURES.read_text(encoding="utf-8") == current, "rerun with DIPOLAR_UPDATE_SNAPSHOT=1"
+        FIXTURES.write_text(json.dumps(current, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    committed = json.loads(FIXTURES.read_text(encoding="utf-8"))
+    _same(committed, current, committed["tolerance_px"])  # rerun with DIPOLAR_UPDATE_SNAPSHOT=1 if it fails
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
