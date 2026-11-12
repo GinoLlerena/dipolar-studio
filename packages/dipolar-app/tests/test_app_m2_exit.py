@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import ROBOT, ROOT, Server, client, expected, new_session, start_server, stop_server
+from conftest import ROBOT, ROOT, USER, Server, client, expected, new_session, start_server, stop_server
 from dipolar_app.operations import build_registry
 from dipolar_app.science_ops import ETHANE_XYZ, ethane_document
 
@@ -159,7 +159,8 @@ def normalized(value: Any) -> Any:
     return value
 
 
-Step = tuple[str, Callable[[int], dict[str, Any]]]
+#: (operation, arguments from the current science revision, credential, expected error or None).
+Step = tuple[str, Callable[[int], dict[str, Any]], str, str | None]
 JUMP = {
     "kind": "jump4",
     "order": "bisector-diagonal",
@@ -167,63 +168,91 @@ JUMP = {
     "phi_domain": [{"value": 0.0, "unit": "deg"}, {"value": 90.0, "unit": "deg"}],
 }
 CAMERA = build_registry().get("view.set_camera").examples[1]  # type: ignore[union-attr]
+CSV = "spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H3,-1124.6,0.5\n"
 EVERY_OPERATION: list[Step] = [
-    ("render.describe_view", lambda r: {}),
-    ("project.open_example", lambda r: {"name": "biphenyl-synthetic", "expected_science_revision": r}),
-    ("project.describe", lambda r: {}),
-    ("fit.preview", lambda r: {"phi": {"value": 37.0, "unit": "deg"}}),
-    ("view.select", lambda r: {"ids": ["cpl_000001"]}),
-    ("view.highlight", lambda r: {"ids": ["cpl_000002", "spn_000003"]}),
-    ("view.set_layers", lambda r: {"labels": True, "bonds": True, "couplings": False}),
-    ("view.set_camera", lambda r: dict(CAMERA)),
-    ("render.scene", lambda r: {}),
-    ("render.view_svg", lambda r: {}),
-    ("fit.run", lambda r: {"expected_science_revision": r}),
-    ("job.wait", lambda r: {"job_id": "job_000001", "timeout_s": 30}),
-    ("job.status", lambda r: {"job_id": "job_000001"}),
-    ("job.list", lambda r: {}),
-    ("run.list", lambda r: {}),
-    ("run.get", lambda r: {"run_id": "run_000001"}),
-    ("job.cancel", lambda r: {"job_id": "job_000001"}),
-    ("model.set", lambda r: {**JUMP, "expected_science_revision": r}),
-    ("history.log", lambda r: {}),
-    ("history.undo", lambda r: {"expected_science_revision": r}),
-    ("history.redo", lambda r: {"expected_science_revision": r}),
-    ("couplings.reconcile", lambda r: {"csv": "spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H3,-1124.6,0.5\n"}),
+    ("render.describe_view", lambda r: {}, "robot", None),
+    ("project.open_example", lambda r: {"name": "biphenyl-synthetic", "expected_science_revision": r}, "robot", None),
+    ("project.describe", lambda r: {}, "robot", None),
+    ("fit.preview", lambda r: {"phi": {"value": 37.0, "unit": "deg"}}, "robot", None),
+    ("view.select", lambda r: {"ids": ["cpl_000001"]}, "robot", None),
+    ("view.highlight", lambda r: {"ids": ["cpl_000002", "spn_000003"]}, "robot", None),
+    ("view.set_layers", lambda r: {"labels": True, "bonds": True, "couplings": False}, "robot", None),
+    ("view.set_camera", lambda r: dict(CAMERA), "robot", None),
+    ("render.scene", lambda r: {}, "robot", None),
+    ("render.view_svg", lambda r: {}, "robot", None),
+    ("fit.run", lambda r: {"expected_science_revision": r}, "robot", None),
+    ("job.wait", lambda r: {"job_id": "job_000001", "timeout_s": 30}, "robot", None),
+    ("job.status", lambda r: {"job_id": "job_000001"}, "robot", None),
+    ("job.list", lambda r: {}, "robot", None),
+    ("run.list", lambda r: {}, "robot", None),
+    ("run.get", lambda r: {"run_id": "run_000001"}, "robot", None),
+    ("job.cancel", lambda r: {"job_id": "job_000001"}, "robot", None),
+    ("model.set", lambda r: {**JUMP, "expected_science_revision": r}, "robot", None),
+    ("history.log", lambda r: {}, "robot", None),
+    ("history.undo", lambda r: {"expected_science_revision": r}, "robot", None),
+    ("history.redo", lambda r: {"expected_science_revision": r}, "robot", None),
+    ("couplings.reconcile", lambda r: {"csv": CSV}, "robot", None),
     (
         "couplings.import",
         lambda r: {
-            "csv": "spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H3,-1124.6,0.5\n",
+            "csv": CSV,
             "confirmed_mapping": {"H2": "spn_000001", "H3": "spn_000002"},
             "expected_science_revision": r,
         },
+        "robot",
+        None,
     ),
-    ("project.export", lambda r: {}),
-    ("proposal.create", lambda r: {"steps": [{"operation": "history.undo", "args": {"expected_science_revision": r}}]}),
-    ("proposal.list", lambda r: {}),
-    ("proposal.get", lambda r: {"proposal_id": "prp_000001"}),
-    ("proposal.accept", lambda r: {"proposal_id": "prp_000001"}),  # refused: the robot is not human
-    ("proposal.reject", lambda r: {"proposal_id": "prp_000001"}),  # refused likewise
-    ("project.load", lambda r: {"text": ethane_document(), "expected_science_revision": r}),
-    ("project.import_xyz", lambda r: {"xyz": ETHANE_XYZ, "name": "ethane", "expected_science_revision": r}),
-    ("molecule.set_torsion", lambda r: {"torsion": [2, 0, 1, 5], "expected_science_revision": r}),
+    ("project.export", lambda r: {}, "robot", None),
+    (
+        "proposal.create",
+        lambda r: {"steps": [{"operation": "history.undo", "args": {"expected_science_revision": r}}]},
+        "robot",
+        None,
+    ),
+    ("proposal.list", lambda r: {}, "robot", None),
+    ("proposal.get", lambda r: {"proposal_id": "prp_000001"}, "robot", None),
+    ("proposal.accept", lambda r: {"proposal_id": "prp_000001"}, "robot", "CAPABILITY_DENIED"),  # not human
+    ("proposal.accept", lambda r: {"proposal_id": "prp_000001"}, "user", None),  # the human accepts
+    (
+        "proposal.create",
+        lambda r: {"steps": [{"operation": "history.redo", "args": {"expected_science_revision": r}}]},
+        "robot",
+        None,
+    ),
+    ("proposal.reject", lambda r: {"proposal_id": "prp_000002", "reason": "keep it undone"}, "user", None),
+    ("project.load", lambda r: {"text": ethane_document(), "expected_science_revision": r}, "robot", None),
+    (
+        "project.import_xyz",
+        lambda r: {"xyz": ETHANE_XYZ, "name": "ethane", "expected_science_revision": r},
+        "robot",
+        None,
+    ),
+    ("molecule.set_torsion", lambda r: {"torsion": [2, 0, 1, 5], "expected_science_revision": r}, "robot", None),
 ]
 
 
 def test_every_operation_returns_the_same_envelope_on_both_adapters(server: Server) -> None:
-    """04 §7 "Contract": the registry's operations behave identically over HTTP and in-process."""
-    assert {name for name, _ in EVERY_OPERATION} == set(build_registry().names)
-    py = client(new_session(), ROBOT)
+    """04 §7 "Contract": every registry operation succeeds at least once in one stateful sequence,
+    with the expected outcome at every step, and gives identical envelopes over HTTP and in-process
+    (timestamps normalized). Refusals appear only where a step expects one (round 37)."""
+    names = set(build_registry().names)
+    assert {name for name, *_ in EVERY_OPERATION} == names
+    session = new_session()
+    py = {"robot": client(session, ROBOT), "user": client(session, USER)}
     revision = 0
-    for name, make in EVERY_OPERATION:
+    succeeded: set[str] = set()
+    for name, make, token, expect in EVERY_OPERATION:
         args = make(revision)
-        over_http = server.call(name, args, token="robot")
-        in_process = py.call(name, args)
+        over_http = server.call(name, args, token=token)
+        in_process = py[token].call(name, args)
         assert normalized(over_http) == normalized(in_process), name
-        if "revisions" in over_http:
+        if expect is None:
+            assert over_http["ok"], (name, over_http)
+            succeeded.add(name)
             revision = over_http["revisions"]["science"]
-        elif name == "proposal.accept":
-            assert over_http["error"]["code"] == "CAPABILITY_DENIED"
+        else:
+            assert over_http["error"]["code"] == expect, (name, over_http)
+    assert succeeded == names  # every operation's success path ran on both adapters
 
 
 def test_two_clients_at_the_same_revision_lose_no_update(server: Server) -> None:

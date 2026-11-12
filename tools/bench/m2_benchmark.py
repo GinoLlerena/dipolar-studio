@@ -119,7 +119,8 @@ def kernel(single_core: bool) -> dict[str, Any]:
     data = json.loads(out.stdout)
     scale = 1 if sys.platform == "darwin" else 1024  # ru_maxrss: bytes on macOS, KiB on Linux
     return {
-        "threads": "1 (OMP/BLAS pinned)" if single_core else "default",
+        "threads": "thread-limit variables set to 1" if single_core else "inherited environment",
+        "thread_environment": {k: env.get(k) for k in SINGLE},
         "cold_import_ms": 1000 * data["import_s"],
         "cold_first_fit_ms": 1000 * data["first_fit_s"],
         "warm_fit": _stats(data["warm_fit_s"]),
@@ -222,6 +223,7 @@ def end_to_end() -> dict[str, Any]:
             "highlight_then_describe_view": _stats(perception),
             "render_view_svg": _stats(svg_times),
             "server_rss_after_bytes": _rss_bytes(proc.pid),
+            "server_and_worker_peak_rss": "not measured (ps reports the current RSS of the server only)",
             "sizes_bytes": {
                 "run_result_blob": blob.stat().st_size,
                 "svg": len(svg.encode()),
@@ -248,11 +250,12 @@ def agreement(fit_result: dict[str, Any]) -> dict[str, Any]:
         "chi2_rel_diff": abs(fit_result["chi2"] - e["objective"]) / e["objective"],
         "tolerances": {k: tol[k] for k in ("phi_atol_deg", "S_atol", "objective_rtol")},
         "legacy": (
-            "The 1998 fit pipeline (MFC) is not compiled, so its acceptance rate is not measurable here; its "
-            "grid search accepts nearly every point (bug report B08). The 1998 solver routines are compiled by "
-            "tools/legacy-harness (CI job 'Legacy goldens'): 2 of 7 frozen cases are right there, and the new "
-            "engine's linear algebra (NumPy/SciPy) gets all 7. The fit semantics differ (D3: a bounded, refined "
-            "optimum with known-σ weighting), so legacy numbers are not a target."
+            "Legacy acceptance rate: NOT MEASURED. The 1998 grid search accepts a point when "
+            "|Dobs - Dcalc| <= 10*|Dobs| for every coupling (bug report B08, default allowance); the rate this "
+            "gives depends on the data and is not established. Measuring it needs the 1998 fit pipeline, which is "
+            "not compiled: tools/legacy-harness compiles only the 1998 solver routines (eigenvalues, linear "
+            "systems), which are wrong in 5 of their 7 frozen cases. The fit semantics differ (D3), so legacy "
+            "numbers are not a target."
         ),
     }
 
@@ -268,6 +271,15 @@ def main(argv: list[str] | None = None) -> int:
         "kernel": {"default_threads": kernel(False), "single_core": kernel(True)},
         "end_to_end_http": {k: v for k, v in e2e.items() if k != "fit_with_intervals"},
         "agreement": agreement(e2e["fit_with_intervals"]),
+        "notes": [
+            "single_core vs default_threads is a thread-limit experiment: the kernel run with the OMP, OpenBLAS, "
+            "MKL and vecLib thread variables set to 1 vs the inherited environment. The effective thread counts "
+            "of the BLAS backend are not recorded, and the HTTP timings ran in the inherited environment only.",
+            "Peak RSS is measured for the kernel process (ru_maxrss). The server's RSS is sampled once, after "
+            "the runs; the peaks of the server and of its worker processes are not measured.",
+            "Attributions of time (worker spawn, HTTP/registry overhead) are hypotheses: the components are "
+            "not timed separately.",
+        ],
         "perception_target": (
             "04 §8.6: 'within 200 ms' on named hardware; the server half is highlight_then_describe_view"
         ),

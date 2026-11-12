@@ -620,9 +620,23 @@ def test_an_oversized_outcome_is_refused(tmp_path: Path, monkeypatch: pytest.Mon
     assert jobs_module._read_outcome(str(path), 0)[:2] == ("error", "INTERNAL")
 
 
-def test_view_changes_during_a_running_fit_leave_science_and_run_untouched(gate: threading.Event) -> None:
-    """04 §8.6: view writes while a fit is running never touch the science or the run."""
+def test_view_changes_during_a_running_fit_leave_science_and_run_untouched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """04 §8.6: view writes while a fit is running never touch the science, the running fit's
+    result, or the runs already published (round 37: the result itself is compared)."""
     s, c = opened()
+    baseline = wait(c, submit(c))  # run_000001: the same inputs, no view changes
+    before_run = s.state.run(baseline["run_id"])
+    before_blob = s.blobs.text(before_run.result_sha256)  # type: ignore[union-attr]
+    release = threading.Event()
+    real = jobs_module.compute
+
+    def held(*args: Any) -> dict[str, Any]:
+        assert release.wait(30)
+        return real(*args)
+
+    monkeypatch.setattr(jobs_module, "compute", held)
     job_id = submit(c)
     s.wait_for(lambda _: s.live_status(job_id) == "running", 10)
     science = (s.state.science_revision, s.state.science_hash)
@@ -631,7 +645,12 @@ def test_view_changes_during_a_running_fit_leave_science_and_run_untouched(gate:
     ok(c.call("view.set_layers", {"labels": False, "bonds": True, "couplings": True}))
     ok(c.call("view.set_camera", {"camera": None, "viewport": {"width": 640, "height": 480}}))
     assert (s.state.science_revision, s.state.science_hash) == science and s.state.workspace_revision == 4
-    gate.set()
+    release.set()
     done = wait(c, job_id)
     assert done["status"] == "succeeded" and done["stale"] is False
-    assert ok(c.call("run.get", {"run_id": done["run_id"]}))["run"]["stale"] is False
+    held_result = ok(c.call("run.get", {"run_id": done["run_id"]}))
+    baseline_result = ok(c.call("run.get", {"run_id": baseline["run_id"]}))
+    assert held_result["run"]["stale"] is False
+    assert held_result["result"] == baseline_result["result"]  # the same fit, number for number
+    assert s.state.run(baseline["run_id"]) == before_run  # the published run is untouched
+    assert s.blobs.text(before_run.result_sha256) == before_blob  # type: ignore[union-attr]
