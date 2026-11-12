@@ -618,3 +618,20 @@ def test_an_oversized_outcome_is_refused(tmp_path: Path, monkeypatch: pytest.Mon
     path = tmp_path / "outcome.json"
     path.write_text(json.dumps(["ok", {"x": "y" * 200}]))
     assert jobs_module._read_outcome(str(path), 0)[:2] == ("error", "INTERNAL")
+
+
+def test_view_changes_during_a_running_fit_leave_science_and_run_untouched(gate: threading.Event) -> None:
+    """04 §8.6: view writes while a fit is running never touch the science or the run."""
+    s, c = opened()
+    job_id = submit(c)
+    s.wait_for(lambda _: s.live_status(job_id) == "running", 10)
+    science = (s.state.science_revision, s.state.science_hash)
+    ok(c.call("view.select", {"ids": ["cpl_000001"]}))
+    ok(c.call("view.highlight", {"ids": ["spn_000002"]}))
+    ok(c.call("view.set_layers", {"labels": False, "bonds": True, "couplings": True}))
+    ok(c.call("view.set_camera", {"camera": None, "viewport": {"width": 640, "height": 480}}))
+    assert (s.state.science_revision, s.state.science_hash) == science and s.state.workspace_revision == 4
+    gate.set()
+    done = wait(c, job_id)
+    assert done["status"] == "succeeded" and done["stale"] is False
+    assert ok(c.call("run.get", {"run_id": done["run_id"]}))["run"]["stale"] is False

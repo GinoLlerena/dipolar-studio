@@ -1,0 +1,125 @@
+{
+ "description": "M2 benchmark (plan \u00a78): timings, memory and sizes on the named hardware below",
+ "hardware": {
+  "cpu": "Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz",
+  "logical_cores": 12,
+  "memory_bytes": 34359738368,
+  "platform": "macOS-15.8.1-x86_64-i386-64bit",
+  "python": "3.12.3",
+  "numpy": "2.5.4",
+  "scipy": "1.18.1",
+  "commit": "9becad1"
+ },
+ "kernel": {
+  "default_threads": {
+   "threads": "default",
+   "cold_import_ms": 790.0842239978374,
+   "cold_first_fit_ms": 208.19489800123847,
+   "warm_fit": {
+    "n": 5,
+    "median_ms": 192.06805100111524,
+    "p95_ms": 218.1898100025137,
+    "min_ms": 191.24635199841578,
+    "max_ms": 218.1898100025137
+   },
+   "preview_kernel": {
+    "n": 300,
+    "median_ms": 0.2372030012338655,
+    "p95_ms": 0.26343799981987104,
+    "min_ms": 0.23102900013327599,
+    "max_ms": 0.3647269986686297
+   },
+   "peak_rss_bytes": 67039232,
+   "result": {
+    "phi_deg": 36.98502906869832,
+    "order": [
+     0.2500377728761341,
+     0.030532519623419574
+    ],
+    "chi2": 12.430391700074843
+   }
+  },
+  "single_core": {
+   "threads": "1 (OMP/BLAS pinned)",
+   "cold_import_ms": 778.2198940003582,
+   "cold_first_fit_ms": 192.98025199896074,
+   "warm_fit": {
+    "n": 5,
+    "median_ms": 189.2149809973489,
+    "p95_ms": 189.2679999982647,
+    "min_ms": 187.78668900267803,
+    "max_ms": 189.2679999982647
+   },
+   "preview_kernel": {
+    "n": 300,
+    "median_ms": 0.23521899856859818,
+    "p95_ms": 0.26302300102543086,
+    "min_ms": 0.22660299873678014,
+    "max_ms": 0.3660649999801535
+   },
+   "peak_rss_bytes": 66449408,
+   "result": {
+    "phi_deg": 36.98502906869832,
+    "order": [
+     0.2500377728761341,
+     0.030532519623419574
+    ],
+    "chi2": 12.430391700074843
+   }
+  }
+ },
+ "end_to_end_http": {
+  "server_start_ms": 675.1209030007885,
+  "first_preview_ms": 23.74146000147448,
+  "preview_http": {
+   "n": 200,
+   "median_ms": 24.025009999604663,
+   "p95_ms": 26.527851001446834,
+   "min_ms": 22.25049199842033,
+   "max_ms": 36.28511500210152
+  },
+  "fit_job_end_to_end": {
+   "n": 3,
+   "median_ms": 1831.0668789999909,
+   "p95_ms": 2469.514786000218,
+   "min_ms": 1764.0881420011283,
+   "max_ms": 2469.514786000218
+  },
+  "fit_job_with_intervals_ms": 7406.393512999784,
+  "highlight_then_describe_view": {
+   "n": 50,
+   "median_ms": 5.118772500281921,
+   "p95_ms": 5.898023999179713,
+   "min_ms": 4.527568999037612,
+   "max_ms": 6.799693997891154
+  },
+  "render_view_svg": {
+   "n": 50,
+   "median_ms": 2.4103324994939612,
+   "p95_ms": 2.9141369996068534,
+   "min_ms": 2.239483001176268,
+   "max_ms": 3.116363997833105
+  },
+  "server_rss_after_bytes": 81707008,
+  "sizes_bytes": {
+   "run_result_blob": 6557,
+   "svg": 4217,
+   "project_export": 10218,
+   "journal": 55930
+  }
+ },
+ "agreement": {
+  "against": "the frozen fixture from the independent reference implementation (tools/reference)",
+  "phi_deg_abs_diff": 2.363108819736226e-09,
+  "Szz_abs_diff": 6.57884857702129e-12,
+  "Delta_abs_diff": 2.8128215034950443e-11,
+  "chi2_rel_diff": 2.652304427306293e-13,
+  "tolerances": {
+   "phi_atol_deg": 0.0001,
+   "S_atol": 1e-06,
+   "objective_rtol": 1e-06
+  },
+  "legacy": "The 1998 fit pipeline (MFC) is not compiled, so its acceptance rate is not measurable here; its grid search accepts nearly every point (bug report B08). The 1998 solver routines are compiled by tools/legacy-harness (CI job 'Legacy goldens'): 2 of 7 frozen cases are right there, and the new engine's linear algebra (NumPy/SciPy) gets all 7. The fit semantics differ (D3: a bounded, refined optimum with known-\u03c3 weighting), so legacy numbers are not a target."
+ },
+ "perception_target": "04 \u00a78.6: 'within 200 ms' on named hardware; the server half is highlight_then_describe_view"
+}

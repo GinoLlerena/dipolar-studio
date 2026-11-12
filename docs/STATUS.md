@@ -1,5 +1,11 @@
 # Status
 
+**The M2 exit audit passed: tag `m2-exit-audit`.** Every M2 exit criterion and every 04 §7 and
+§8.6 check maps to a passing test, with the deviations recorded (SVG instead of PNG; the Python
+adapter's path stands in for the UI's until M3). The benchmark is published, and the robot now
+runs the full M2 scenario over HTTP. See [m2-exit-audit.md](validation/m2-exit-audit.md) and
+[m2-benchmark.json](validation/data/m2-benchmark.json).
+
 **M2, the application layer, is complete: tag `m2-complete`** (step 4, tag `m2-step4`). Step 4
 added the scene description, `render.describe_view` and the server-side SVG renderer. The
 browser's projection (`web/src/scene/projection.ts`) is checked against the Python renderer in CI.
@@ -188,7 +194,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 748 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 752 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
    (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity)
    ```
@@ -202,8 +208,6 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
      - a Windows CI job;
      - caching interval evaluations;
      - blob and journal compaction.
-   - **the M2 exit check:** the plan's M2 exit criteria (all §8.6 checks; replay reproduces the
-     science hash; a published benchmark). A short audit step before M3.
 3. Work under the medium plan (below): at most two review rounds per step, a fresh session per
    step.
 4. **When the registry changes,** regenerate the snapshot, then run
