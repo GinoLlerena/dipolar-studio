@@ -50,7 +50,7 @@ def test_every_operation_and_definition_is_emitted() -> None:
         assert f'  "{name}": {{ input: {inp}; output: {out} }};' in text
         assert f"export type {inp} = " in text and f"export type {out} = " in text
         assert f'  "{name}": {{ kind: "{op["kind"]}", ' in text
-        assert f"max_request_bytes: {op['max_request_bytes']} }}," in text
+        assert f"max_request_bytes: {op['max_request_bytes']}, proposable: {str(op['proposable']).lower()} }}," in text
         for definition in op["input_schema"].get("$defs", {}) | op["output_schema"].get("$defs", {}):
             assert f"export type {definition} = " in text or definition == "JsonValue"
     codes = SNAPSHOT["envelopes"]["error"]["$defs"]["ErrorCode"]["enum"]
@@ -98,6 +98,7 @@ def _snapshot(input_schema: dict[str, Any], output_schema: dict[str, Any] | None
                 "idempotent": True,
                 "revision_check": "none",
                 "max_request_bytes": 1024,
+                "proposable": False,
                 "examples": [],
                 "input_schema": {"title": "ProbeIn", **input_schema},
                 "output_schema": output_schema

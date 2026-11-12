@@ -70,7 +70,7 @@ KNOWN = STRUCTURAL | frozenset(DOCUMENTED) | IGNORED
 JSON_VALUE = "JsonValue"
 IDENTIFIER = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
 PRIMITIVES = {"string": "string", "number": "number", "integer": "number", "boolean": "boolean", "null": "null"}
-METADATA = ("kind", "effect", "capability", "cost", "idempotent", "revision_check", "max_request_bytes")
+METADATA = ("kind", "effect", "capability", "cost", "idempotent", "revision_check", "max_request_bytes", "proposable")
 
 
 class Unsupported(ValueError):
@@ -412,15 +412,17 @@ def _top_level(schema: Mapping[str, Any], where: str) -> tuple[str, dict[str, An
 #: The success envelope the SuccessEnvelope<N> template assumes, titles removed. Revisions is
 #: rendered from the snapshot like any definition.
 EXPECTED_SUCCESS = {
-    "$defs": ["JsonValue", "Revisions"],
+    "$defs": ["DryRunReport", "IdChanges", "JsonValue", "Revisions", "ScienceChanges", "WouldRevisions"],
     "additionalProperties": False,
     "properties": {
         "ok": {"const": True, "type": "boolean"},
         "operation": {"type": "string"},
         "result": {"additionalProperties": {"$ref": "#/$defs/JsonValue"}, "type": "object"},
         "revisions": {"$ref": "#/$defs/Revisions"},
+        "replayed": {"type": "boolean"},
+        "dry_run": {"anyOf": [{"$ref": "#/$defs/DryRunReport"}, {"type": "null"}]},
     },
-    "required": ["ok", "operation", "result", "revisions"],
+    "required": ["ok", "operation", "result", "revisions", "replayed", "dry_run"],
     "type": "object",
 }
 
@@ -504,8 +506,8 @@ def generate(snapshot: Mapping[str, Any], *, source: str = "packages/dipolar-app
         raise Unsupported("contract_version must be a string")
     envelopes = snapshot.get("envelopes", {})
     operations = snapshot.get("operations", [])
-    if set(envelopes) != {"success", "error"} or not isinstance(operations, list):
-        raise Unsupported("the snapshot needs envelopes.success, envelopes.error and an operations list")
+    if set(envelopes) != {"request", "success", "error"} or not isinstance(operations, list):
+        raise Unsupported("the snapshot needs envelopes.request, .success, .error and an operations list")
 
     defs = _Definitions()
     tops: list[tuple[str, dict[str, Any], str]] = []  # (name, schema, where)
@@ -513,8 +515,11 @@ def generate(snapshot: Mapping[str, Any], *, source: str = "packages/dipolar-app
     _check_success_envelope(envelopes["success"])
     defs.collect(envelopes["success"], "envelopes.success")
     defs.collect(envelopes["error"], "envelopes.error")
+    defs.collect(envelopes["request"], "envelopes.request")
     error_name, error_schema = _top_level(envelopes["error"], "envelopes.error")
     tops.append((error_name, error_schema, "envelopes.error"))
+    request_name, request_schema = _top_level(envelopes["request"], "envelopes.request")
+    tops.append((request_name, request_schema, "envelopes.request"))
 
     names: list[str] = []
     for op in operations:
@@ -565,11 +570,20 @@ def generate(snapshot: Mapping[str, Any], *, source: str = "packages/dipolar-app
 
     out.append("// ---------------------------------------------------------------- envelopes\n\n")
     out.append(f"export type {error_name} = {renderer.render(error_schema, 'envelopes.error')};\n\n")
+    out.append("/** The body of every call: `args` plus the request options. */\n")
+    out.append(f"export type {request_name} = {renderer.render(request_schema, 'envelopes.request')};\n\n")
     out.append(
         "/** A successful call of operation `N`; `result` has that operation's output type. It\n"
         " * distributes over a union of names, so `operation` and `result` always belong together. */\n"
         "export type SuccessEnvelope<N extends OperationName = OperationName> = N extends OperationName\n"
-        "  ? { ok: true; operation: N; result: OperationOutput<N>; revisions: Revisions }\n"
+        "  ? {\n"
+        "      ok: true;\n"
+        "      operation: N;\n"
+        "      result: OperationOutput<N>;\n"
+        "      revisions: Revisions;\n"
+        "      replayed: boolean;\n"
+        "      dry_run: DryRunReport | null;\n"
+        "    }\n"
         "  : never;\n\n"
         f"export type Envelope<N extends OperationName = OperationName> = SuccessEnvelope<N> | {error_name};\n\n"
     )

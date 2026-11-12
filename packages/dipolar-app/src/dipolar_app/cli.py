@@ -50,6 +50,7 @@ PRINCIPALS = {
     "user": Principal(actor="user", tier=Tier.APPLY, human=True),
     "robot": Principal(actor="script:robot", tier=Tier.APPLY, human=False),
     "viewer": Principal(actor="script:viewer", tier=Tier.READ, human=False),
+    "agent": Principal(actor="agent:local", tier=Tier.PROPOSE, human=False),  # proposes; a human approves
 }
 
 

@@ -40,6 +40,11 @@ def hz(value: float) -> Hertz:
 SpinId = Annotated[str, StringConstraints(pattern=r"^spn_[0-9]{6}$")]
 CouplingId = Annotated[str, StringConstraints(pattern=r"^cpl_[0-9]{6}$")]
 ObjectId = Annotated[str, StringConstraints(pattern=r"^(spn|cpl)_[0-9]{6}$")]
+ProposalId = Annotated[str, StringConstraints(pattern=r"^prp_[0-9]{6}$")]
+
+#: A client-chosen idempotency key (04 §8.1): retry a command with the same key after a lost
+#: response, and it is applied at most once.
+RequestId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9._:-]{1,128}$")]
 
 ExampleName = Literal["biphenyl-synthetic"]
 

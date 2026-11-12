@@ -30,7 +30,8 @@ from typing import Any
 
 from dipolar_app.project import canonical_json
 
-JOURNAL_SCHEMA_VERSION = 1
+#: 2 (M2 step 2): records may carry ``step_lengths`` and a ``request`` (ID and outcome).
+JOURNAL_SCHEMA_VERSION = 2
 
 
 class JournalCorrupt(Exception):

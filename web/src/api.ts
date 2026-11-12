@@ -7,11 +7,22 @@
 // the registry snapshot; CI fails if it is stale. `callOperation` is typed by operation name, so
 // the arguments and the result always match the registry (M2 step 1b).
 
-import type { Envelope, ErrorBody, Exact, OperationInput, OperationName, SingleName } from "./generated/contract";
+import type {
+  Envelope,
+  ErrorBody,
+  Exact,
+  OperationInput,
+  OperationName,
+  RequestEnvelope,
+  SingleName,
+} from "./generated/contract";
 
 export type * from "./generated/contract";
 
 export type TabSession = { ok: true; token: string; actor: string } | { ok: false; error: ErrorBody };
+
+/** The request options (M2 step 2): an idempotency key for a command, or a dry run. */
+export type RequestOptions = Pick<RequestEnvelope, "request_id" | "dry_run">;
 
 // One operation per call (`SingleName`), with exactly its arguments (`Exact`): a union of names, or
 // a variable carrying keys the schema forbids, does not compile (validation round 29).
@@ -19,11 +30,13 @@ export async function callOperation<N extends OperationName, A extends Operation
   name: N & SingleName<N>,
   args: A & Exact<OperationInput<N>, A>,
   token: string,
+  options: RequestOptions = {},
 ): Promise<Envelope<N>> {
+  const body: RequestEnvelope = { args, ...options };
   const response = await fetch(`/api/v1/ops/${encodeURIComponent(name)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ args }),
+    body: JSON.stringify(body),
     cache: "no-store",
     credentials: "omit",
   });

@@ -10,6 +10,8 @@ from typing import Annotated, Literal
 
 from pydantic import Field
 
+from dipolar_app import history_ops as H
+from dipolar_app import proposal_ops as P
 from dipolar_app import science_ops as S
 from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.policy import Capability
@@ -157,6 +159,7 @@ def build_registry() -> Registry:
             output_model=OpenExampleOut,
             handler=open_example,
             revision_check="expected_science_revision (required)",
+            proposable=True,
             examples=({"name": "biphenyl-synthetic", "expected_science_revision": 0},),
         )
     )
@@ -218,6 +221,8 @@ def build_registry() -> Registry:
         )
     )
     _register_science(registry)
+    _register_history(registry)
+    _register_proposals(registry)
     return registry
 
 
@@ -249,6 +254,7 @@ def _register_science(registry: Registry) -> None:
             output_model=S.ModelSetOut,
             handler=S.model_set,
             revision_check=revision,
+            proposable=True,
             examples=(
                 {
                     "kind": "jump4",
@@ -269,6 +275,7 @@ def _register_science(registry: Registry) -> None:
             output_model=S.ImportXyzOut,
             handler=S.import_xyz,
             revision_check=revision,
+            proposable=True,
             examples=(
                 {
                     "xyz": S.ETHANE_XYZ,
@@ -288,6 +295,7 @@ def _register_science(registry: Registry) -> None:
             output_model=S.SetTorsionOut,
             handler=S.set_torsion,
             revision_check=revision,
+            proposable=True,
             examples=({"torsion": [3, 0, 1, 6], "expected_science_revision": 1},),
         ),
         Operation(
@@ -312,6 +320,7 @@ def _register_science(registry: Registry) -> None:
             output_model=S.ImportCouplingsOut,
             handler=S.couplings_import,
             revision_check=revision,
+            proposable=True,
             examples=(
                 {
                     "csv": "spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H3,-1124.6,0.5\n",
@@ -330,6 +339,7 @@ def _register_science(registry: Registry) -> None:
             output_model=S.LoadOut,
             handler=S.project_load,
             revision_check=revision,
+            proposable=True,
             max_request_bytes=S.LOAD_REQUEST_BYTES,
             examples=({"text": S.ethane_document(), "expected_science_revision": 0},),
         ),
@@ -347,3 +357,144 @@ def _register_science(registry: Registry) -> None:
         ),
     ):
         registry.register(op)
+
+
+def _register_history(registry: Registry) -> None:
+    """Global chronological undo and redo (M2 step 2, ``dipolar_app.history_ops``)."""
+    for name, handler, in_, out, summary in (
+        (
+            "history.undo",
+            H.history_undo,
+            H.UndoIn,
+            H.UndoOut,
+            "Undo the latest science change (a new, journaled command).",
+        ),
+        (
+            "history.redo",
+            H.history_redo,
+            H.RedoIn,
+            H.RedoOut,
+            "Redo the latest undone science change (a new, journaled command).",
+        ),
+    ):
+        registry.register(
+            Operation(
+                name=name,
+                kind="command",
+                effect="model",
+                capability=Capability.SCIENCE_MUTATION,
+                summary=summary,
+                input_model=in_,
+                output_model=out,
+                handler=handler,
+                revision_check="expected_science_revision (required)",
+                proposable=True,
+                examples=({"expected_science_revision": 2},),
+            )
+        )
+    registry.register(
+        Operation(
+            name="history.log",
+            kind="query",
+            effect="none",
+            capability=Capability.QUERY,
+            summary="The science changes that can be undone and redone, the next first.",
+            input_model=H.LogIn,
+            output_model=H.LogOut,
+            handler=H.history_log,
+            idempotent=True,
+            examples=({},),
+        )
+    )
+
+
+def _register_proposals(registry: Registry) -> None:
+    """Proposals that a human approves (M2 step 2, ``dipolar_app.proposal_ops``)."""
+    registry.register(
+        Operation(
+            name="proposal.create",
+            kind="command",
+            effect="proposal",
+            capability=Capability.PROPOSE,
+            summary="Submit proposable commands as one change set for a human to accept; validated against "
+            "the current state, nothing is applied.",
+            input_model=P.CreateIn,
+            output_model=P.CreateOut,
+            handler=P.proposal_create,
+            revision_check="each step's own expected_science_revision: step i expects base + i",
+            max_request_bytes=P.MAX_PROPOSAL_BYTES + (1 << 20),
+            examples=(
+                {
+                    "steps": [
+                        {
+                            "operation": "model.set",
+                            "args": {
+                                "kind": "jump4",
+                                "order": "bisector-diagonal",
+                                "frame": "bisector",
+                                "phi_domain": [{"value": 0.0, "unit": "deg"}, {"value": 90.0, "unit": "deg"}],
+                                "expected_science_revision": 1,
+                            },
+                        }
+                    ],
+                    "note": "try the four-site jump model",
+                },
+            ),
+        )
+    )
+    registry.register(
+        Operation(
+            name="proposal.list",
+            kind="query",
+            effect="none",
+            capability=Capability.QUERY,
+            summary="The session's proposals (pending, and the latest decided), without their arguments.",
+            input_model=P.ListIn,
+            output_model=P.ListOut,
+            handler=P.proposal_list,
+            idempotent=True,
+            examples=({}, {"status": "pending"}),
+        )
+    )
+    registry.register(
+        Operation(
+            name="proposal.get",
+            kind="query",
+            effect="none",
+            capability=Capability.QUERY,
+            summary="One proposal with every step's arguments.",
+            input_model=P.GetIn,
+            output_model=P.ProposalDetailOut,
+            handler=P.proposal_get,
+            idempotent=True,
+            examples=({"proposal_id": "prp_000001"},),
+        )
+    )
+    registry.register(
+        Operation(
+            name="proposal.accept",
+            kind="command",
+            effect="model",
+            capability=Capability.APPROVE,
+            summary="Accept a pending proposal (human only): all steps, or a dependency-closed subset, applied "
+            "atomically as one transaction.",
+            input_model=P.AcceptIn,
+            output_model=P.AcceptOut,
+            handler=P.proposal_accept,
+            revision_check="the proposal's base science revision must be current (else PROPOSAL_STALE)",
+            examples=({"proposal_id": "prp_000001"}, {"proposal_id": "prp_000001", "steps": [0]}),
+        )
+    )
+    registry.register(
+        Operation(
+            name="proposal.reject",
+            kind="command",
+            effect="proposal",
+            capability=Capability.APPROVE,
+            summary="Reject a pending proposal (human only), with an optional reason.",
+            input_model=P.RejectIn,
+            output_model=P.RejectOut,
+            handler=P.proposal_reject,
+            examples=({"proposal_id": "prp_000001", "reason": "keep the bisector-diagonal model"},),
+        )
+    )

@@ -2,6 +2,14 @@
 
 Every capability is declared once as an ``Operation``. Adapters (Python, HTTP, later MCP) are thin
 wrappers around ``dispatch``, which alone applies policy, validation and error mapping.
+
+Every call may carry two request options (the ``RequestEnvelope``, M2 step 2):
+
+- ``request_id``: an idempotency key for a command. A retry with the same key returns the stored
+  outcome (``replayed: true``) and is never applied twice (04 §8.1).
+- ``dry_run``: plan a command against the current state and report what it would change
+  (``dry_run`` in the success envelope), changing nothing (04 D17, §8.3). Queries change nothing
+  already, so they refuse it.
 """
 
 from __future__ import annotations
@@ -11,31 +19,53 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, TypeVar
 
-from pydantic import BaseModel, JsonValue, ValidationError
+from pydantic import BaseModel, Field, JsonValue, ValidationError
 
+from dipolar_app.changes import DryRunReport, dry_run_report
 from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.policy import Capability, Decision, Principal, decide
-from dipolar_app.schemas import MAX_SAFE_INTEGER, Revision, Wire, wire_problem
-from dipolar_app.session import Plan, Session, SessionState
+from dipolar_app.schemas import MAX_SAFE_INTEGER, RequestId, Revision, Wire, wire_problem
+from dipolar_app.session import Plan, Session, SessionState, StoredOutcome
 
 T = TypeVar("T")
 
 #: Semantic version of the tool contract (D20), independent of the package version.
-CONTRACT_VERSION = "0.2.0"
+CONTRACT_VERSION = "0.3.0"
 
 Kind = Literal["query", "command"]
-Effect = Literal["none", "model", "view", "compute", "io", "destructive"]
+Effect = Literal["none", "model", "view", "proposal", "compute", "io", "destructive"]
 Cost = Literal["instant", "seconds", "job"]
+
+
+class Replayed(Exception):
+    """Raised through the handler when a request ID was already acknowledged."""
+
+    def __init__(self, outcome: StoredOutcome) -> None:
+        super().__init__(outcome.operation)
+        self.outcome = outcome
+
+
+class _Captured(Exception):
+    def __init__(self, plan: Plan[Any]) -> None:
+        super().__init__("captured")
+        self.plan = plan
 
 
 @dataclass(slots=True)
 class Context:
     """Per-call context. It records the one state snapshot the operation observed or produced, so
-    the envelope's revisions always describe the same state as the result (never a later one)."""
+    the envelope's revisions always describe the same state as the result (never a later one).
+    For a dry run, ``before`` is the current state and ``observed`` the state the command would
+    produce."""
 
     session: Session
     principal: Principal
+    registry: Registry | None = None
+    request_id: str | None = None
+    dry_run: bool = False
+    capture: bool = False
     observed: SessionState | None = None
+    before: SessionState | None = None
 
     def read(self) -> SessionState:
         """Take the operation's state snapshot (queries compute from it outside the lock)."""
@@ -43,9 +73,16 @@ class Context:
         return self.observed
 
     def commit(self, operation: str, args: dict[str, Any], plan: Plan[T]) -> T:
-        result, state = self.session.commit(self.principal, operation, args, plan)
-        self.observed = state
-        return result
+        if self.capture:
+            raise _Captured(plan)
+        done = self.session.commit(
+            self.principal, operation, args, plan, request_id=self.request_id, dry_run=self.dry_run
+        )
+        if done.replayed is not None:
+            raise Replayed(done.replayed)
+        self.before, self.observed = done.before, done.state
+        assert done.result is not None
+        return done.result
 
 
 Handler = Callable[[Context, Any], BaseModel]
@@ -75,7 +112,17 @@ class SuccessEnvelope(Wire):
     ok: Literal[True]
     operation: str
     result: dict[str, JsonValue]  # validated against the operation's own output schema
-    revisions: Revisions
+    revisions: Revisions  # of the state the result describes; for a dry run, the unchanged state
+    replayed: bool  # the stored outcome of an earlier request with the same request_id
+    dry_run: DryRunReport | None  # set only for a dry run
+
+
+class RequestEnvelope(Wire):
+    """The body of every call: the operation's arguments and the request options."""
+
+    args: dict[str, JsonValue] = Field(default_factory=dict)
+    request_id: RequestId | None = None
+    dry_run: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +142,8 @@ class Operation:
     #: The HTTP request limit for this operation (bytes). Most take the default; project.load
     #: carries a whole project document (round 27).
     max_request_bytes: int = 1 << 20
+    #: Whether a ``proposal.create`` step may name this command (M2 step 2).
+    proposable: bool = False
 
     def describe(self) -> dict[str, Any]:
         return {
@@ -110,6 +159,7 @@ class Operation:
             "output_schema": self.output_model.model_json_schema(mode="serialization"),
             "examples": list(self.examples),
             "max_request_bytes": self.max_request_bytes,
+            "proposable": self.proposable,
         }
 
 
@@ -122,6 +172,8 @@ class Registry:
             raise ValueError(f"duplicate operation {op.name}")
         if (op.kind == "query") != (op.effect == "none"):
             raise ValueError(f"{op.name}: queries, and only queries, have effect 'none'")
+        if op.proposable and (op.kind != "command" or op.capability is not Capability.SCIENCE_MUTATION):
+            raise ValueError(f"{op.name}: only science-mutating commands are proposable")
         self._ops[op.name] = op
 
     def get(self, name: str) -> Operation | None:
@@ -136,11 +188,38 @@ class Registry:
         return {
             "contract_version": CONTRACT_VERSION,
             "envelopes": {
+                "request": RequestEnvelope.model_json_schema(),
                 "success": SuccessEnvelope.model_json_schema(mode="serialization"),
                 "error": ErrorEnvelope.model_json_schema(mode="serialization"),
             },
             "operations": [self._ops[name].describe() for name in self.names],
         }
+
+
+class _Options(Wire):
+    request_id: RequestId | None
+    dry_run: bool
+
+
+def _options(request_id: Any, dry_run: Any) -> _Options:
+    """The request options, validated like arguments (a Python caller gets the HTTP rules)."""
+    try:
+        options = _Options.model_validate({"request_id": request_id, "dry_run": dry_run}, strict=True)
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        raise OperationError(
+            ErrorCode.INVALID_ARGUMENT,
+            first["msg"],
+            offending_field=_field_path(first["loc"]) or None,
+            hint="request_id is 1–128 characters of A–Z a–z 0–9 . _ : -; dry_run is a boolean",
+        ) from None
+    if options.dry_run and options.request_id is not None:
+        raise OperationError(
+            ErrorCode.INVALID_ARGUMENT,
+            "a dry run is never recorded, so it takes no request_id",
+            offending_field="request_id",
+        )
+    return options
 
 
 def _field_path(loc: tuple[int | str, ...]) -> str:
@@ -183,15 +262,68 @@ def _wire_json(args: Mapping[str, Any] | None) -> str:
         ) from None
 
 
+def parse_input(op: Operation, args: Mapping[str, Any] | None, *, prefix: str = "") -> BaseModel:
+    """Validate ``args`` for ``op`` exactly as every adapter does: JSON values only, strict mode."""
+    raw = _wire_json(args)
+    try:
+        # Strict JSON mode: no coercion. "37" is not a number and false is not 0 (spike 2).
+        return op.input_model.model_validate_json(raw, strict=True)
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        path = _field_path(first["loc"])
+        raise OperationError(
+            ErrorCode.INVALID_ARGUMENT,
+            first["msg"],
+            offending_field=(f"{prefix}.{path}" if prefix and path else prefix or path) or None,
+            hint=f"see the input schema of {op.name}",
+            details={"error_count": exc.error_count()},
+        ) from None
+
+
+def capture_plan(ctx: Context, op: Operation, parsed: BaseModel) -> Plan[Any]:
+    """Run a command's handler up to its commit and return the plan it would commit, without
+    committing. A proposal validates and later applies its steps through these plans."""
+    probe = Context(ctx.session, ctx.principal, ctx.registry, capture=True)
+    try:
+        op.handler(probe, parsed)
+    except _Captured as captured:
+        return captured.plan
+    raise TypeError(f"{op.name} did not commit")
+
+
+def _replayed_envelope(op: Operation, outcome: StoredOutcome) -> dict[str, Any]:
+    try:
+        result = op.output_model.model_validate(outcome.result)
+    except ValidationError:
+        raise OperationError(
+            ErrorCode.IDEMPOTENCY_KEY_REUSED,
+            "this request was acknowledged under an earlier contract; its outcome cannot be returned",
+            offending_field="request_id",
+            hint="read the current state; use a new request_id for a new command",
+        ) from None
+    return {
+        "ok": True,
+        "operation": op.name,
+        "result": result.model_dump(mode="json"),
+        "revisions": dict(outcome.revisions),
+        "replayed": True,
+        "dry_run": None,
+    }
+
+
 def dispatch(
     registry: Registry,
     session: Session,
     principal: Principal,
     name: str,
     args: Mapping[str, Any] | None,
+    *,
+    request_id: str | None = None,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     """Run one operation and return the JSON envelope every adapter returns unchanged."""
     try:
+        options = _options(request_id, dry_run)
         op = registry.get(name)
         if op is None:
             raise OperationError(
@@ -207,37 +339,47 @@ def dispatch(
                 f"tier {principal.tier.value!r} may not use {op.capability.value!r} operations",
                 hint="use a credential with a higher tier",
             )
-        if decision is Decision.PROPOSE:
+        if options.dry_run and op.kind == "query":
+            raise OperationError(
+                ErrorCode.INVALID_ARGUMENT,
+                f"{op.name} is a query: it changes nothing, so there is nothing to dry-run",
+                offending_field="dry_run",
+                hint="call it without dry_run",
+            )
+        if decision is Decision.PROPOSE and not options.dry_run:  # a dry run changes nothing
             raise OperationError(
                 ErrorCode.PROPOSAL_REQUIRED,
                 f"{op.name} from tier {principal.tier.value!r} must be submitted as a proposal",
-                hint="proposals arrive in M2; use an apply-tier credential for now",
+                hint=(
+                    'submit it as a step of proposal.create ({"steps": [{"operation": ..., "args": ...}]}); '
+                    "a human accepts it"
+                    if op.proposable
+                    else "compute proposals arrive with jobs (M2 step 3); use an apply-tier credential"
+                ),
             )
-        raw = _wire_json(args)
+        parsed = parse_input(op, args)
+        ctx = Context(session, principal, registry, request_id=options.request_id, dry_run=options.dry_run)
         try:
-            # Strict JSON mode: no coercion. "37" is not a number and false is not 0 (spike 2).
-            parsed = op.input_model.model_validate_json(raw, strict=True)
-        except ValidationError as exc:
-            first = exc.errors()[0]
-            raise OperationError(
-                ErrorCode.INVALID_ARGUMENT,
-                first["msg"],
-                offending_field=_field_path(first["loc"]) or None,
-                hint=f"see the input schema of {op.name}",
-                details={"error_count": exc.error_count()},
-            ) from None
-        ctx = Context(session, principal)
-        result = op.handler(ctx, parsed)
+            result = op.handler(ctx, parsed)
+        except Replayed as replayed:
+            return _replayed_envelope(op, replayed.outcome)
         if not isinstance(result, op.output_model):
             raise TypeError(f"{op.name} returned {type(result).__name__}, expected {op.output_model.__name__}")
         if ctx.observed is None:
             raise TypeError(f"{op.name} must read or commit through its Context")
+        report = None
         state = ctx.observed
+        if options.dry_run:
+            assert ctx.before is not None
+            report = dry_run_report(ctx.before, ctx.observed).model_dump(mode="json")
+            state = ctx.before
         return {
             "ok": True,
             "operation": op.name,
             "result": result.model_dump(mode="json"),
             "revisions": {"science": state.science_revision, "workspace": state.workspace_revision},
+            "replayed": False,
+            "dry_run": report,
         }
     except OperationError as err:
         return {"ok": False, "operation": name, "error": err.to_json()}

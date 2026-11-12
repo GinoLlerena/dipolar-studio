@@ -1,12 +1,12 @@
 // GENERATED FILE: do not edit. Regenerate with `uv run python tools/codegen/ts_contract.py`.
-// Source: packages/dipolar-app/registry.snapshot.json (sha256 0d181234562eda5e1db208e7f3121f11e6711845f9fbd29de96d1fd4e1aaec02).
+// Source: packages/dipolar-app/registry.snapshot.json (sha256 5f2e665c24dcb6f66558c44d9ff8be442ca76ea900dc20ceb6bec89b4ca261c8).
 // CI fails if this file is stale (tests/test_ts_contract.py).
 //
 // Value constraints that TypeScript cannot express (bounds, lengths, patterns) appear as doc
 // comments; the server enforces them.
 /* eslint-disable */
 
-export const CONTRACT_VERSION = "0.2.0";
+export const CONTRACT_VERSION = "0.3.0";
 
 /** Any JSON value. */
 export type JsonValue =
@@ -58,6 +58,13 @@ export type Degrees = {
   value: number;
 };
 
+export type DryRunReport = {
+  proposals_changed: string[];
+  science: ScienceChanges | null;
+  selection_after: string[] | null;
+  would_revisions: WouldRevisions;
+};
+
 export type ErrorBody = {
   code: ErrorCode;
   details: { [key: string]: JsonValue };
@@ -66,7 +73,7 @@ export type ErrorBody = {
   offending_field: string | null;
 };
 
-export type ErrorCode = "INVALID_ARGUMENT" | "UNKNOWN_OPERATION" | "UNAUTHENTICATED" | "CAPABILITY_DENIED" | "PROPOSAL_REQUIRED" | "REVISION_CONFLICT" | "NO_PROJECT" | "ID_NOT_FOUND" | "OUT_OF_DOMAIN" | "PROJECT_NOT_READY" | "PAYLOAD_TOO_LARGE" | "JOURNAL_FAILED" | "INTERNAL";
+export type ErrorCode = "INVALID_ARGUMENT" | "UNKNOWN_OPERATION" | "UNAUTHENTICATED" | "CAPABILITY_DENIED" | "PROPOSAL_REQUIRED" | "REVISION_CONFLICT" | "NO_PROJECT" | "ID_NOT_FOUND" | "OUT_OF_DOMAIN" | "PROJECT_NOT_READY" | "PAYLOAD_TOO_LARGE" | "IDEMPOTENCY_KEY_REUSED" | "PROPOSAL_STALE" | "PROPOSAL_CLOSED" | "NOTHING_TO_UNDO" | "QUOTA_EXCEEDED" | "JOURNAL_FAILED" | "INTERNAL";
 
 export type FitValidity = {
   at_bound: string[];
@@ -100,6 +107,29 @@ export type FittedCoupling = {
 export type Hertz = {
   unit: "Hz";
   value: number;
+};
+
+export type HistoryEntryOut = {
+  actor: string;
+  operation: string;
+  /** integer */
+  science_revision: number;
+};
+
+export type IdChanges = {
+  /** maxItems 100 */
+  added: string[];
+  /** maxItems 100 */
+  changed: string[];
+  /** integer */
+  n_added: number;
+  /** integer */
+  n_changed: number;
+  /** integer */
+  n_removed: number;
+  /** maxItems 100 */
+  removed: string[];
+  truncated: boolean;
 };
 
 export type ImportedOut = {
@@ -150,11 +180,40 @@ export type PreviewValidity = {
   physically_admissible: boolean | null;
 };
 
+export type ProposalOut = {
+  accepted_steps: number[];
+  /** integer */
+  base_science_revision: number;
+  created_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
+  expires_at: string;
+  /** pattern "^prp_[0-9]{6}$" */
+  id: string;
+  note: string;
+  proposer: string;
+  reason: string;
+  stale: boolean;
+  status: "pending" | "accepted" | "rejected" | "expired";
+  steps: StepOut[];
+};
+
 export type Revisions = {
   /** integer, minimum 0, maximum 9007199254740991 */
   science: number;
   /** integer, minimum 0, maximum 9007199254740991 */
   workspace: number;
+};
+
+export type ScienceChanges = {
+  couplings: IdChanges;
+  geometry_changed: boolean;
+  model_changed: boolean;
+  name_changed: boolean;
+  project_opened: boolean;
+  science_hash_after: string;
+  science_hash_before: string;
+  spins: IdChanges;
 };
 
 export type SelectedObject = {
@@ -172,12 +231,47 @@ export type SpinOut = {
   label: string;
 };
 
+export type StepDetail = {
+  args: { [key: string]: JsonValue };
+  depends_on: number[];
+  /** integer */
+  index: number;
+  operation: string;
+};
+
+export type StepIn = {
+  args: { [key: string]: JsonValue };
+  /** minLength 1, maxLength 100 */
+  operation: string;
+};
+
+export type StepOut = {
+  depends_on: number[];
+  /** integer */
+  index: number;
+  operation: string;
+};
+
+export type StepResult = {
+  /** integer */
+  index: number;
+  operation: string;
+  result: { [key: string]: JsonValue };
+};
+
 export type TemplateOut = {
   kind: "template";
   r_cc: Angstrom;
   r_ch: Angstrom;
   r_inter: Angstrom;
   template: string;
+};
+
+export type WouldRevisions = {
+  /** integer, minimum 0, maximum 9007199254740991 */
+  science: number;
+  /** integer, minimum 0, maximum 9007199254740991 */
+  workspace: number;
 };
 
 // ---------------------------------------------------------------- envelopes
@@ -188,10 +282,26 @@ export type ErrorEnvelope = {
   operation: string | null;
 };
 
+/** The body of every call: `args` plus the request options. */
+export type RequestEnvelope = {
+  args?: { [key: string]: JsonValue };
+  /** default false */
+  dry_run?: boolean;
+  /** default null */
+  request_id?: string | null;
+};
+
 /** A successful call of operation `N`; `result` has that operation's output type. It
  * distributes over a union of names, so `operation` and `result` always belong together. */
 export type SuccessEnvelope<N extends OperationName = OperationName> = N extends OperationName
-  ? { ok: true; operation: N; result: OperationOutput<N>; revisions: Revisions }
+  ? {
+      ok: true;
+      operation: N;
+      result: OperationOutput<N>;
+      revisions: Revisions;
+      replayed: boolean;
+      dry_run: DryRunReport | null;
+    }
   : never;
 
 export type Envelope<N extends OperationName = OperationName> = SuccessEnvelope<N> | ErrorEnvelope;
@@ -321,6 +431,50 @@ export type FitRunOut = {
   theta: NamedValue[];
   unidentified: NamedValue[][];
   validity: FitValidity;
+};
+
+/** `history.log` input. */
+export type LogIn = { [key: string]: never };
+
+/** `history.log` output. */
+export type LogOut = {
+  /** integer */
+  max_undo: number;
+  /** maxItems 100 */
+  redo: HistoryEntryOut[];
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+  /** maxItems 100 */
+  undo: HistoryEntryOut[];
+};
+
+/** `history.redo` input. */
+export type RedoIn = {
+  /** integer, minimum 0, maximum 9007199254740991 */
+  expected_science_revision: number;
+};
+
+/** `history.redo` output. */
+export type RedoOut = {
+  redone: HistoryEntryOut;
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+};
+
+/** `history.undo` input. */
+export type UndoIn = {
+  /** integer, minimum 0, maximum 9007199254740991 */
+  expected_science_revision: number;
+};
+
+/** `history.undo` output. */
+export type UndoOut = {
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+  undone: HistoryEntryOut;
 };
 
 /** `model.set` input. */
@@ -462,6 +616,84 @@ export type OpenExampleOut = {
   science_revision: number;
 };
 
+/** `proposal.accept` input. */
+export type AcceptIn = {
+  /** pattern "^prp_[0-9]{6}$" */
+  proposal_id: string;
+  /** default null */
+  steps?: number[] | null;
+};
+
+/** `proposal.accept` output. */
+export type AcceptOut = {
+  proposal: ProposalOut;
+  results: StepResult[];
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+};
+
+/** `proposal.create` input. */
+export type CreateIn = {
+  /** maxLength 2000, default "" */
+  note?: string;
+  /** minItems 1, maxItems 20 */
+  steps: StepIn[];
+};
+
+/** `proposal.create` output. */
+export type CreateOut = {
+  proposal: ProposalOut;
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+};
+
+/** `proposal.get` input. */
+export type GetIn = {
+  /** pattern "^prp_[0-9]{6}$" */
+  proposal_id: string;
+};
+
+/** `proposal.get` output. */
+export type ProposalDetailOut = {
+  proposal: ProposalOut;
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+  steps: StepDetail[];
+};
+
+/** `proposal.list` input. */
+export type ListIn = {
+  /** default null */
+  status?: "pending" | "accepted" | "rejected" | "expired" | null;
+};
+
+/** `proposal.list` output. */
+export type ListOut = {
+  proposals: ProposalOut[];
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+};
+
+/** `proposal.reject` input. */
+export type RejectIn = {
+  /** pattern "^prp_[0-9]{6}$" */
+  proposal_id: string;
+  /** maxLength 2000, default "" */
+  reason?: string;
+};
+
+/** `proposal.reject` output. */
+export type RejectOut = {
+  proposal: ProposalOut;
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+};
+
 /** `render.describe_view` input. */
 export type DescribeViewIn = { [key: string]: never };
 
@@ -499,6 +731,12 @@ export interface Operations {
   "fit.preview": { input: PreviewIn; output: PreviewOut };
   /** Fit the project's model (D3): estimates, validity, adequacy, and optional profile intervals under the reporting policy. */
   "fit.run": { input: FitRunIn; output: FitRunOut };
+  /** The science changes that can be undone and redone, the next first. */
+  "history.log": { input: LogIn; output: LogOut };
+  /** Redo the latest undone science change (a new, journaled command). */
+  "history.redo": { input: RedoIn; output: RedoOut };
+  /** Undo the latest science change (a new, journaled command). */
+  "history.undo": { input: UndoIn; output: UndoOut };
   /** Set the model: kind (rigid, jump4), order model, frame and torsion domain. */
   "model.set": { input: ModelSetIn; output: ModelSetOut };
   /** Declare the fitted torsion of imported geometry: four atom indices (a, i, j, b), i–j a bond. */
@@ -513,6 +751,16 @@ export interface Operations {
   "project.load": { input: LoadIn; output: LoadOut };
   /** Replace the session's project with a bundled example dataset. */
   "project.open_example": { input: OpenExampleIn; output: OpenExampleOut };
+  /** Accept a pending proposal (human only): all steps, or a dependency-closed subset, applied atomically as one transaction. */
+  "proposal.accept": { input: AcceptIn; output: AcceptOut };
+  /** Submit proposable commands as one change set for a human to accept; validated against the current state, nothing is applied. */
+  "proposal.create": { input: CreateIn; output: CreateOut };
+  /** One proposal with every step's arguments. */
+  "proposal.get": { input: GetIn; output: ProposalDetailOut };
+  /** The session's proposals (pending, and the latest decided), without their arguments. */
+  "proposal.list": { input: ListIn; output: ListOut };
+  /** Reject a pending proposal (human only), with an optional reason. */
+  "proposal.reject": { input: RejectIn; output: RejectOut };
   /** Describe the shared view: revisions and the current selection, with labels. */
   "render.describe_view": { input: DescribeViewIn; output: DescribeViewOut };
   /** Set the shared selection to the given spin or coupling IDs (replaces it). */
@@ -570,18 +818,26 @@ export type Exact<T, A> = false extends ExactOK<T, A> ? never : unknown;
 
 /** Each operation's metadata from the registry. */
 export const OPERATIONS = {
-  "couplings.import": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576 },
-  "couplings.reconcile": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576 },
-  "fit.preview": { kind: "query", effect: "none", capability: "preview", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576 },
-  "fit.run": { kind: "query", effect: "none", capability: "compute_job", cost: "seconds", idempotent: true, revision_check: "none", max_request_bytes: 1048576 },
-  "model.set": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576 },
-  "molecule.set_torsion": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576 },
-  "project.describe": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576 },
-  "project.export": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576 },
-  "project.import_xyz": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576 },
-  "project.load": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 34603008 },
-  "project.open_example": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576 },
-  "render.describe_view": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576 },
-  "view.select": { kind: "command", effect: "view", capability: "view_write", cost: "instant", idempotent: true, revision_check: "none: an absolute set; IDs are validated atomically and never reused", max_request_bytes: 1048576 },
+  "couplings.import": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
+  "couplings.reconcile": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "fit.preview": { kind: "query", effect: "none", capability: "preview", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "fit.run": { kind: "query", effect: "none", capability: "compute_job", cost: "seconds", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "history.log": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "history.redo": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
+  "history.undo": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
+  "model.set": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
+  "molecule.set_torsion": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
+  "project.describe": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "project.export": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "project.import_xyz": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
+  "project.load": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 34603008, proposable: true },
+  "project.open_example": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
+  "proposal.accept": { kind: "command", effect: "model", capability: "approve", cost: "instant", idempotent: false, revision_check: "the proposal's base science revision must be current (else PROPOSAL_STALE)", max_request_bytes: 1048576, proposable: false },
+  "proposal.create": { kind: "command", effect: "proposal", capability: "propose", cost: "instant", idempotent: false, revision_check: "each step's own expected_science_revision: step i expects base + i", max_request_bytes: 35651584, proposable: false },
+  "proposal.get": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "proposal.list": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "proposal.reject": { kind: "command", effect: "proposal", capability: "approve", cost: "instant", idempotent: false, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "render.describe_view": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "view.select": { kind: "command", effect: "view", capability: "view_write", cost: "instant", idempotent: true, revision_check: "none: an absolute set; IDs are validated atomically and never reused", max_request_bytes: 1048576, proposable: false },
 } as const satisfies Record<OperationName, unknown>;
 

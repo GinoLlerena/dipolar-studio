@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from dipolar_app import proposal_ops
 from dipolar_app.client import LocalClient
 from dipolar_app.errors import HTTP_STATUS, ErrorCode
 from dipolar_app.http import _error
@@ -73,13 +74,42 @@ def client_for(name: str) -> LocalClient:
     return LocalClient(REGISTRY, session, USER)
 
 
+JUMP = {
+    "kind": "jump4",
+    "order": "bisector-diagonal",
+    "frame": "bisector",
+    "phi_domain": [{"value": 0.0, "unit": "deg"}, {"value": 90.0, "unit": "deg"}],
+}
+
+
+def prepared(name: str) -> tuple[LocalClient, dict[str, Any]]:
+    """A client in a state the operation's examples can use, and its first example with the
+    current science revision filled in (M2 step 2: undo needs a change, accept needs a proposal)."""
+    c = client_for(name)
+    if name in ("history.undo", "history.redo"):
+        assert c.call("model.set", {**JUMP, "expected_science_revision": 1})["ok"]
+        if name == "history.redo":
+            assert c.call("history.undo", {"expected_science_revision": 2})["ok"]
+    if name in ("proposal.get", "proposal.accept", "proposal.reject"):
+        assert c.call("proposal.create", dict(OPS["proposal.create"]["examples"][0]))["ok"]
+    return c, c.call("render.describe_view")["revisions"]
+
+
+def example_args(name: str, example: dict[str, Any], revisions: dict[str, Any]) -> dict[str, Any]:
+    args = dict(example)
+    if "expected_science_revision" in args:
+        args["expected_science_revision"] = revisions["science"]
+    return args
+
+
 def test_every_published_schema_is_valid_json_schema() -> None:
-    schemas = [SNAPSHOT["envelopes"]["success"], SNAPSHOT["envelopes"]["error"]]
+    envelopes = SNAPSHOT["envelopes"]
+    schemas = [envelopes["request"], envelopes["success"], envelopes["error"]]
     for op in SNAPSHOT["operations"]:
         schemas += [op["input_schema"], op["output_schema"]]
     for schema in schemas:
         Draft202012Validator.check_schema(schema)
-    assert len(schemas) == 2 + 2 * len(OPS)
+    assert len(schemas) == 3 + 2 * len(OPS)
 
 
 @pytest.mark.parametrize("name", sorted(OPS))
@@ -88,14 +118,17 @@ def test_examples_and_results_match_the_published_schemas(name: str) -> None:
     assert op["examples"], f"{name} publishes no example"
     for example in op["examples"]:
         assert_valid(op["input_schema"], example)
-        c = client_for(name)
-        args = dict(example)
-        if "expected_science_revision" in args:
-            args["expected_science_revision"] = 1  # the example opened the project once already
-        envelope = c.call(name, args)
+        assert_valid(SNAPSHOT["envelopes"]["request"], {"args": example})
+        c, revisions = prepared(name)
+        envelope = c.call(name, example_args(name, example, revisions))
         assert envelope["ok"], envelope
         assert_valid(SNAPSHOT["envelopes"]["success"], envelope)
         assert_valid(op["output_schema"], envelope["result"])
+        if op["kind"] == "command":  # the dry-run report validates too
+            c, revisions = prepared(name)
+            dry = c.call(name, example_args(name, example, revisions), dry_run=True)
+            assert dry["ok"] and dry["dry_run"] is not None, dry
+            assert_valid(SNAPSHOT["envelopes"]["success"], dry)
 
 
 @pytest.mark.parametrize("name", sorted(OPS))
@@ -103,11 +136,8 @@ def test_results_round_trip_losslessly(name: str) -> None:
     """JSON → output model (strict) → JSON gives the same document; every float is exact."""
     op = REGISTRY.get(name)
     assert op is not None
-    args = dict(OPS[name]["examples"][0])
-    if "expected_science_revision" in args:
-        args["expected_science_revision"] = 1
-    c = client_for(name)
-    result = c.call(name, args)["result"]
+    c, revisions = prepared(name)
+    result = c.call(name, example_args(name, OPS[name]["examples"][0], revisions))["result"]
     text = json.dumps(result, allow_nan=False)
     again = op.output_model.model_validate_json(text, strict=True).model_dump(mode="json")
     assert again == result
@@ -152,6 +182,20 @@ def produce_every_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict
             "project.open_example", {"name": "biphenyl-synthetic", "expected_science_revision": 1}
         )
     )  # PROPOSAL_REQUIRED
+
+    # M2 step 2: request IDs, undo and proposals.
+    assert user.call("view.select", {"ids": []}, request_id="k")["ok"]
+    keep(user.call("view.select", {"ids": ["cpl_000001"]}, request_id="k"))  # IDEMPOTENCY_KEY_REUSED
+    keep(user.call("history.undo", {"expected_science_revision": 1}))  # NOTHING_TO_UNDO
+    agent = LocalClient(REGISTRY, user._session, AGENT)
+    proposal = {"steps": [{"operation": "model.set", "args": {**JUMP, "expected_science_revision": 1}}]}
+    for _ in range(proposal_ops.MAX_PENDING):
+        assert agent.call("proposal.create", proposal)["ok"]
+    keep(agent.call("proposal.create", proposal))  # QUOTA_EXCEEDED
+    assert user.call("model.set", {**JUMP, "expected_science_revision": 1})["ok"]
+    keep(user.call("proposal.accept", {"proposal_id": "prp_000001"}))  # PROPOSAL_STALE
+    assert user.call("proposal.reject", {"proposal_id": "prp_000001"})["ok"]
+    keep(user.call("proposal.reject", {"proposal_id": "prp_000001"}))  # PROPOSAL_CLOSED
 
     journal = Journal(tmp_path / "events.jsonl")
     failing = opened_client(journal=journal)

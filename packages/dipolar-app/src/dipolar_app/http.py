@@ -34,7 +34,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from dipolar_app.auth import LAUNCH_CODE_TTL_S, Credentials
 from dipolar_app.errors import HTTP_STATUS, ErrorCode, OperationError
 from dipolar_app.policy import Principal
-from dipolar_app.registry import Registry, dispatch
+from dipolar_app.registry import Registry, RequestEnvelope, dispatch
 from dipolar_app.schemas import MAX_JSON_DEPTH, wire_problem
 from dipolar_app.session import Session
 
@@ -86,6 +86,10 @@ class LocalhostGuard:
             await send(message)
 
         await self.app(scope, receive, send_with_headers)
+
+
+#: The request body's fields (``RequestEnvelope``); the dispatcher validates their values.
+REQUEST_FIELDS = frozenset(RequestEnvelope.model_fields)
 
 
 def _reject_constant(token: str) -> None:
@@ -189,20 +193,21 @@ def create_app(
             envelope_in = await read_json_body(request, limit, name)
         except BodyError as exc:
             return exc.response
-        if not isinstance(envelope_in, dict) or set(envelope_in) - {"args"}:
-            extra = sorted(set(envelope_in) - {"args"}) if isinstance(envelope_in, dict) else []
+        if not isinstance(envelope_in, dict) or set(envelope_in) - REQUEST_FIELDS:
+            extra = sorted(set(envelope_in) - REQUEST_FIELDS) if isinstance(envelope_in, dict) else []
             return _error(
                 ErrorCode.INVALID_ARGUMENT,
                 f"unknown request fields: {extra}" if extra else "the body must be a JSON object",
                 operation=name,
-                hint='send {"args": {...}}; identity comes from the credential only',
+                hint='send {"args": {...}}, optionally "request_id" and "dry_run"; identity comes from the credential',
                 offending_field=extra[0] if extra else None,
             )
         args = envelope_in.get("args", {})
         if not isinstance(args, dict):
             return _error(ErrorCode.INVALID_ARGUMENT, "args must be a JSON object", operation=name)
+        options = {"request_id": envelope_in.get("request_id"), "dry_run": envelope_in.get("dry_run", False)}
         try:
-            envelope = await run_in_threadpool(dispatch, registry, session, principal, name, args)
+            envelope = await run_in_threadpool(dispatch, registry, session, principal, name, args, **options)
         except Exception:
             LOG.exception("operation %s failed", name)  # arguments are not logged
             return _error(ErrorCode.INTERNAL, "internal error", operation=name)

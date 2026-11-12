@@ -1,5 +1,5 @@
 {
-  "contract_version": "0.2.0",
+  "contract_version": "0.3.0",
   "envelopes": {
     "error": {
       "$defs": {
@@ -66,6 +66,11 @@
             "OUT_OF_DOMAIN",
             "PROJECT_NOT_READY",
             "PAYLOAD_TOO_LARGE",
+            "IDEMPOTENCY_KEY_REUSED",
+            "PROPOSAL_STALE",
+            "PROPOSAL_CLOSED",
+            "NOTHING_TO_UNDO",
+            "QUOTA_EXCEEDED",
             "JOURNAL_FAILED",
             "INTERNAL"
           ],
@@ -104,8 +109,153 @@
       "title": "ErrorEnvelope",
       "type": "object"
     },
+    "request": {
+      "$defs": {
+        "JsonValue": {}
+      },
+      "additionalProperties": false,
+      "description": "The body of every call: the operation's arguments and the request options.",
+      "properties": {
+        "args": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Args",
+          "type": "object"
+        },
+        "dry_run": {
+          "default": false,
+          "title": "Dry Run",
+          "type": "boolean"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Id"
+        }
+      },
+      "title": "RequestEnvelope",
+      "type": "object"
+    },
     "success": {
       "$defs": {
+        "DryRunReport": {
+          "additionalProperties": false,
+          "description": "The outcome of a dry run: nothing was changed, journaled or recorded.",
+          "properties": {
+            "proposals_changed": {
+              "items": {
+                "pattern": "^prp_[0-9]{6}$",
+                "type": "string"
+              },
+              "title": "Proposals Changed",
+              "type": "array"
+            },
+            "science": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ScienceChanges"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "selection_after": {
+              "anyOf": [
+                {
+                  "items": {
+                    "pattern": "^(spn|cpl)_[0-9]{6}$",
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Selection After"
+            },
+            "would_revisions": {
+              "$ref": "#/$defs/WouldRevisions"
+            }
+          },
+          "required": [
+            "would_revisions",
+            "science",
+            "selection_after",
+            "proposals_changed"
+          ],
+          "title": "DryRunReport",
+          "type": "object"
+        },
+        "IdChanges": {
+          "additionalProperties": false,
+          "properties": {
+            "added": {
+              "items": {
+                "pattern": "^(spn|cpl)_[0-9]{6}$",
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Added",
+              "type": "array"
+            },
+            "changed": {
+              "items": {
+                "pattern": "^(spn|cpl)_[0-9]{6}$",
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Changed",
+              "type": "array"
+            },
+            "n_added": {
+              "title": "N Added",
+              "type": "integer"
+            },
+            "n_changed": {
+              "title": "N Changed",
+              "type": "integer"
+            },
+            "n_removed": {
+              "title": "N Removed",
+              "type": "integer"
+            },
+            "removed": {
+              "items": {
+                "pattern": "^(spn|cpl)_[0-9]{6}$",
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Removed",
+              "type": "array"
+            },
+            "truncated": {
+              "title": "Truncated",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "added",
+            "removed",
+            "changed",
+            "n_added",
+            "n_removed",
+            "n_changed",
+            "truncated"
+          ],
+          "title": "IdChanges",
+          "type": "object"
+        },
         "JsonValue": {},
         "Revisions": {
           "additionalProperties": false,
@@ -129,10 +279,90 @@
           ],
           "title": "Revisions",
           "type": "object"
+        },
+        "ScienceChanges": {
+          "additionalProperties": false,
+          "properties": {
+            "couplings": {
+              "$ref": "#/$defs/IdChanges"
+            },
+            "geometry_changed": {
+              "title": "Geometry Changed",
+              "type": "boolean"
+            },
+            "model_changed": {
+              "title": "Model Changed",
+              "type": "boolean"
+            },
+            "name_changed": {
+              "title": "Name Changed",
+              "type": "boolean"
+            },
+            "project_opened": {
+              "title": "Project Opened",
+              "type": "boolean"
+            },
+            "science_hash_after": {
+              "title": "Science Hash After",
+              "type": "string"
+            },
+            "science_hash_before": {
+              "title": "Science Hash Before",
+              "type": "string"
+            },
+            "spins": {
+              "$ref": "#/$defs/IdChanges"
+            }
+          },
+          "required": [
+            "science_hash_before",
+            "science_hash_after",
+            "project_opened",
+            "name_changed",
+            "geometry_changed",
+            "model_changed",
+            "spins",
+            "couplings"
+          ],
+          "title": "ScienceChanges",
+          "type": "object"
+        },
+        "WouldRevisions": {
+          "additionalProperties": false,
+          "properties": {
+            "science": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Science",
+              "type": "integer"
+            },
+            "workspace": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Workspace",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "science",
+            "workspace"
+          ],
+          "title": "WouldRevisions",
+          "type": "object"
         }
       },
       "additionalProperties": false,
       "properties": {
+        "dry_run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DryRunReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "ok": {
           "const": true,
           "title": "Ok",
@@ -141,6 +371,10 @@
         "operation": {
           "title": "Operation",
           "type": "string"
+        },
+        "replayed": {
+          "title": "Replayed",
+          "type": "boolean"
         },
         "result": {
           "additionalProperties": {
@@ -157,7 +391,9 @@
         "ok",
         "operation",
         "result",
-        "revisions"
+        "revisions",
+        "replayed",
+        "dry_run"
       ],
       "title": "SuccessEnvelope",
       "type": "object"
@@ -278,6 +514,7 @@
         "title": "ImportCouplingsOut",
         "type": "object"
       },
+      "proposable": true,
       "revision_check": "expected_science_revision (required)",
       "summary": "Replace the couplings with a CSV's, under a label mapping the caller confirmed (stable IDs kept)."
     },
@@ -446,6 +683,7 @@
         "title": "ReconcileOut",
         "type": "object"
       },
+      "proposable": false,
       "revision_check": "none",
       "summary": "Read a couplings CSV against the project: the proposed label mapping and the diff (no change)."
     },
@@ -789,6 +1027,7 @@
         "title": "PreviewOut",
         "type": "object"
       },
+      "proposable": false,
       "revision_check": "none",
       "summary": "Preview the fit at a fixed torsion: order parameters re-solved, predictions and residuals."
     },
@@ -1341,8 +1580,262 @@
         "title": "FitRunOut",
         "type": "object"
       },
+      "proposable": false,
       "revision_check": "none",
       "summary": "Fit the project's model (D3): estimates, validity, adequacy, and optional profile intervals under the reporting policy."
+    },
+    {
+      "capability": "query",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {}
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "LogIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "max_request_bytes": 1048576,
+      "name": "history.log",
+      "output_schema": {
+        "$defs": {
+          "HistoryEntryOut": {
+            "additionalProperties": false,
+            "properties": {
+              "actor": {
+                "title": "Actor",
+                "type": "string"
+              },
+              "operation": {
+                "title": "Operation",
+                "type": "string"
+              },
+              "science_revision": {
+                "title": "Science Revision",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "operation",
+              "actor",
+              "science_revision"
+            ],
+            "title": "HistoryEntryOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "max_undo": {
+            "title": "Max Undo",
+            "type": "integer"
+          },
+          "redo": {
+            "items": {
+              "$ref": "#/$defs/HistoryEntryOut"
+            },
+            "maxItems": 100,
+            "title": "Redo",
+            "type": "array"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          },
+          "undo": {
+            "items": {
+              "$ref": "#/$defs/HistoryEntryOut"
+            },
+            "maxItems": 100,
+            "title": "Undo",
+            "type": "array"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "undo",
+          "redo",
+          "max_undo"
+        ],
+        "title": "LogOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none",
+      "summary": "The science changes that can be undone and redone, the next first."
+    },
+    {
+      "capability": "science_mutation",
+      "cost": "instant",
+      "effect": "model",
+      "examples": [
+        {
+          "expected_science_revision": 2
+        }
+      ],
+      "idempotent": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_science_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Expected Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_science_revision"
+        ],
+        "title": "RedoIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "max_request_bytes": 1048576,
+      "name": "history.redo",
+      "output_schema": {
+        "$defs": {
+          "HistoryEntryOut": {
+            "additionalProperties": false,
+            "properties": {
+              "actor": {
+                "title": "Actor",
+                "type": "string"
+              },
+              "operation": {
+                "title": "Operation",
+                "type": "string"
+              },
+              "science_revision": {
+                "title": "Science Revision",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "operation",
+              "actor",
+              "science_revision"
+            ],
+            "title": "HistoryEntryOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "redone": {
+            "$ref": "#/$defs/HistoryEntryOut"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "redone"
+        ],
+        "title": "RedoOut",
+        "type": "object"
+      },
+      "proposable": true,
+      "revision_check": "expected_science_revision (required)",
+      "summary": "Redo the latest undone science change (a new, journaled command)."
+    },
+    {
+      "capability": "science_mutation",
+      "cost": "instant",
+      "effect": "model",
+      "examples": [
+        {
+          "expected_science_revision": 2
+        }
+      ],
+      "idempotent": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_science_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Expected Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_science_revision"
+        ],
+        "title": "UndoIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "max_request_bytes": 1048576,
+      "name": "history.undo",
+      "output_schema": {
+        "$defs": {
+          "HistoryEntryOut": {
+            "additionalProperties": false,
+            "properties": {
+              "actor": {
+                "title": "Actor",
+                "type": "string"
+              },
+              "operation": {
+                "title": "Operation",
+                "type": "string"
+              },
+              "science_revision": {
+                "title": "Science Revision",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "operation",
+              "actor",
+              "science_revision"
+            ],
+            "title": "HistoryEntryOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          },
+          "undone": {
+            "$ref": "#/$defs/HistoryEntryOut"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "undone"
+        ],
+        "title": "UndoOut",
+        "type": "object"
+      },
+      "proposable": true,
+      "revision_check": "expected_science_revision (required)",
+      "summary": "Undo the latest science change (a new, journaled command)."
     },
     {
       "capability": "science_mutation",
@@ -1567,6 +2060,7 @@
         "title": "ModelSetOut",
         "type": "object"
       },
+      "proposable": true,
       "revision_check": "expected_science_revision (required)",
       "summary": "Set the model: kind (rigid, jump4), order model, frame and torsion domain."
     },
@@ -1700,6 +2194,7 @@
         "title": "SetTorsionOut",
         "type": "object"
       },
+      "proposable": true,
       "revision_check": "expected_science_revision (required)",
       "summary": "Declare the fitted torsion of imported geometry: four atom indices (a, i, j, b), i–j a bond."
     },
@@ -2176,6 +2671,7 @@
         "title": "DescribeProjectOut",
         "type": "object"
       },
+      "proposable": false,
       "revision_check": "none",
       "summary": "Describe the project: geometry, spins, couplings, model, estimand and readiness to fit, with IDs."
     },
@@ -2225,6 +2721,7 @@
         "title": "ExportOut",
         "type": "object"
       },
+      "proposable": false,
       "revision_check": "none",
       "summary": "The project as *.dipolar.json text, with a suggested file name."
     },
@@ -2375,6 +2872,7 @@
         "title": "ImportXyzOut",
         "type": "object"
       },
+      "proposable": true,
       "revision_check": "expected_science_revision (required)",
       "summary": "Replace the project with one on imported XYZ coordinates (one spin per hydrogen, no couplings)."
     },
@@ -2448,6 +2946,7 @@
         "title": "LoadOut",
         "type": "object"
       },
+      "proposable": true,
       "revision_check": "expected_science_revision (required)",
       "summary": "Replace the project with a *.dipolar.json document (validated and migrated)."
     },
@@ -2516,8 +3015,1118 @@
         "title": "OpenExampleOut",
         "type": "object"
       },
+      "proposable": true,
       "revision_check": "expected_science_revision (required)",
       "summary": "Replace the session's project with a bundled example dataset."
+    },
+    {
+      "capability": "approve",
+      "cost": "instant",
+      "effect": "model",
+      "examples": [
+        {
+          "proposal_id": "prp_000001"
+        },
+        {
+          "proposal_id": "prp_000001",
+          "steps": [
+            0
+          ]
+        }
+      ],
+      "idempotent": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "proposal_id": {
+            "pattern": "^prp_[0-9]{6}$",
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "steps": {
+            "anyOf": [
+              {
+                "items": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "maxItems": 20,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Steps"
+          }
+        },
+        "required": [
+          "proposal_id"
+        ],
+        "title": "AcceptIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "max_request_bytes": 1048576,
+      "name": "proposal.accept",
+      "output_schema": {
+        "$defs": {
+          "JsonValue": {},
+          "ProposalOut": {
+            "additionalProperties": false,
+            "properties": {
+              "accepted_steps": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Accepted Steps",
+                "type": "array"
+              },
+              "base_science_revision": {
+                "title": "Base Science Revision",
+                "type": "integer"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "decided_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Decided At"
+              },
+              "decided_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Decided By"
+              },
+              "expires_at": {
+                "title": "Expires At",
+                "type": "string"
+              },
+              "id": {
+                "pattern": "^prp_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "note": {
+                "title": "Note",
+                "type": "string"
+              },
+              "proposer": {
+                "title": "Proposer",
+                "type": "string"
+              },
+              "reason": {
+                "title": "Reason",
+                "type": "string"
+              },
+              "stale": {
+                "title": "Stale",
+                "type": "boolean"
+              },
+              "status": {
+                "enum": [
+                  "pending",
+                  "accepted",
+                  "rejected",
+                  "expired"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "steps": {
+                "items": {
+                  "$ref": "#/$defs/StepOut"
+                },
+                "title": "Steps",
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "proposer",
+              "status",
+              "stale",
+              "base_science_revision",
+              "created_at",
+              "expires_at",
+              "note",
+              "steps",
+              "decided_by",
+              "decided_at",
+              "accepted_steps",
+              "reason"
+            ],
+            "title": "ProposalOut",
+            "type": "object"
+          },
+          "StepOut": {
+            "additionalProperties": false,
+            "properties": {
+              "depends_on": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Depends On",
+                "type": "array"
+              },
+              "index": {
+                "title": "Index",
+                "type": "integer"
+              },
+              "operation": {
+                "title": "Operation",
+                "type": "string"
+              }
+            },
+            "required": [
+              "index",
+              "operation",
+              "depends_on"
+            ],
+            "title": "StepOut",
+            "type": "object"
+          },
+          "StepResult": {
+            "additionalProperties": false,
+            "properties": {
+              "index": {
+                "title": "Index",
+                "type": "integer"
+              },
+              "operation": {
+                "title": "Operation",
+                "type": "string"
+              },
+              "result": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/JsonValue"
+                },
+                "title": "Result",
+                "type": "object"
+              }
+            },
+            "required": [
+              "index",
+              "operation",
+              "result"
+            ],
+            "title": "StepResult",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "proposal": {
+            "$ref": "#/$defs/ProposalOut"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/$defs/StepResult"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "proposal",
+          "results"
+        ],
+        "title": "AcceptOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "the proposal's base science revision must be current (else PROPOSAL_STALE)",
+      "summary": "Accept a pending proposal (human only): all steps, or a dependency-closed subset, applied atomically as one transaction."
+    },
+    {
+      "capability": "propose",
+      "cost": "instant",
+      "effect": "proposal",
+      "examples": [
+        {
+          "note": "try the four-site jump model",
+          "steps": [
+            {
+              "args": {
+                "expected_science_revision": 1,
+                "frame": "bisector",
+                "kind": "jump4",
+                "order": "bisector-diagonal",
+                "phi_domain": [
+                  {
+                    "unit": "deg",
+                    "value": 0.0
+                  },
+                  {
+                    "unit": "deg",
+                    "value": 90.0
+                  }
+                ]
+              },
+              "operation": "model.set"
+            }
+          ]
+        }
+      ],
+      "idempotent": false,
+      "input_schema": {
+        "$defs": {
+          "JsonValue": {},
+          "StepIn": {
+            "additionalProperties": false,
+            "properties": {
+              "args": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/JsonValue"
+                },
+                "title": "Args",
+                "type": "object"
+              },
+              "operation": {
+                "maxLength": 100,
+                "minLength": 1,
+                "title": "Operation",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "args"
+            ],
+            "title": "StepIn",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Note",
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/$defs/StepIn"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "steps"
+        ],
+        "title": "CreateIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "max_request_bytes": 35651584,
+      "name": "proposal.create",
+      "output_schema": {
+        "$defs": {
+          "ProposalOut": {
+            "additionalProperties": false,
+            "properties": {
+              "accepted_steps": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Accepted Steps",
+                "type": "array"
+              },
+              "base_science_revision": {
+                "title": "Base Science Revision",
+                "type": "integer"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "decided_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Decided At"
+              },
+              "decided_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Decided By"
+              },
+              "expires_at": {
+                "title": "Expires At",
+                "type": "string"
+              },
+              "id": {
+                "pattern": "^prp_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "note": {
+                "title": "Note",
+                "type": "string"
+              },
+              "proposer": {
+                "title": "Proposer",
+                "type": "string"
+              },
+              "reason": {
+                "title": "Reason",
+                "type": "string"
+              },
+              "stale": {
+                "title": "Stale",
+                "type": "boolean"
+              },
+              "status": {
+                "enum": [
+                  "pending",
+                  "accepted",
+                  "rejected",
+                  "expired"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "steps": {
+                "items": {
+                  "$ref": "#/$defs/StepOut"
+                },
+                "title": "Steps",
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "proposer",
+              "status",
+              "stale",
+              "base_science_revision",
+              "created_at",
+              "expires_at",
+              "note",
+              "steps",
+              "decided_by",
+              "decided_at",
+              "accepted_steps",
+              "reason"
+            ],
+            "title": "ProposalOut",
+            "type": "object"
+          },
+          "StepOut": {
+            "additionalProperties": false,
+            "properties": {
+              "depends_on": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Depends On",
+                "type": "array"
+              },
+              "index": {
+                "title": "Index",
+                "type": "integer"
+              },
+              "operation": {
+                "title": "Operation",
+                "type": "string"
+              }
+            },
+            "required": [
+              "index",
+              "operation",
+              "depends_on"
+            ],
+            "title": "StepOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "proposal": {
+            "$ref": "#/$defs/ProposalOut"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "proposal"
+        ],
+        "title": "CreateOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "each step's own expected_science_revision: step i expects base + i",
+      "summary": "Submit proposable commands as one change set for a human to accept; validated against the current state, nothing is applied."
+    },
+    {
+      "capability": "query",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {
+          "proposal_id": "prp_000001"
+        }
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "proposal_id": {
+            "pattern": "^prp_[0-9]{6}$",
+            "title": "Proposal Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "proposal_id"
+        ],
+        "title": "GetIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "max_request_bytes": 1048576,
+      "name": "proposal.get",
+      "output_schema": {
+        "$defs": {
+          "JsonValue": {},
+          "ProposalOut": {
+            "additionalProperties": false,
+            "properties": {
+              "accepted_steps": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Accepted Steps",
+                "type": "array"
+              },
+              "base_science_revision": {
+                "title": "Base Science Revision",
+                "type": "integer"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "decided_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Decided At"
+              },
+              "decided_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Decided By"
+              },
+              "expires_at": {
+                "title": "Expires At",
+                "type": "string"
+              },
+              "id": {
+                "pattern": "^prp_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "note": {
+                "title": "Note",
+                "type": "string"
+              },
+              "proposer": {
+                "title": "Proposer",
+                "type": "string"
+              },
+              "reason": {
+                "title": "Reason",
+                "type": "string"
+              },
+              "stale": {
+                "title": "Stale",
+                "type": "boolean"
+              },
+              "status": {
+                "enum": [
+                  "pending",
+                  "accepted",
+                  "rejected",
+                  "expired"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "steps": {
+                "items": {
+                  "$ref": "#/$defs/StepOut"
+                },
+                "title": "Steps",
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "proposer",
+              "status",
+              "stale",
+              "base_science_revision",
+              "created_at",
+              "expires_at",
+              "note",
+              "steps",
+              "decided_by",
+              "decided_at",
+              "accepted_steps",
+              "reason"
+            ],
+            "title": "ProposalOut",
+            "type": "object"
+          },
+          "StepDetail": {
+            "additionalProperties": false,
+            "properties": {
+              "args": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/JsonValue"
+                },
+                "title": "Args",
+                "type": "object"
+              },
+              "depends_on": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Depends On",
+                "type": "array"
+              },
+              "index": {
+                "title": "Index",
+                "type": "integer"
+              },
+              "operation": {
+                "title": "Operation",
+                "type": "string"
+              }
+            },
+            "required": [
+              "index",
+              "operation",
+              "depends_on",
+              "args"
+            ],
+            "title": "StepDetail",
+            "type": "object"
+          },
+          "StepOut": {
+            "additionalProperties": false,
+            "properties": {
+              "depends_on": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Depends On",
+                "type": "array"
+              },
+              "index": {
+                "title": "Index",
+                "type": "integer"
+              },
+              "operation": {
+                "title": "Operation",
+                "type": "string"
+              }
+            },
+            "required": [
+              "index",
+              "operation",
+              "depends_on"
+            ],
+            "title": "StepOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "proposal": {
+            "$ref": "#/$defs/ProposalOut"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/$defs/StepDetail"
+            },
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "proposal",
+          "steps"
+        ],
+        "title": "ProposalDetailOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none",
+      "summary": "One proposal with every step's arguments."
+    },
+    {
+      "capability": "query",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {},
+        {
+          "status": "pending"
+        }
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pending",
+                  "accepted",
+                  "rejected",
+                  "expired"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          }
+        },
+        "title": "ListIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "max_request_bytes": 1048576,
+      "name": "proposal.list",
+      "output_schema": {
+        "$defs": {
+          "ProposalOut": {
+            "additionalProperties": false,
+            "properties": {
+              "accepted_steps": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Accepted Steps",
+                "type": "array"
+              },
+              "base_science_revision": {
+                "title": "Base Science Revision",
+                "type": "integer"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "decided_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Decided At"
+              },
+              "decided_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Decided By"
+              },
+              "expires_at": {
+                "title": "Expires At",
+                "type": "string"
+              },
+              "id": {
+                "pattern": "^prp_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "note": {
+                "title": "Note",
+                "type": "string"
+              },
+              "proposer": {
+                "title": "Proposer",
+                "type": "string"
+              },
+              "reason": {
+                "title": "Reason",
+                "type": "string"
+              },
+              "stale": {
+                "title": "Stale",
+                "type": "boolean"
+              },
+              "status": {
+                "enum": [
+                  "pending",
+                  "accepted",
+                  "rejected",
+                  "expired"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "steps": {
+                "items": {
+                  "$ref": "#/$defs/StepOut"
+                },
+                "title": "Steps",
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "proposer",
+              "status",
+              "stale",
+              "base_science_revision",
+              "created_at",
+              "expires_at",
+              "note",
+              "steps",
+              "decided_by",
+              "decided_at",
+              "accepted_steps",
+              "reason"
+            ],
+            "title": "ProposalOut",
+            "type": "object"
+          },
+          "StepOut": {
+            "additionalProperties": false,
+            "properties": {
+              "depends_on": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Depends On",
+                "type": "array"
+              },
+              "index": {
+                "title": "Index",
+                "type": "integer"
+              },
+              "operation": {
+                "title": "Operation",
+                "type": "string"
+              }
+            },
+            "required": [
+              "index",
+              "operation",
+              "depends_on"
+            ],
+            "title": "StepOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "proposals": {
+            "items": {
+              "$ref": "#/$defs/ProposalOut"
+            },
+            "title": "Proposals",
+            "type": "array"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "proposals"
+        ],
+        "title": "ListOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none",
+      "summary": "The session's proposals (pending, and the latest decided), without their arguments."
+    },
+    {
+      "capability": "approve",
+      "cost": "instant",
+      "effect": "proposal",
+      "examples": [
+        {
+          "proposal_id": "prp_000001",
+          "reason": "keep the bisector-diagonal model"
+        }
+      ],
+      "idempotent": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "proposal_id": {
+            "pattern": "^prp_[0-9]{6}$",
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "proposal_id"
+        ],
+        "title": "RejectIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "max_request_bytes": 1048576,
+      "name": "proposal.reject",
+      "output_schema": {
+        "$defs": {
+          "ProposalOut": {
+            "additionalProperties": false,
+            "properties": {
+              "accepted_steps": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Accepted Steps",
+                "type": "array"
+              },
+              "base_science_revision": {
+                "title": "Base Science Revision",
+                "type": "integer"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "decided_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Decided At"
+              },
+              "decided_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Decided By"
+              },
+              "expires_at": {
+                "title": "Expires At",
+                "type": "string"
+              },
+              "id": {
+                "pattern": "^prp_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "note": {
+                "title": "Note",
+                "type": "string"
+              },
+              "proposer": {
+                "title": "Proposer",
+                "type": "string"
+              },
+              "reason": {
+                "title": "Reason",
+                "type": "string"
+              },
+              "stale": {
+                "title": "Stale",
+                "type": "boolean"
+              },
+              "status": {
+                "enum": [
+                  "pending",
+                  "accepted",
+                  "rejected",
+                  "expired"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "steps": {
+                "items": {
+                  "$ref": "#/$defs/StepOut"
+                },
+                "title": "Steps",
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "proposer",
+              "status",
+              "stale",
+              "base_science_revision",
+              "created_at",
+              "expires_at",
+              "note",
+              "steps",
+              "decided_by",
+              "decided_at",
+              "accepted_steps",
+              "reason"
+            ],
+            "title": "ProposalOut",
+            "type": "object"
+          },
+          "StepOut": {
+            "additionalProperties": false,
+            "properties": {
+              "depends_on": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Depends On",
+                "type": "array"
+              },
+              "index": {
+                "title": "Index",
+                "type": "integer"
+              },
+              "operation": {
+                "title": "Operation",
+                "type": "string"
+              }
+            },
+            "required": [
+              "index",
+              "operation",
+              "depends_on"
+            ],
+            "title": "StepOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "proposal": {
+            "$ref": "#/$defs/ProposalOut"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "proposal"
+        ],
+        "title": "RejectOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none",
+      "summary": "Reject a pending proposal (human only), with an optional reason."
     },
     {
       "capability": "query",
@@ -2611,6 +4220,7 @@
         "title": "DescribeViewOut",
         "type": "object"
       },
+      "proposable": false,
       "revision_check": "none",
       "summary": "Describe the shared view: revisions and the current selection, with labels."
     },
@@ -2701,6 +4311,7 @@
         "title": "SelectOut",
         "type": "object"
       },
+      "proposable": false,
       "revision_check": "none: an absolute set; IDs are validated atomically and never reused",
       "summary": "Set the shared selection to the given spin or coupling IDs (replaces it)."
     }

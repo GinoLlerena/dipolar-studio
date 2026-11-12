@@ -21,6 +21,8 @@ class Capability(StrEnum):
     COMPUTE_JOB = "compute_job"
     IO = "io"
     JOB_CANCEL = "job_cancel"
+    PROPOSE = "propose"  # submit a change set for a human to approve (M2 step 2)
+    APPROVE = "approve"  # accept or reject a proposal: human principals only
 
 
 class Decision(StrEnum):
@@ -49,8 +51,14 @@ MATRIX: dict[Capability, dict[Tier, Decision]] = {
     Capability.COMPUTE_JOB: {Tier.READ: D, Tier.PROPOSE: P, Tier.APPLY: A, Tier.ADMIN: A},
     Capability.IO: {Tier.READ: D, Tier.PROPOSE: P, Tier.APPLY: A, Tier.ADMIN: A},
     Capability.JOB_CANCEL: {Tier.READ: D, Tier.PROPOSE: A, Tier.APPLY: A, Tier.ADMIN: A},
+    Capability.PROPOSE: {Tier.READ: D, Tier.PROPOSE: A, Tier.APPLY: A, Tier.ADMIN: A},
+    Capability.APPROVE: {Tier.READ: D, Tier.PROPOSE: D, Tier.APPLY: A, Tier.ADMIN: A},
 }
 
 
 def decide(principal: Principal, capability: Capability) -> Decision:
+    """The §8.3 decision. Approval also needs a **human** principal (§8.3 "Approval"): a script or
+    an agent never approves, whatever its tier."""
+    if capability is Capability.APPROVE and not principal.human:
+        return Decision.DENY
     return MATRIX[capability][principal.tier]
