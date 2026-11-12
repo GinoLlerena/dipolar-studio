@@ -56,7 +56,7 @@ def opened(tmp_path: Path | None = None) -> tuple[Session, LocalClient]:
 
 
 def wait(c: LocalClient, job_id: str) -> dict[str, Any]:
-    for _ in range(20):
+    for _ in range(3):  # at most 90 s: a stuck job fails the test instead of hanging it
         r = ok(c.call("job.wait", {"job_id": job_id, "timeout_s": 30}))
         if r["finished"]:
             job: dict[str, Any] = r["job"]
@@ -352,3 +352,181 @@ def test_a_late_outcome_is_dropped_quietly(gate: threading.Event) -> None:
     assert runner.finish(job_id, "failed", error=("INTERNAL", "late")) is False
     assert session.state.seq == seq and session.state.job(job_id).status == "cancelled"  # type: ignore[union-attr]
     gate.set()
+
+
+# --------------------------------------------------------------------------- round 33
+def test_an_infrastructure_failure_fails_the_job_and_the_worker_lives_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    s, c = opened()
+    real = s.blobs.put
+    calls = {"n": 0}
+
+    def flaky(data: dict[str, Any]) -> str:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("disk full")
+        return real(data)
+
+    monkeypatch.setattr(s.blobs, "put", flaky)
+    first = wait(c, submit(c))
+    assert first["status"] == "failed" and first["error"]["code"] == "INTERNAL"
+    for _ in range(3):  # more jobs than workers: every worker survived
+        assert wait(c, submit(c))["status"] == "succeeded"
+
+
+def test_a_spawn_failure_fails_only_its_job(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    session = Session(Journal(tmp_path / "project.events.jsonl"), contract_version=CONTRACT_VERSION)
+    runner = JobRunner(session, mode="process", workers=1)
+    real = jobs_module.multiprocessing.get_context
+    calls = {"n": 0}
+
+    class Broken:
+        def Process(self, *a: Any, **k: Any) -> Any:
+            proc = real("spawn").Process(*a, **k)
+
+            def start() -> None:
+                raise OSError("cannot fork")
+
+            proc.start = start  # type: ignore[method-assign]
+            return proc
+
+    def context(method: str) -> Any:
+        calls["n"] += 1
+        return Broken() if calls["n"] == 1 else real(method)
+
+    monkeypatch.setattr(jobs_module.multiprocessing, "get_context", context)
+    try:
+        c = LocalClient(build_registry(), session, USER)
+        ok(c.call("project.open_example", OPEN))
+        assert wait(c, submit(c))["status"] == "failed"
+        assert wait(c, submit(c))["status"] == "succeeded"
+    finally:
+        runner.close()
+
+
+def test_a_process_job_times_out_within_its_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(jobs_module, "JOB_TIMEOUT_S", 1.5)
+    session = Session(Journal(tmp_path / "project.events.jsonl"), contract_version=CONTRACT_VERSION)
+    runner = JobRunner(session, mode="process")
+    try:
+        c = LocalClient(build_registry(), session, USER)
+        ok(c.call("project.open_example", OPEN))
+        start = time.monotonic()
+        job = wait(c, submit(c, intervals=True))
+        assert job["status"] == "failed" and job["error"]["code"] == "TIMEOUT"
+        assert time.monotonic() - start < 6 and not multiprocessing.active_children()
+    finally:
+        runner.close()
+
+
+def test_the_blob_directory_is_made_durable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from dipolar_app import session as session_module
+
+    synced: list[Path] = []
+    real = session_module.fsync_dir
+    monkeypatch.setattr(session_module, "fsync_dir", lambda p: (synced.append(p), real(p))[1])
+    _, c = opened(tmp_path)
+    wait(c, submit(c))
+    assert tmp_path in synced and tmp_path / "runs" in synced
+
+
+def test_a_damaged_blob_is_rewritten_when_the_same_result_is_published(tmp_path: Path) -> None:
+    _, c = opened(tmp_path)
+    first = wait(c, submit(c))
+    (blob,) = (tmp_path / "runs").glob("*.json")
+    blob.write_text("damaged")
+    second = wait(c, submit(c))
+    assert second["status"] == "succeeded"
+    assert ok(c.call("run.get", {"run_id": second["run_id"]}))["result"]["chi2"] >= 0
+    assert ok(c.call("run.get", {"run_id": first["run_id"]}))["run"]["result_sha256"] == blob.stem
+
+
+def test_an_accepted_fit_reports_its_proposer(gate: threading.Event) -> None:
+    s, user = opened()
+    agent = client(s, AGENT)
+    ok(agent.call("proposal.create", {"steps": [{"operation": "fit.run", "args": {"expected_science_revision": 1}}]}))
+    accepted = ok(user.call("proposal.accept", {"proposal_id": "prp_000001"}, request_id="acc"))
+    assert accepted["results"][0]["result"]["job"]["proposed_by"] == "agent:test"
+    gate.set()
+
+
+def test_blocking_waits_are_capped_so_commands_keep_their_threads(gate: threading.Event) -> None:
+    from dipolar_app import job_ops
+
+    _s, c = opened()
+    job_id = submit(c)
+    holders = [
+        threading.Thread(target=c.call, args=("job.wait", {"job_id": job_id, "timeout_s": 30}))
+        for _ in range(job_ops.MAX_BLOCKING_WAITS)
+    ]
+    for t in holders:
+        t.start()
+    time.sleep(0.3)
+    start = time.monotonic()
+    extra = ok(c.call("job.wait", {"job_id": job_id, "timeout_s": 30}))
+    assert not extra["finished"] and time.monotonic() - start < 2  # answered at once
+    gate.set()
+    for t in holders:
+        t.join(30)
+
+
+def test_a_snapshot_never_pairs_a_new_state_with_an_old_cursor() -> None:
+    s, c = opened()
+    seen: list[tuple[int, int]] = []
+
+    def listener(state: Any, events: Any) -> None:
+        reader = threading.Thread(target=lambda: seen.append((lambda st, cur: (st.seq, cur))(*s.snapshot())))
+        reader.start()
+        time.sleep(0.1)  # the reader runs while the commit is being published
+
+    s.add_listener(listener)
+    ok(c.call("view.select", {"ids": ["cpl_000001"]}))
+    time.sleep(0.3)
+    ((seq, cursor),) = seen
+    at_cursor = dict(s.feed_after(cursor - 1, 0)[0])[cursor]
+    assert seq == s.state.seq and at_cursor.get("seq") == seq  # the cursor is exactly the commit's entry
+
+
+def test_disconnected_event_streams_free_their_slots() -> None:
+    import asyncio
+
+    from dipolar_app.auth import Credentials
+    from dipolar_app.http import MAX_STREAMS, create_app
+
+    s, _ = opened()
+    app = create_app(build_registry(), s, Credentials({"tok": USER}), port=1)
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/v1/events",
+        "raw_path": b"/api/v1/events",
+        "query_string": b"",
+        "headers": [(b"host", b"127.0.0.1:1"), (b"authorization", b"Bearer tok")],
+        "http_version": "1.1",
+        "scheme": "http",
+        "server": ("127.0.0.1", 1),
+        "client": ("127.0.0.1", 2),
+        "root_path": "",
+    }
+
+    async def receive() -> dict[str, Any]:
+        return {"type": "http.disconnect"}
+
+    async def failing_send(message: dict[str, Any]) -> None:
+        raise OSError("the client went away")
+
+    async def run() -> int:
+        for _ in range(MAX_STREAMS + 2):
+            try:
+                await app(dict(scope), receive, failing_send)
+            except OSError:
+                pass
+        status: list[int] = []
+
+        async def send(message: dict[str, Any]) -> None:
+            if message["type"] == "http.response.start":
+                status.append(message["status"])
+
+        await app(dict(scope), receive, send)
+        return status[0]
+
+    assert asyncio.run(run()) == 200

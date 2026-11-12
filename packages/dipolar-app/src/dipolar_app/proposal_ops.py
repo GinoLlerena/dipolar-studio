@@ -378,6 +378,17 @@ def _closed(found: Proposal, chosen: list[int]) -> None:
         )
 
 
+def _restamp(result: Any, state: SessionState) -> Any:
+    """A step result that reports a job, re-read from the state the stamped events produce."""
+    from dipolar_app.job_ops import FitRunSubmitted, job_out
+
+    if isinstance(result, FitRunSubmitted):
+        job = state.job(result.job.id)
+        assert job is not None
+        return result.model_copy(update={"job": job_out(job, state, None)})
+    return result
+
+
 def _closed_error(found: Proposal, now: dt.datetime) -> OperationError:
     return OperationError(
         ErrorCode.PROPOSAL_CLOSED,
@@ -444,6 +455,9 @@ def proposal_accept(ctx: Context, p: AcceptIn) -> AcceptOut:
             for event in step:
                 if event["type"] == "job.submitted":
                     event["job"]["proposed_by"] = current.proposer
+        # ... and so does the job each step returns (round 33); the stamped events are what commit.
+        scratch = apply_record(state, steps, operation="proposal.accept", actor=principal.actor)
+        results = [_restamp(r, scratch) for r in results]
         decided: Event = {
             "type": "proposal.decided",
             "domain": PROPOSAL,

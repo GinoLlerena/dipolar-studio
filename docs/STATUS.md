@@ -675,6 +675,59 @@ request-table growth, step parsing under the lock, selection cleared on undo).
 - rebasing stale proposals;
 - marking runs from undone states stale (no stored runs before step 3).
 
+### Step 3: jobs, D11 runs and the authenticated event stream
+
+The 04 D18, §8.1 and §8.2 contracts and the D11 run contract. Long work is a resource, never a
+blocking call.
+
+**`fit.run` is a job.** It is a command (effect `compute`) that needs
+`expected_science_revision`. It commits a `job.submitted` event and returns the job at once.
+
+The job records:
+- its input identity: the science revision and hash;
+- the D11 canonical input hash, over the science, the options, `FIT_VERSION` and the
+  numerical context.
+
+The other operations:
+- `job.status`, `job.list`, and `job.wait`, which waits at most 30 s and can be called again;
+- `job.cancel`: a `propose`-tier caller may cancel only its own or its proposed jobs;
+- `run.get`: the result, verified against its SHA-256;
+- `run.list`.
+
+Jobs live in their own `job` domain, which advances neither revision.
+
+**The job runner** (`dipolar_app.jobs`) is a session listener: it queues each committed
+submission with the committed project as its **input snapshot**.
+- **`dipolar serve` uses one spawned process per job.** A cancel or a timeout terminates the
+  process, and a crash fails only its job. Tests use worker threads.
+- **Results are published durably.** The result is written as an immutable, content-addressed blob
+  in `runs/` (fsynced), then `job.finished` references it by hash.
+- **Exactly one terminal state.** A cancel and a completion both commit through the session; the
+  first wins and the later outcome is dropped.
+- **Stale runs.** A run that finishes after an edit is published against its own input and
+  reported `stale`. It never changes the state.
+- **Restart.** Replay never re-runs a job. Unfinished jobs are marked `interrupted` at the next
+  start, and every run's blob is verified when the session opens.
+- **Budgets (D17):** 2 unfinished jobs per caller and 8 in total, 2 workers, 600 s per job.
+
+**Agents.** A `propose`-tier caller proposes `fit.run`, and a human's acceptance starts the job,
+which records the proposer. In a proposal, compute steps come after every science change.
+
+**Event stream.** `GET /api/v1/events?after=N` streams one JSON object per line (NDJSON), over an
+authenticated fetch (D10). Any tier may listen. The line kinds:
+- `hello`: the boot ID, the cursor and the revisions;
+- `commit`: one per acknowledged transaction, with the operation, the actor, the revisions,
+  the domains and the job changes;
+- `job`: progress, such as `running`;
+- `ping`: a heartbeat;
+- `resync`: entries were dropped, or belong to an earlier boot.
+
+The stream is a read: arguments and labels never appear in it. At most 8 streams may be open.
+
+**Contract:** 0.4.0, because `fit.run`'s input and output changed. Tests:
+`tests/test_app_jobs.py` (17), with real worker processes and a cancel that kills one. 10
+mutations of the job guarantees were each caught.
+
 ## Open items for the owner
 
 - Log your hours per M1 step in the table above. The re-baseline needs them for a first date

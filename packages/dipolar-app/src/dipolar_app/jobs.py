@@ -32,12 +32,18 @@ The number of unfinished jobs, per actor and in total, is bounded when they are 
 from __future__ import annotations
 
 import datetime as dt
+import json
+import logging
 import multiprocessing
+import os
 import queue
+import shutil
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
-from multiprocessing.connection import Connection
+from multiprocessing.connection import wait as wait_for_objects
+from multiprocessing.process import BaseProcess
 from typing import Any, Literal
 
 from dipolar_app.errors import OperationError
@@ -45,6 +51,7 @@ from dipolar_app.policy import Principal, Tier
 from dipolar_app.project import Project
 from dipolar_app.session import JOB, TERMINAL, Event, Session, SessionState
 
+LOG = logging.getLogger("dipolar_app.jobs")
 MAX_WORKERS = 2
 JOB_TIMEOUT_S = 600.0
 #: The runner's own identity in the journal (it records terminal states, never science).
@@ -68,16 +75,43 @@ def compute(kind: str, project_json: str, options: dict[str, Any], revision: int
     return result.model_dump(mode="json")
 
 
-def _child(conn: Connection, args: tuple[str, str, dict[str, Any], int, str]) -> None:
-    """The entry point of a worker process."""
+def _child(path: str, args: tuple[str, str, dict[str, Any], int, str]) -> None:
+    """The entry point of a worker process. It writes its outcome to ``path`` and exits; the parent
+    reads the file only after the process has exited, so a partial write can never block it
+    (round 33)."""
     try:
-        conn.send(("ok", compute(*args)))
+        outcome: list[Any] = ["ok", compute(*args)]
     except OperationError as exc:
-        conn.send(("error", exc.code.value, exc.message))
+        outcome = ["error", exc.code.value, exc.message]
     except BaseException as exc:  # reported to the parent, which fails the job
-        conn.send(("error", "INTERNAL", f"the computation failed ({type(exc).__name__})"))
-    finally:
-        conn.close()
+        outcome = ["error", "INTERNAL", f"the computation failed ({type(exc).__name__})"]
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(outcome, handle, allow_nan=False)
+
+
+def _read_outcome(path: str, exitcode: int | None) -> Outcome:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            message = json.load(handle)
+    except (OSError, ValueError):
+        return ("error", "INTERNAL", f"the worker process exited without a result (code {exitcode})")
+    if isinstance(message, list) and message[:1] == ["ok"] and len(message) == 2 and isinstance(message[1], dict):
+        return ("ok", message[1])
+    if isinstance(message, list) and len(message) == 3 and message[0] == "error":
+        return ("error", str(message[1]), str(message[2]))
+    return ("error", "INTERNAL", "the worker process returned a malformed result")
+
+
+def _stop(process: BaseProcess) -> None:
+    """Terminate, then kill, a worker that has not exited; never wait without a bound."""
+    if process.pid is None:
+        return  # it never started
+    if process.is_alive():
+        process.terminate()
+        process.join(2)
+    if process.is_alive():
+        process.kill()
+        process.join(2)
 
 
 @dataclass
@@ -184,6 +218,12 @@ class JobRunner:
                 return
             try:
                 self._run(task)
+            except Exception:  # infrastructure failure: the job fails, the worker lives on (round 33)
+                LOG.exception("job %s: infrastructure failure", task.job_id)
+                try:
+                    self.finish(task.job_id, "failed", error=("INTERNAL", "the job could not be run or published"))
+                except Exception:
+                    LOG.exception("job %s: could not record the failure", task.job_id)
             finally:
                 with self._lock:
                     self._tasks.pop(task.job_id, None)
@@ -203,6 +243,7 @@ class JobRunner:
                 self.finish(task.job_id, "failed", error=(outcome[1], outcome[2]))
         except OperationError:
             pass  # the session stopped accepting commands (journal failure): fail-stop
+        # Any other exception (a blob write that fails, say) reaches _work, which fails the job.
 
     def _execute(self, task: _Task) -> Outcome:
         args = (task.kind, task.project_json, task.options, task.revision, task.science_hash)
@@ -214,34 +255,25 @@ class JobRunner:
             except Exception as exc:
                 return ("error", "INTERNAL", f"the computation failed ({type(exc).__name__})")
             return ("cancelled",) if task.cancel.is_set() else ("ok", result)
-        ctx = multiprocessing.get_context("spawn")
-        parent, child = ctx.Pipe(duplex=False)
-        process = ctx.Process(target=_child, args=(child, args), daemon=True)
-        process.start()
-        child.close()
+        workdir = tempfile.mkdtemp(prefix="dipolar-job-")
+        path = os.path.join(workdir, "outcome.json")
+        process = multiprocessing.get_context("spawn").Process(target=_child, args=(path, args), daemon=True)
         deadline = time.monotonic() + JOB_TIMEOUT_S
         try:
+            process.start()
             while True:
-                if parent.poll(0.05):
-                    try:
-                        message = parent.recv()
-                    except EOFError:
-                        return ("error", "INTERNAL", "the worker process exited without a result")
-                    return ("ok", message[1]) if message[0] == "ok" else ("error", message[1], message[2])
+                # Never blocks longer than the poll interval: cancel, timeout and shutdown are
+                # always observed (round 33).
+                if wait_for_objects([process.sentinel], timeout=0.05):
+                    process.join()
+                    return _read_outcome(path, process.exitcode)
                 if task.cancel.is_set() or self._closed:
                     return ("cancelled",)
                 if time.monotonic() > deadline:
                     return ("error", "TIMEOUT", f"the job exceeded its {JOB_TIMEOUT_S:.0f} s budget")
-                if not process.is_alive() and not parent.poll(0):
-                    return ("error", "INTERNAL", f"the worker process exited (code {process.exitcode})")
         finally:
-            if process.is_alive():
-                process.terminate()
-            process.join(5)
-            if process.is_alive():
-                process.kill()
-                process.join()
-            parent.close()
+            _stop(process)
+            shutil.rmtree(workdir, ignore_errors=True)
 
     def close(self) -> None:
         """Stop the workers; running processes are terminated. Unfinished jobs stay unfinished in

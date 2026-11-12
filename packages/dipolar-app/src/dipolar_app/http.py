@@ -96,6 +96,30 @@ class LocalhostGuard:
 REQUEST_FIELDS = frozenset(RequestEnvelope.model_fields)
 
 
+class _CountedStream(StreamingResponse):
+    """A stream that frees its slot when the response ends, however it ends: a normal close, a
+    disconnect before the first chunk, or a failed send (round 33)."""
+
+    def __init__(self, content: Any, counter: dict[str, int], **kw: Any) -> None:
+        super().__init__(content, **kw)
+        self._counter = counter
+        self._released = False
+
+    def _release(self) -> None:
+        if not self._released:
+            self._released = True
+            self._counter["open"] -= 1
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._release()
+
+    def __del__(self) -> None:  # a response that was never sent still frees its slot
+        self._release()
+
+
 def _reject_constant(token: str) -> None:
     raise ValueError(f"{token} is not JSON")
 
@@ -286,32 +310,29 @@ def create_app(
             return (json.dumps(item, separators=(",", ":")) + "\n").encode()
 
         async def body() -> Any:
-            try:
-                state = session.state
-                cursor = session.cursor if raw is None else int(raw)
-                yield line(
-                    {
-                        "kind": "hello",
-                        "boot_id": session.boot_id,
-                        "cursor": session.cursor,
-                        "seq": state.seq,
-                        "revisions": {"science": state.science_revision, "workspace": state.workspace_revision},
-                    }
-                )
-                while not await request.is_disconnected():
-                    items, latest, resync = await run_in_threadpool(session.feed_after, cursor, heartbeat_s)
-                    if resync:
-                        yield line({"kind": "resync", "cursor": latest})
-                        cursor = latest
-                    elif not items:
-                        yield line({"kind": "ping", "cursor": latest})
-                    for c, item in items:
-                        yield line({**item, "cursor": c})
-                        cursor = c
-            finally:
-                streams["open"] -= 1
+            state, now = session.snapshot()  # one consistent (state, cursor) pair (round 33)
+            cursor = now if raw is None else int(raw)
+            yield line(
+                {
+                    "kind": "hello",
+                    "boot_id": session.boot_id,
+                    "cursor": now,
+                    "seq": state.seq,
+                    "revisions": {"science": state.science_revision, "workspace": state.workspace_revision},
+                }
+            )
+            while not await request.is_disconnected():
+                items, latest, resync = await run_in_threadpool(session.feed_after, cursor, heartbeat_s)
+                if resync:
+                    yield line({"kind": "resync", "cursor": latest})
+                    cursor = latest
+                elif not items:
+                    yield line({"kind": "ping", "cursor": latest})
+                for c, item in items:
+                    yield line({**item, "cursor": c})
+                    cursor = c
 
-        return StreamingResponse(body(), media_type="application/x-ndjson")
+        return _CountedStream(body(), streams, media_type="application/x-ndjson")
 
     routes: list[Route | Mount] = [
         Route("/api/v1/ops/{name:str}", run_operation, methods=["POST"]),

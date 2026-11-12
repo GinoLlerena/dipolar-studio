@@ -424,9 +424,11 @@ class BlobStore:
             self._memory[digest] = text
             return digest
         target = self.directory / f"{digest}.json"
-        if target.exists():
-            return digest
-        self.directory.mkdir(mode=0o700, exist_ok=True)
+        if self.text(digest) == text:
+            return digest  # already stored intact; a damaged file is rewritten below (round 33)
+        if not self.directory.exists():
+            self.directory.mkdir(mode=0o700)
+            fsync_dir(self.directory.parent)  # the new directory itself is durable (round 33)
         tmp = self.directory / f".{digest}.{uuid.uuid4().hex}.tmp"
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
@@ -526,6 +528,11 @@ class Session:
     @property
     def cursor(self) -> int:
         return self._cursor
+
+    def snapshot(self) -> tuple[SessionState, int]:
+        """The state and the feed cursor that follows it, taken together."""
+        with self._changed:
+            return self._state, self._cursor
 
     @property
     def state(self) -> SessionState:
@@ -632,11 +639,13 @@ class Session:
             if outcome is not None:
                 assert request_id is not None
                 self._requests[(principal.actor, request_id)] = outcome
-            self._state = new_state
             events = [e for step in steps for e in step]
-            for listener in self._listeners:
-                listener(new_state, events)
+            # The state and its feed entry change together, so a subscriber's (state, cursor)
+            # snapshot never misses a commit (round 33).
             with self._changed:
+                self._state = new_state
+                for listener in self._listeners:
+                    listener(new_state, events)
                 self._publish(
                     {
                         "kind": "commit",

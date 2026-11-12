@@ -22,6 +22,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import threading
 from typing import Annotated, Literal
 
 from pydantic import Field
@@ -216,6 +217,13 @@ class JobWaitOut(Science):
     finished: bool  # false: the wait timed out first; call again
 
 
+#: Waits that may block a server thread at once. Each blocked wait holds a thread of the shared
+#: pool, so the waits are capped and commands always find a thread (round 33); a wait beyond the
+#: cap returns at once with the current status.
+MAX_BLOCKING_WAITS = 8
+_waits = threading.BoundedSemaphore(MAX_BLOCKING_WAITS)
+
+
 def job_wait(ctx: Context, p: JobWaitIn) -> JobWaitOut:
     _find_job(ctx.session.state, p.job_id)
 
@@ -223,7 +231,11 @@ def job_wait(ctx: Context, p: JobWaitIn) -> JobWaitOut:
         job = state.job(p.job_id)
         return job is None or job.status in TERMINAL
 
-    ctx.session.wait_for(done, p.timeout_s)
+    if _waits.acquire(blocking=False):
+        try:
+            ctx.session.wait_for(done, p.timeout_s)
+        finally:
+            _waits.release()
     state = ctx.read()
     job = _find_job(state, p.job_id)
     return JobWaitOut(
