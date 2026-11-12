@@ -25,6 +25,7 @@ from dipolar_app import proposal_ops
 from dipolar_app.client import LocalClient
 from dipolar_app.errors import HTTP_STATUS, ErrorCode
 from dipolar_app.http import _error
+from dipolar_app.jobs import JobRunner
 from dipolar_app.journal import Journal
 from dipolar_app.operations import build_registry
 from dipolar_app.policy import Principal, Tier
@@ -53,6 +54,7 @@ def assert_valid(schema: dict[str, Any], instance: Any) -> None:
 
 def opened_client(principal: Principal = USER, journal: Journal | None = None) -> LocalClient:
     session = Session(journal, contract_version=CONTRACT_VERSION)
+    JobRunner(session, mode="thread")
     LocalClient(REGISTRY, session, USER).call(
         "project.open_example", {"name": "biphenyl-synthetic", "expected_science_revision": 0}
     )
@@ -92,6 +94,9 @@ def prepared(name: str) -> tuple[LocalClient, dict[str, Any]]:
             assert c.call("history.undo", {"expected_science_revision": 2})["ok"]
     if name in ("proposal.get", "proposal.accept", "proposal.reject"):
         assert c.call("proposal.create", dict(OPS["proposal.create"]["examples"][0]))["ok"]
+    if name.startswith(("job.", "run.")):  # a finished fit: job_000001 and run_000001
+        assert c.call("fit.run", {"expected_science_revision": 1})["ok"]
+        assert c.call("job.wait", {"job_id": "job_000001", "timeout_s": 30})["result"]["finished"]
     return c, c.call("render.describe_view")["revisions"]
 
 

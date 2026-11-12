@@ -51,7 +51,7 @@ class Recovery:
     quarantine: Path
 
 
-def _fsync_dir(path: Path) -> None:
+def fsync_dir(path: Path) -> None:
     dir_fd = os.open(path, os.O_RDONLY)
     try:
         os.fsync(dir_fd)
@@ -79,7 +79,7 @@ class Journal:
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             os.fsync(fd)
             os.close(fd)
-            _fsync_dir(path.parent)
+            fsync_dir(path.parent)
 
     def append(self, record: dict[str, Any]) -> dict[str, Any]:
         """Add the checksum, write the record as one line and fsync it. Returns the stored record."""
@@ -134,7 +134,7 @@ class Journal:
             os.fsync(fd)
         finally:
             os.close(fd)
-        _fsync_dir(self.path.parent)  # the quarantine copy exists before the journal is cut
+        fsync_dir(self.path.parent)  # the quarantine copy exists before the journal is cut
         fd = os.open(self.path, os.O_WRONLY)
         try:
             os.ftruncate(fd, end)

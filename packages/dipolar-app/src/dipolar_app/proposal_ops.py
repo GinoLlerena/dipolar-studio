@@ -35,7 +35,7 @@ from typing import Annotated, Any, Literal
 from pydantic import Field, JsonValue
 
 from dipolar_app.errors import ErrorCode, OperationError
-from dipolar_app.policy import Decision, decide
+from dipolar_app.policy import Capability, Decision, decide
 from dipolar_app.project import canonical_json, science_hash
 from dipolar_app.registry import Context, Operation, Registry, capture_plan, parse_input
 from dipolar_app.schemas import ProposalId, Wire
@@ -234,6 +234,15 @@ def _compile(ctx: Context, p: CreateIn) -> tuple[list[tuple[int, Operation, Plan
                 offending_field=f"steps[{i}].operation",
                 hint="propose the undo or redo by itself; propose other changes separately",
             )
+        if op.capability is not Capability.COMPUTE_JOB and any(
+            q.capability is Capability.COMPUTE_JOB for _, q, _ in plans
+        ):
+            raise OperationError(
+                ErrorCode.INVALID_ARGUMENT,
+                f"{op.name} follows a compute step; compute steps (fit.run) come after every science change",
+                offending_field=f"steps[{i}].operation",
+                hint="a job computes from the science state its proposal leaves, so put fit.run last",
+            )
         parsed = parse_input(op, step.args, prefix=f"steps[{i}].args")
         try:
             plans.append((i, op, capture_plan(ctx, op, parsed)))
@@ -431,6 +440,10 @@ def proposal_accept(ctx: Context, p: AcceptIn) -> AcceptOut:
                 },
             )
         steps, results, scratch = _run_steps(state, plans, principal.actor)
+        for step in steps:  # a job started by acceptance records who proposed it
+            for event in step:
+                if event["type"] == "job.submitted":
+                    event["job"]["proposed_by"] = current.proposer
         decided: Event = {
             "type": "proposal.decided",
             "domain": PROPOSAL,

@@ -1,12 +1,12 @@
 // GENERATED FILE: do not edit. Regenerate with `uv run python tools/codegen/ts_contract.py`.
-// Source: packages/dipolar-app/registry.snapshot.json (sha256 5f2e665c24dcb6f66558c44d9ff8be442ca76ea900dc20ceb6bec89b4ca261c8).
+// Source: packages/dipolar-app/registry.snapshot.json (sha256 b81850d398dc968d01a9038ec83765249eb9805bfce8b1b49794129ccc52ed70).
 // CI fails if this file is stale (tests/test_ts_contract.py).
 //
 // Value constraints that TypeScript cannot express (bounds, lengths, patterns) appear as doc
 // comments; the server enforces them.
 /* eslint-disable */
 
-export const CONTRACT_VERSION = "0.3.0";
+export const CONTRACT_VERSION = "0.4.0";
 
 /** Any JSON value. */
 export type JsonValue =
@@ -74,6 +74,37 @@ export type ErrorBody = {
 };
 
 export type ErrorCode = "INVALID_ARGUMENT" | "UNKNOWN_OPERATION" | "UNAUTHENTICATED" | "CAPABILITY_DENIED" | "PROPOSAL_REQUIRED" | "REVISION_CONFLICT" | "NO_PROJECT" | "ID_NOT_FOUND" | "OUT_OF_DOMAIN" | "PROJECT_NOT_READY" | "PAYLOAD_TOO_LARGE" | "IDEMPOTENCY_KEY_REUSED" | "PROPOSAL_STALE" | "PROPOSAL_CLOSED" | "NOTHING_TO_UNDO" | "QUOTA_EXCEEDED" | "JOURNAL_FAILED" | "INTERNAL";
+
+export type FitRunOut = {
+  adequate: boolean | null;
+  basins: BasinOut[];
+  chi2: number;
+  couplings: FittedCoupling[];
+  estimand: string;
+  fit_version: string;
+  frame: string;
+  intervals: IntervalOut[];
+  intervals_policy: string;
+  model: ModelOut;
+  /** integer */
+  n_obs: number;
+  notes: string[];
+  nu: number | null;
+  numerical_context: { [key: string]: string | number };
+  order: NamedValue[];
+  /** integer */
+  p_free: number;
+  p_value: number | null;
+  rms_residual: Hertz;
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+  statement: string;
+  stderr: NamedValue[] | null;
+  theta: NamedValue[];
+  unidentified: NamedValue[][];
+  validity: FitValidity;
+};
 
 export type FitValidity = {
   at_bound: string[];
@@ -150,6 +181,30 @@ export type IntervalOut = {
   upper: number | null;
 };
 
+export type JobError = {
+  code: string;
+  message: string;
+};
+
+export type JobOut = {
+  error: JobError | null;
+  finished_at: string | null;
+  /** pattern "^job_[0-9]{6}$" */
+  id: string;
+  input_hash: string;
+  kind: "fit";
+  options: { [key: string]: boolean };
+  owner: string;
+  proposed_by: string | null;
+  run_id: string | null;
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+  stale: boolean;
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted";
+  submitted_at: string;
+};
+
 export type ModelOut = {
   frame: "bisector" | "ring-a" | "input";
   kind: "rigid" | "jump4";
@@ -203,6 +258,22 @@ export type Revisions = {
   science: number;
   /** integer, minimum 0, maximum 9007199254740991 */
   workspace: number;
+};
+
+export type RunOut = {
+  created_at: string;
+  /** pattern "^run_[0-9]{6}$" */
+  id: string;
+  input_hash: string;
+  /** pattern "^job_[0-9]{6}$" */
+  job_id: string;
+  kind: "fit";
+  owner: string;
+  result_sha256: string;
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+  stale: boolean;
 };
 
 export type ScienceChanges = {
@@ -397,40 +468,18 @@ export type PreviewOut = {
 
 /** `fit.run` input. */
 export type FitRunIn = {
+  /** integer, minimum 0, maximum 9007199254740991 */
+  expected_science_revision: number;
   /** default false */
   intervals?: boolean;
 };
 
 /** `fit.run` output. */
-export type FitRunOut = {
-  adequate: boolean | null;
-  basins: BasinOut[];
-  chi2: number;
-  couplings: FittedCoupling[];
-  estimand: string;
-  fit_version: string;
-  frame: string;
-  intervals: IntervalOut[];
-  intervals_policy: string;
-  model: ModelOut;
-  /** integer */
-  n_obs: number;
-  notes: string[];
-  nu: number | null;
-  numerical_context: { [key: string]: string | number };
-  order: NamedValue[];
-  /** integer */
-  p_free: number;
-  p_value: number | null;
-  rms_residual: Hertz;
+export type FitRunSubmitted = {
+  job: JobOut;
   science_hash: string;
   /** integer */
   science_revision: number;
-  statement: string;
-  stderr: NamedValue[] | null;
-  theta: NamedValue[];
-  unidentified: NamedValue[][];
-  validity: FitValidity;
 };
 
 /** `history.log` input. */
@@ -475,6 +524,66 @@ export type UndoOut = {
   /** integer */
   science_revision: number;
   undone: HistoryEntryOut;
+};
+
+/** `job.cancel` input. */
+export type JobCancelIn = {
+  /** pattern "^job_[0-9]{6}$" */
+  job_id: string;
+};
+
+/** `job.cancel` output. */
+export type JobCancelOut = {
+  cancelled: boolean;
+  job: JobOut;
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+};
+
+/** `job.list` input. */
+export type JobListIn = {
+  /** default null */
+  status?: "unfinished" | "finished" | null;
+};
+
+/** `job.list` output. */
+export type JobListOut = {
+  jobs: JobOut[];
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+};
+
+/** `job.status` input. */
+export type JobStatusIn = {
+  /** pattern "^job_[0-9]{6}$" */
+  job_id: string;
+};
+
+/** `job.status` output. */
+export type JobStatusOut = {
+  job: JobOut;
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+};
+
+/** `job.wait` input. */
+export type JobWaitIn = {
+  /** pattern "^job_[0-9]{6}$" */
+  job_id: string;
+  /** minimum 0, maximum 30.0, default 10.0 */
+  timeout_s?: number;
+};
+
+/** `job.wait` output. */
+export type JobWaitOut = {
+  finished: boolean;
+  job: JobOut;
+  science_hash: string;
+  /** integer */
+  science_revision: number;
 };
 
 /** `model.set` input. */
@@ -708,6 +817,32 @@ export type DescribeViewOut = {
   workspace_revision: number;
 };
 
+/** `run.get` input. */
+export type RunGetIn = {
+  /** pattern "^run_[0-9]{6}$" */
+  run_id: string;
+};
+
+/** `run.get` output. */
+export type RunGetOut = {
+  result: FitRunOut;
+  run: RunOut;
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+};
+
+/** `run.list` input. */
+export type RunListIn = { [key: string]: never };
+
+/** `run.list` output. */
+export type RunListOut = {
+  runs: RunOut[];
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+};
+
 /** `view.select` input. */
 export type SelectIn = {
   /** maxItems 1000 */
@@ -729,14 +864,22 @@ export interface Operations {
   "couplings.reconcile": { input: ReconcileIn; output: ReconcileOut };
   /** Preview the fit at a fixed torsion: order parameters re-solved, predictions and residuals. */
   "fit.preview": { input: PreviewIn; output: PreviewOut };
-  /** Fit the project's model (D3): estimates, validity, adequacy, and optional profile intervals under the reporting policy. */
-  "fit.run": { input: FitRunIn; output: FitRunOut };
+  /** Submit the D3 fit of the current project as a job (estimates, validity, adequacy, and optional profile intervals under the reporting policy). Returns the job at once; read the run with job.wait and run.get. */
+  "fit.run": { input: FitRunIn; output: FitRunSubmitted };
   /** The science changes that can be undone and redone, the next first. */
   "history.log": { input: LogIn; output: LogOut };
   /** Redo the latest undone science change (a new, journaled command). */
   "history.redo": { input: RedoIn; output: RedoOut };
   /** Undo the latest science change (a new, journaled command). */
   "history.undo": { input: UndoIn; output: UndoOut };
+  /** Cancel an unfinished job (a propose-tier caller: its own jobs only). A finished job is left as it is. */
+  "job.cancel": { input: JobCancelIn; output: JobCancelOut };
+  /** The session's jobs (unfinished, and the latest finished). */
+  "job.list": { input: JobListIn; output: JobListOut };
+  /** One job: its status, input identity, run or error, and whether its input is stale. */
+  "job.status": { input: JobStatusIn; output: JobStatusOut };
+  /** Wait until a job finishes, at most timeout_s (≤ 30 s); call again if it has not. */
+  "job.wait": { input: JobWaitIn; output: JobWaitOut };
   /** Set the model: kind (rigid, jump4), order model, frame and torsion domain. */
   "model.set": { input: ModelSetIn; output: ModelSetOut };
   /** Declare the fitted torsion of imported geometry: four atom indices (a, i, j, b), i–j a bond. */
@@ -763,6 +906,10 @@ export interface Operations {
   "proposal.reject": { input: RejectIn; output: RejectOut };
   /** Describe the shared view: revisions and the current selection, with labels. */
   "render.describe_view": { input: DescribeViewIn; output: DescribeViewOut };
+  /** A run's result (the fit), verified against its stored hash, and whether it is stale. */
+  "run.get": { input: RunGetIn; output: RunGetOut };
+  /** The session's runs, newest first, each with its input identity and staleness. */
+  "run.list": { input: RunListIn; output: RunListOut };
   /** Set the shared selection to the given spin or coupling IDs (replaces it). */
   "view.select": { input: SelectIn; output: SelectOut };
 }
@@ -821,10 +968,14 @@ export const OPERATIONS = {
   "couplings.import": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
   "couplings.reconcile": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "fit.preview": { kind: "query", effect: "none", capability: "preview", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
-  "fit.run": { kind: "query", effect: "none", capability: "compute_job", cost: "seconds", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "fit.run": { kind: "command", effect: "compute", capability: "compute_job", cost: "job", idempotent: false, revision_check: "expected_science_revision (required): the job computes from that state", max_request_bytes: 1048576, proposable: true },
   "history.log": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "history.redo": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
   "history.undo": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
+  "job.cancel": { kind: "command", effect: "compute", capability: "job_cancel", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "job.list": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "job.status": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "job.wait": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "model.set": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
   "molecule.set_torsion": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
   "project.describe": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
@@ -838,6 +989,8 @@ export const OPERATIONS = {
   "proposal.list": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "proposal.reject": { kind: "command", effect: "proposal", capability: "approve", cost: "instant", idempotent: false, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "render.describe_view": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "run.get": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "run.list": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "view.select": { kind: "command", effect: "view", capability: "view_write", cost: "instant", idempotent: true, revision_check: "none: an absolute set; IDs are validated atomically and never reused", max_request_bytes: 1048576, proposable: false },
 } as const satisfies Record<OperationName, unknown>;
 

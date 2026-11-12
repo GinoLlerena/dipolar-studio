@@ -30,7 +30,7 @@ from dipolar_app.session import Plan, Session, SessionState, StoredOutcome
 T = TypeVar("T")
 
 #: Semantic version of the tool contract (D20), independent of the package version.
-CONTRACT_VERSION = "0.3.0"
+CONTRACT_VERSION = "0.4.0"
 
 Kind = Literal["query", "command"]
 Effect = Literal["none", "model", "view", "proposal", "compute", "io", "destructive"]
@@ -172,8 +172,10 @@ class Registry:
             raise ValueError(f"duplicate operation {op.name}")
         if (op.kind == "query") != (op.effect == "none"):
             raise ValueError(f"{op.name}: queries, and only queries, have effect 'none'")
-        if op.proposable and (op.kind != "command" or op.capability is not Capability.SCIENCE_MUTATION):
-            raise ValueError(f"{op.name}: only science-mutating commands are proposable")
+        if op.proposable and (
+            op.kind != "command" or op.capability not in (Capability.SCIENCE_MUTATION, Capability.COMPUTE_JOB)
+        ):
+            raise ValueError(f"{op.name}: only science-mutating and compute commands are proposable")
         self._ops[op.name] = op
 
     def get(self, name: str) -> Operation | None:
@@ -354,7 +356,7 @@ def dispatch(
                     'submit it as a step of proposal.create ({"steps": [{"operation": ..., "args": ...}]}); '
                     "a human accepts it"
                     if op.proposable
-                    else "compute proposals arrive with jobs (M2 step 3); use an apply-tier credential"
+                    else "use a credential with a higher tier"
                 ),
             )
         parsed = parse_input(op, args)

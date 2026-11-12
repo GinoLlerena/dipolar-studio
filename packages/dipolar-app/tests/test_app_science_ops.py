@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-from conftest import AGENT, VIEWER, client, expected, new_session
+from conftest import AGENT, VIEWER, client, expected, new_session, run_fit
 from dipolar_app.client import LocalClient
 from dipolar_app.formats import parse_xyz
 from dipolar_app.journal import Journal
@@ -145,14 +145,14 @@ def test_science_mutations_need_the_apply_tier() -> None:
     args = model_args("jump4", "bisector-diagonal", "bisector", 0, 90, 1)
     error(client(session, VIEWER).call("model.set", args), "CAPABILITY_DENIED")
     error(client(session, AGENT).call("model.set", args), "PROPOSAL_REQUIRED")
-    error(client(session, VIEWER).call("fit.run"), "CAPABILITY_DENIED")
+    error(client(session, VIEWER).call("fit.run", {"expected_science_revision": 1}), "CAPABILITY_DENIED")
 
 
 # --------------------------------------------------------------------------- fit.run and the interval policy
 def test_fit_run_reproduces_the_frozen_fixture_with_intervals() -> None:
     e = expected("noisy_fixture.json")["expected"]
     tol = expected("spec.json")["tolerances"]["regression"]
-    r = ok(opened().call("fit.run", {"intervals": True}))
+    r = ok(run_fit(opened(), {"intervals": True}))
     assert named(r["theta"])["phi_deg"] == pytest.approx(e["phi_deg"], abs=tol["phi_atol_deg"])
     order = named(r["order"])
     assert order["Szz"] == pytest.approx(e["Szz"], abs=tol["S_atol"])
@@ -178,7 +178,7 @@ def test_fit_run_reproduces_the_frozen_fixture_with_intervals() -> None:
 
 
 def test_fit_run_without_intervals_computes_none() -> None:
-    r = ok(opened().call("fit.run"))
+    r = ok(run_fit(opened()))
     assert r["intervals"] == [] and r["adequate"] is True
 
 
@@ -193,7 +193,7 @@ def test_an_inadequate_fit_reports_its_estimates_but_no_intervals() -> None:
     csv = "\n".join(rows) + "\n"
     mapping = ok(c.call("couplings.reconcile", {"csv": csv}))["proposed_mapping"]
     ok(c.call("couplings.import", {"csv": csv, "confirmed_mapping": mapping, "expected_science_revision": 1}))
-    r = ok(c.call("fit.run", {"intervals": True}))
+    r = ok(run_fit(c, {"intervals": True}))
     assert r["validity"]["regular"] is True and r["p_value"] < ADEQUATE_P_MIN and r["adequate"] is False
     assert named(r["theta"])["phi_deg"] == pytest.approx(
         expected("noisy_fixture.json")["expected"]["phi_deg"], abs=1e-4
@@ -245,7 +245,7 @@ def test_fitting_a_project_that_is_not_ready_says_what_is_missing() -> None:
     ok(c.call("project.import_xyz", {"xyz": ETHANE_XYZ, "name": "ethane", "expected_science_revision": 0}))
     d = ok(c.call("project.describe"))
     assert not d["ready_to_fit"] and "torsion" in d["not_ready_reason"]
-    body = error(c.call("fit.run"), "PROJECT_NOT_READY")
+    body = error(run_fit(c), "PROJECT_NOT_READY")
     assert "torsion" in body["message"]
 
 
@@ -286,7 +286,7 @@ def test_imported_geometry_end_to_end() -> None:
     preview = ok(c.call("fit.preview", {"phi": deg(truth_phi)}))
     np.testing.assert_allclose([o["value"] for o in preview["order"]], truth_t, rtol=0, atol=1e-10)
     assert preview["chi2"] < 1e-15
-    fit = ok(c.call("fit.run"))
+    fit = ok(run_fit(c))
     assert fit["chi2"] < 1e-12 and named(fit["theta"])["phi_deg"] == pytest.approx(truth_phi, abs=1e-6)
     np.testing.assert_allclose([o["value"] for o in fit["order"]], truth_t, rtol=0, atol=1e-8)
     np.testing.assert_allclose([x["calculated"]["value"] for x in fit["couplings"]], y, rtol=0, atol=1e-6)
@@ -490,7 +490,7 @@ def test_a_model_that_fails_to_evaluate_is_a_structured_error(monkeypatch: pytes
         raise ValueError("coincident spins")
 
     monkeypatch.setattr(dipolar_core.fit, "fit", broken)
-    body = error(opened().call("fit.run"), "PROJECT_NOT_READY")
+    body = error(run_fit(opened()), "PROJECT_NOT_READY")
     assert "coincident spins" in body["message"]
 
 

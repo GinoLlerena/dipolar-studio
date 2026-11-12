@@ -6,6 +6,7 @@ Routes:
   GET  /api/v1/instance           who answers on this port: instance ID, pid, contract version
   POST /api/v1/auth/launch-code   a single-use browser launch code (human launch credential only)
   POST /api/v1/auth/session       body {"code": ...} -> a tab token; allowed Origin required
+  GET  /api/v1/events?after=N     the change feed as NDJSON (authenticated fetch streaming)
   GET  /                          the browser page (bundled, or --static-dir)
 
 Controls: loopback binding and an instance lock (in the CLI); a Host allow-list on every request
@@ -26,7 +27,7 @@ from typing import Any
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
-from starlette.responses import JSONResponse, PlainTextResponse, Response
+from starlette.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -41,6 +42,9 @@ from dipolar_app.session import Session
 LOG = logging.getLogger("dipolar_app.http")
 MAX_BODY_BYTES = 1 << 20
 MAX_AUTH_BODY_BYTES = 1 << 10
+#: Concurrent event streams, and the heartbeat interval of each (M2 step 3).
+MAX_STREAMS = 8
+HEARTBEAT_S = 15.0
 
 CSP = (
     "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; "
@@ -170,8 +174,10 @@ def create_app(
     instance_id: str = "unnamed",
     pid: int = 0,
     static_dir: Path | None = None,
+    heartbeat_s: float = HEARTBEAT_S,
 ) -> ASGIApp:
     allowed_origins = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
+    streams = {"open": 0}
 
     def authenticate(request: Request) -> Principal | None:
         scheme, _, token = request.headers.get("authorization", "").partition(" ")
@@ -254,12 +260,66 @@ def create_app(
             return JSONResponse({"ok": False, "operation": None, "error": err.to_json()}, HTTP_STATUS[err.code])
         return JSONResponse({"token": token, "actor": principal.actor, "tier": principal.tier.value})
 
+    async def stream_events(request: Request) -> Response:
+        """The change feed (D14 multi-client sync; D10 note: authenticated fetch streaming, since
+        EventSource cannot send the bearer token). One JSON object per line:
+
+        - ``hello`` first: the boot ID, the current cursor, sequence and revisions;
+        - ``commit`` per acknowledged transaction (operation, actor, revisions, domains, jobs);
+        - ``job`` for unjournaled progress (``running``);
+        - ``ping`` as a heartbeat;
+        - ``resync`` when entries after ``after`` were dropped or belong to an earlier boot: read
+          the state again, then continue from the given cursor.
+
+        It is a read: no side effects, any authenticated tier. Arguments and labels never appear.
+        """
+        if authenticate(request) is None:
+            return unauthenticated()
+        raw = request.query_params.get("after")
+        if raw is not None and not (raw.isdigit() and len(raw) <= 15):
+            return _error(ErrorCode.INVALID_ARGUMENT, "after must be a cursor (a non-negative integer)")
+        if streams["open"] >= MAX_STREAMS:
+            return _error(ErrorCode.QUOTA_EXCEEDED, f"at most {MAX_STREAMS} event streams may be open")
+        streams["open"] += 1
+
+        def line(item: dict[str, Any]) -> bytes:
+            return (json.dumps(item, separators=(",", ":")) + "\n").encode()
+
+        async def body() -> Any:
+            try:
+                state = session.state
+                cursor = session.cursor if raw is None else int(raw)
+                yield line(
+                    {
+                        "kind": "hello",
+                        "boot_id": session.boot_id,
+                        "cursor": session.cursor,
+                        "seq": state.seq,
+                        "revisions": {"science": state.science_revision, "workspace": state.workspace_revision},
+                    }
+                )
+                while not await request.is_disconnected():
+                    items, latest, resync = await run_in_threadpool(session.feed_after, cursor, heartbeat_s)
+                    if resync:
+                        yield line({"kind": "resync", "cursor": latest})
+                        cursor = latest
+                    elif not items:
+                        yield line({"kind": "ping", "cursor": latest})
+                    for c, item in items:
+                        yield line({**item, "cursor": c})
+                        cursor = c
+            finally:
+                streams["open"] -= 1
+
+        return StreamingResponse(body(), media_type="application/x-ndjson")
+
     routes: list[Route | Mount] = [
         Route("/api/v1/ops/{name:str}", run_operation, methods=["POST"]),
         Route("/api/v1/registry", get_registry, methods=["GET"]),
         Route("/api/v1/instance", get_instance, methods=["GET"]),
         Route("/api/v1/auth/launch-code", issue_launch_code, methods=["POST"]),
         Route("/api/v1/auth/session", start_tab_session, methods=["POST"]),
+        Route("/api/v1/events", stream_events, methods=["GET"]),
     ]
     if static_dir is not None:
         routes.append(Mount("/", app=StaticFiles(directory=static_dir, html=True), name="web"))

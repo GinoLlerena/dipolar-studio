@@ -34,10 +34,35 @@ def expected(name: str) -> dict[str, Any]:
 
 
 def new_session(journal_dir: Path | None = None) -> Session:
+    """A session with a thread-mode job runner (its workers start with the first job)."""
+    from dipolar_app.jobs import JobRunner
     from dipolar_app.journal import Journal
 
     journal = Journal(journal_dir / "project.events.jsonl") if journal_dir else None
-    return Session(journal, contract_version=CONTRACT_VERSION)
+    session = Session(journal, contract_version=CONTRACT_VERSION)
+    JobRunner(session, mode="thread")
+    return session
+
+
+def run_fit(c: LocalClient, args: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Submit ``fit.run`` at the current revision, wait for the job, and return an envelope like
+    the old synchronous ``fit.run``: the run's result, or the submission's or the job's error."""
+    revision = c.call("render.describe_view")["revisions"]["science"]
+    submitted = c.call("fit.run", {**(args or {}), "expected_science_revision": revision})
+    if not submitted["ok"]:
+        return submitted
+    job_id = submitted["result"]["job"]["id"]
+    while True:
+        waited = c.call("job.wait", {"job_id": job_id, "timeout_s": 30})
+        assert waited["ok"], waited
+        if waited["result"]["finished"]:
+            break
+    job = waited["result"]["job"]
+    if job["status"] != "succeeded":
+        return {"ok": False, "operation": "fit.run", "error": {**job["error"], "offending_field": None}}
+    run = c.call("run.get", {"run_id": job["run_id"]})
+    assert run["ok"], run
+    return {"ok": True, "operation": "fit.run", "result": run["result"]["result"]}
 
 
 def client(session: Session, principal: Principal = USER) -> LocalClient:

@@ -39,6 +39,7 @@ import uvicorn
 
 from dipolar_app.auth import LAUNCH_CODE_TTL_S, Credentials
 from dipolar_app.http import create_app
+from dipolar_app.jobs import JobRunner
 from dipolar_app.journal import Journal
 from dipolar_app.operations import build_registry
 from dipolar_app.policy import Principal, Tier
@@ -186,6 +187,7 @@ def serve(project_dir: Path, ready_file: Path, static_dir: Path | None, *, open_
     ready_file.unlink(missing_ok=True)
     registry = build_registry()
     session = Session(Journal(project_dir / "project.events.jsonl"), contract_version=CONTRACT_VERSION)
+    runner = JobRunner(session, mode="process")  # marks jobs a stopped process left unfinished
     if session.recovery is not None:
         r = session.recovery
         print(
@@ -205,7 +207,8 @@ def serve(project_dir: Path, ready_file: Path, static_dir: Path | None, *, open_
     app = create_app(
         registry, session, credentials, port=port, instance_id=instance_id, pid=os.getpid(), static_dir=static_dir
     )
-    config = uvicorn.Config(app, log_level="warning", access_log=False, lifespan="off")
+    # Event streams stay open; shutdown does not wait for them for long.
+    config = uvicorn.Config(app, log_level="warning", access_log=False, lifespan="off", timeout_graceful_shutdown=2)
     server = uvicorn.Server(config)
 
     # uvicorn shuts down gracefully, then re-raises SIGTERM; turn it into SystemExit so that the
@@ -236,6 +239,7 @@ def serve(project_dir: Path, ready_file: Path, static_dir: Path | None, *, open_
                 print(f"dipolar serve: {exc}; not opening a browser", file=sys.stderr, flush=True)
         server.run(sockets=[sock])
     finally:
+        runner.close()  # terminates running workers; their jobs are marked interrupted at the next start
         with contextlib.suppress(FileNotFoundError):
             ready_file.unlink()
         remove_instance_pages(ready_file, instance_id)

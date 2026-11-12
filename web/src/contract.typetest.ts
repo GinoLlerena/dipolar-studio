@@ -22,8 +22,8 @@ type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ?
 
 // Valid arguments compile.
 void ({ phi: { value: 37, unit: "deg" } } satisfies OperationInput<"fit.preview">);
-void ({} satisfies OperationInput<"fit.run">);
-void ({ intervals: true } satisfies OperationInput<"fit.run">);
+void ({ expected_science_revision: 1 } satisfies OperationInput<"fit.run">);
+void ({ intervals: true, expected_science_revision: 1 } satisfies OperationInput<"fit.run">);
 void ({} satisfies OperationInput<"render.describe_view">);
 
 // @ts-expect-error: unknown operation name
@@ -39,7 +39,7 @@ void ({ anything: 1 } satisfies OperationInput<"render.describe_view">);
 // @ts-expect-error: a string where a number is required
 void ({ phi: { value: "37", unit: "deg" } } satisfies OperationInput<"fit.preview">);
 // @ts-expect-error: optional, but never explicitly undefined (exactOptionalPropertyTypes)
-void ({ intervals: undefined } satisfies OperationInput<"fit.run">);
+void ({ intervals: undefined, expected_science_revision: 1 } satisfies OperationInput<"fit.run">);
 // @ts-expect-error: phi_domain is a fixed-length pair
 void ({ kind: "rigid", order: "c1", frame: "input", phi_domain: [{ value: 0, unit: "deg" }], expected_science_revision: 0 } satisfies OperationInput<"model.set">);
 // @ts-expect-error: enum values only
@@ -51,7 +51,7 @@ if (envelope.ok) {
   type _result = Expect<Equal<typeof envelope.result, OperationOutput<"fit.preview">>>;
   const hz: "Hz" = envelope.result.rms_residual.unit;
   void hz;
-  // @ts-expect-error: fit.preview's result has no p_value (fit.run's does)
+  // @ts-expect-error: fit.preview's result has no p_value (a fit run's result does)
   void envelope.result.p_value;
 } else {
   type _code = Expect<Equal<typeof envelope.error.code, ErrorCode>>;
@@ -108,7 +108,9 @@ export async function callBoundary(token: string, flip: boolean): Promise<void> 
   const eitherNested = { phi: { value: 1, unit: "deg" } } as { phi: Degrees } | { phi: Degrees & { extra: number } };
   // @ts-expect-error: one member of the union carries `phi.extra`
   await callOperation("fit.preview", eitherNested, token);
-  const bothValid = (flip ? { intervals: true } : {}) as { intervals: boolean } | Record<string, never>;
+  const bothValid = (flip ? { intervals: true, expected_science_revision: 1 } : { expected_science_revision: 1 }) as
+    | { intervals: boolean; expected_science_revision: number }
+    | { expected_science_revision: number };
   await callOperation("fit.run", bothValid, token); // every member fits: accepted
   const readonlyIds: readonly string[] = ["cpl_000001"];
   // @ts-expect-error: the schema's array is mutable (the plain type check, not Exact)

@@ -1,5 +1,5 @@
 {
-  "contract_version": "0.3.0",
+  "contract_version": "0.4.0",
   "envelopes": {
     "error": {
       "$defs": {
@@ -1033,475 +1033,188 @@
     },
     {
       "capability": "compute_job",
-      "cost": "seconds",
-      "effect": "none",
+      "cost": "job",
+      "effect": "compute",
       "examples": [
-        {},
         {
+          "expected_science_revision": 1
+        },
+        {
+          "expected_science_revision": 1,
           "intervals": true
         }
       ],
-      "idempotent": true,
+      "idempotent": false,
       "input_schema": {
         "additionalProperties": false,
         "properties": {
+          "expected_science_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Expected Science Revision",
+            "type": "integer"
+          },
           "intervals": {
             "default": false,
             "title": "Intervals",
             "type": "boolean"
           }
         },
+        "required": [
+          "expected_science_revision"
+        ],
         "title": "FitRunIn",
         "type": "object"
       },
-      "kind": "query",
+      "kind": "command",
       "max_request_bytes": 1048576,
       "name": "fit.run",
       "output_schema": {
         "$defs": {
-          "BasinOut": {
+          "JobError": {
             "additionalProperties": false,
             "properties": {
-              "chi2": {
-                "title": "Chi2",
-                "type": "number"
-              },
-              "delta_chi2": {
-                "title": "Delta Chi2",
-                "type": "number"
-              },
-              "theta": {
-                "items": {
-                  "$ref": "#/$defs/NamedValue"
-                },
-                "title": "Theta",
-                "type": "array"
-              }
-            },
-            "required": [
-              "theta",
-              "chi2",
-              "delta_chi2"
-            ],
-            "title": "BasinOut",
-            "type": "object"
-          },
-          "Degrees": {
-            "additionalProperties": false,
-            "properties": {
-              "unit": {
-                "const": "deg",
-                "title": "Unit",
+              "code": {
+                "title": "Code",
                 "type": "string"
               },
-              "value": {
-                "title": "Value",
-                "type": "number"
+              "message": {
+                "title": "Message",
+                "type": "string"
               }
             },
             "required": [
-              "value",
-              "unit"
+              "code",
+              "message"
             ],
-            "title": "Degrees",
+            "title": "JobError",
             "type": "object"
           },
-          "FitValidity": {
+          "JobOut": {
             "additionalProperties": false,
             "properties": {
-              "at_bound": {
-                "items": {
-                  "type": "string"
-                },
-                "title": "At Bound",
-                "type": "array"
-              },
-              "converged": {
-                "title": "Converged",
-                "type": "boolean"
-              },
-              "derivatives_resolved": {
-                "title": "Derivatives Resolved",
-                "type": "boolean"
-              },
-              "inner_condition_number": {
+              "error": {
                 "anyOf": [
                   {
-                    "type": "number"
+                    "$ref": "#/$defs/JobError"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "finished_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
                   },
                   {
                     "type": "null"
                   }
                 ],
-                "title": "Inner Condition Number"
-              },
-              "inner_parameters": {
-                "title": "Inner Parameters",
-                "type": "integer"
-              },
-              "inner_rank": {
-                "title": "Inner Rank",
-                "type": "integer"
-              },
-              "joint_parameters": {
-                "title": "Joint Parameters",
-                "type": "integer"
-              },
-              "joint_rank": {
-                "title": "Joint Rank",
-                "type": "integer"
-              },
-              "physically_admissible": {
-                "anyOf": [
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Physically Admissible"
-              },
-              "regular": {
-                "title": "Regular",
-                "type": "boolean"
-              },
-              "search_resolved": {
-                "title": "Search Resolved",
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "inner_rank",
-              "inner_parameters",
-              "inner_condition_number",
-              "joint_rank",
-              "joint_parameters",
-              "converged",
-              "physically_admissible",
-              "at_bound",
-              "search_resolved",
-              "derivatives_resolved",
-              "regular"
-            ],
-            "title": "FitValidity",
-            "type": "object"
-          },
-          "FittedCoupling": {
-            "additionalProperties": false,
-            "properties": {
-              "calculated": {
-                "$ref": "#/$defs/Hertz"
+                "title": "Finished At"
               },
               "id": {
-                "pattern": "^cpl_[0-9]{6}$",
+                "pattern": "^job_[0-9]{6}$",
                 "title": "Id",
                 "type": "string"
               },
-              "label": {
-                "title": "Label",
+              "input_hash": {
+                "title": "Input Hash",
                 "type": "string"
               },
-              "normalized_residual": {
-                "title": "Normalized Residual",
-                "type": "number"
+              "kind": {
+                "const": "fit",
+                "title": "Kind",
+                "type": "string"
               },
-              "observed": {
-                "$ref": "#/$defs/Hertz"
+              "options": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "title": "Options",
+                "type": "object"
               },
-              "residual": {
-                "$ref": "#/$defs/Hertz"
+              "owner": {
+                "title": "Owner",
+                "type": "string"
               },
-              "sigma": {
-                "$ref": "#/$defs/Hertz"
+              "proposed_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Proposed By"
+              },
+              "run_id": {
+                "anyOf": [
+                  {
+                    "pattern": "^run_[0-9]{6}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Run Id"
+              },
+              "science_hash": {
+                "title": "Science Hash",
+                "type": "string"
+              },
+              "science_revision": {
+                "title": "Science Revision",
+                "type": "integer"
+              },
+              "stale": {
+                "title": "Stale",
+                "type": "boolean"
+              },
+              "status": {
+                "enum": [
+                  "queued",
+                  "running",
+                  "succeeded",
+                  "failed",
+                  "cancelled",
+                  "interrupted"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "submitted_at": {
+                "title": "Submitted At",
+                "type": "string"
               }
             },
             "required": [
               "id",
-              "label",
-              "observed",
-              "sigma",
-              "calculated",
-              "residual",
-              "normalized_residual"
-            ],
-            "title": "FittedCoupling",
-            "type": "object"
-          },
-          "Hertz": {
-            "additionalProperties": false,
-            "properties": {
-              "unit": {
-                "const": "Hz",
-                "title": "Unit",
-                "type": "string"
-              },
-              "value": {
-                "title": "Value",
-                "type": "number"
-              }
-            },
-            "required": [
-              "value",
-              "unit"
-            ],
-            "title": "Hertz",
-            "type": "object"
-          },
-          "IntervalOut": {
-            "additionalProperties": false,
-            "properties": {
-              "estimate": {
-                "title": "Estimate",
-                "type": "number"
-              },
-              "kind": {
-                "const": "profile",
-                "title": "Kind",
-                "type": "string"
-              },
-              "label": {
-                "title": "Label",
-                "type": "string"
-              },
-              "lower": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Lower"
-              },
-              "note": {
-                "title": "Note",
-                "type": "string"
-              },
-              "parameter": {
-                "title": "Parameter",
-                "type": "string"
-              },
-              "supported": {
-                "title": "Supported",
-                "type": "boolean"
-              },
-              "upper": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Upper"
-              }
-            },
-            "required": [
-              "parameter",
               "kind",
-              "label",
-              "estimate",
-              "lower",
-              "upper",
-              "supported",
-              "note"
+              "status",
+              "owner",
+              "proposed_by",
+              "submitted_at",
+              "finished_at",
+              "science_revision",
+              "science_hash",
+              "input_hash",
+              "options",
+              "run_id",
+              "error",
+              "stale"
             ],
-            "title": "IntervalOut",
-            "type": "object"
-          },
-          "ModelOut": {
-            "additionalProperties": false,
-            "properties": {
-              "frame": {
-                "enum": [
-                  "bisector",
-                  "ring-a",
-                  "input"
-                ],
-                "title": "Frame",
-                "type": "string"
-              },
-              "kind": {
-                "enum": [
-                  "rigid",
-                  "jump4"
-                ],
-                "title": "Kind",
-                "type": "string"
-              },
-              "order": {
-                "enum": [
-                  "bisector-diagonal",
-                  "c2z",
-                  "c1"
-                ],
-                "title": "Order",
-                "type": "string"
-              },
-              "phi_domain": {
-                "maxItems": 2,
-                "minItems": 2,
-                "prefixItems": [
-                  {
-                    "$ref": "#/$defs/Degrees"
-                  },
-                  {
-                    "$ref": "#/$defs/Degrees"
-                  }
-                ],
-                "title": "Phi Domain",
-                "type": "array"
-              }
-            },
-            "required": [
-              "kind",
-              "order",
-              "frame",
-              "phi_domain"
-            ],
-            "title": "ModelOut",
-            "type": "object"
-          },
-          "NamedValue": {
-            "additionalProperties": false,
-            "properties": {
-              "name": {
-                "title": "Name",
-                "type": "string"
-              },
-              "value": {
-                "title": "Value",
-                "type": "number"
-              }
-            },
-            "required": [
-              "name",
-              "value"
-            ],
-            "title": "NamedValue",
+            "title": "JobOut",
             "type": "object"
           }
         },
         "additionalProperties": false,
         "properties": {
-          "adequate": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Adequate"
-          },
-          "basins": {
-            "items": {
-              "$ref": "#/$defs/BasinOut"
-            },
-            "title": "Basins",
-            "type": "array"
-          },
-          "chi2": {
-            "title": "Chi2",
-            "type": "number"
-          },
-          "couplings": {
-            "items": {
-              "$ref": "#/$defs/FittedCoupling"
-            },
-            "title": "Couplings",
-            "type": "array"
-          },
-          "estimand": {
-            "title": "Estimand",
-            "type": "string"
-          },
-          "fit_version": {
-            "title": "Fit Version",
-            "type": "string"
-          },
-          "frame": {
-            "title": "Frame",
-            "type": "string"
-          },
-          "intervals": {
-            "items": {
-              "$ref": "#/$defs/IntervalOut"
-            },
-            "title": "Intervals",
-            "type": "array"
-          },
-          "intervals_policy": {
-            "title": "Intervals Policy",
-            "type": "string"
-          },
-          "model": {
-            "$ref": "#/$defs/ModelOut"
-          },
-          "n_obs": {
-            "title": "N Obs",
-            "type": "integer"
-          },
-          "notes": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Notes",
-            "type": "array"
-          },
-          "nu": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Nu"
-          },
-          "numerical_context": {
-            "additionalProperties": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "number"
-                }
-              ]
-            },
-            "title": "Numerical Context",
-            "type": "object"
-          },
-          "order": {
-            "items": {
-              "$ref": "#/$defs/NamedValue"
-            },
-            "title": "Order",
-            "type": "array"
-          },
-          "p_free": {
-            "title": "P Free",
-            "type": "integer"
-          },
-          "p_value": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "P Value"
-          },
-          "rms_residual": {
-            "$ref": "#/$defs/Hertz"
+          "job": {
+            "$ref": "#/$defs/JobOut"
           },
           "science_hash": {
             "title": "Science Hash",
@@ -1510,79 +1223,19 @@
           "science_revision": {
             "title": "Science Revision",
             "type": "integer"
-          },
-          "statement": {
-            "title": "Statement",
-            "type": "string"
-          },
-          "stderr": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/$defs/NamedValue"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Stderr"
-          },
-          "theta": {
-            "items": {
-              "$ref": "#/$defs/NamedValue"
-            },
-            "title": "Theta",
-            "type": "array"
-          },
-          "unidentified": {
-            "items": {
-              "items": {
-                "$ref": "#/$defs/NamedValue"
-              },
-              "type": "array"
-            },
-            "title": "Unidentified",
-            "type": "array"
-          },
-          "validity": {
-            "$ref": "#/$defs/FitValidity"
           }
         },
         "required": [
           "science_revision",
           "science_hash",
-          "model",
-          "frame",
-          "estimand",
-          "notes",
-          "theta",
-          "order",
-          "chi2",
-          "n_obs",
-          "p_free",
-          "nu",
-          "p_value",
-          "adequate",
-          "validity",
-          "stderr",
-          "unidentified",
-          "basins",
-          "couplings",
-          "rms_residual",
-          "intervals_policy",
-          "intervals",
-          "fit_version",
-          "numerical_context",
-          "statement"
+          "job"
         ],
-        "title": "FitRunOut",
+        "title": "FitRunSubmitted",
         "type": "object"
       },
-      "proposable": false,
-      "revision_check": "none",
-      "summary": "Fit the project's model (D3): estimates, validity, adequacy, and optional profile intervals under the reporting policy."
+      "proposable": true,
+      "revision_check": "expected_science_revision (required): the job computes from that state",
+      "summary": "Submit the D3 fit of the current project as a job (estimates, validity, adequacy, and optional profile intervals under the reporting policy). Returns the job at once; read the run with job.wait and run.get."
     },
     {
       "capability": "query",
@@ -1836,6 +1489,821 @@
       "proposable": true,
       "revision_check": "expected_science_revision (required)",
       "summary": "Undo the latest science change (a new, journaled command)."
+    },
+    {
+      "capability": "job_cancel",
+      "cost": "instant",
+      "effect": "compute",
+      "examples": [
+        {
+          "job_id": "job_000001"
+        }
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "pattern": "^job_[0-9]{6}$",
+            "title": "Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "JobCancelIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "max_request_bytes": 1048576,
+      "name": "job.cancel",
+      "output_schema": {
+        "$defs": {
+          "JobError": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "title": "Code",
+                "type": "string"
+              },
+              "message": {
+                "title": "Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "title": "JobError",
+            "type": "object"
+          },
+          "JobOut": {
+            "additionalProperties": false,
+            "properties": {
+              "error": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/JobError"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "finished_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Finished At"
+              },
+              "id": {
+                "pattern": "^job_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "input_hash": {
+                "title": "Input Hash",
+                "type": "string"
+              },
+              "kind": {
+                "const": "fit",
+                "title": "Kind",
+                "type": "string"
+              },
+              "options": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "title": "Options",
+                "type": "object"
+              },
+              "owner": {
+                "title": "Owner",
+                "type": "string"
+              },
+              "proposed_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Proposed By"
+              },
+              "run_id": {
+                "anyOf": [
+                  {
+                    "pattern": "^run_[0-9]{6}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Run Id"
+              },
+              "science_hash": {
+                "title": "Science Hash",
+                "type": "string"
+              },
+              "science_revision": {
+                "title": "Science Revision",
+                "type": "integer"
+              },
+              "stale": {
+                "title": "Stale",
+                "type": "boolean"
+              },
+              "status": {
+                "enum": [
+                  "queued",
+                  "running",
+                  "succeeded",
+                  "failed",
+                  "cancelled",
+                  "interrupted"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "submitted_at": {
+                "title": "Submitted At",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "status",
+              "owner",
+              "proposed_by",
+              "submitted_at",
+              "finished_at",
+              "science_revision",
+              "science_hash",
+              "input_hash",
+              "options",
+              "run_id",
+              "error",
+              "stale"
+            ],
+            "title": "JobOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "cancelled": {
+            "title": "Cancelled",
+            "type": "boolean"
+          },
+          "job": {
+            "$ref": "#/$defs/JobOut"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "job",
+          "cancelled"
+        ],
+        "title": "JobCancelOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none",
+      "summary": "Cancel an unfinished job (a propose-tier caller: its own jobs only). A finished job is left as it is."
+    },
+    {
+      "capability": "query",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {},
+        {
+          "status": "unfinished"
+        }
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "unfinished",
+                  "finished"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          }
+        },
+        "title": "JobListIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "max_request_bytes": 1048576,
+      "name": "job.list",
+      "output_schema": {
+        "$defs": {
+          "JobError": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "title": "Code",
+                "type": "string"
+              },
+              "message": {
+                "title": "Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "title": "JobError",
+            "type": "object"
+          },
+          "JobOut": {
+            "additionalProperties": false,
+            "properties": {
+              "error": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/JobError"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "finished_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Finished At"
+              },
+              "id": {
+                "pattern": "^job_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "input_hash": {
+                "title": "Input Hash",
+                "type": "string"
+              },
+              "kind": {
+                "const": "fit",
+                "title": "Kind",
+                "type": "string"
+              },
+              "options": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "title": "Options",
+                "type": "object"
+              },
+              "owner": {
+                "title": "Owner",
+                "type": "string"
+              },
+              "proposed_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Proposed By"
+              },
+              "run_id": {
+                "anyOf": [
+                  {
+                    "pattern": "^run_[0-9]{6}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Run Id"
+              },
+              "science_hash": {
+                "title": "Science Hash",
+                "type": "string"
+              },
+              "science_revision": {
+                "title": "Science Revision",
+                "type": "integer"
+              },
+              "stale": {
+                "title": "Stale",
+                "type": "boolean"
+              },
+              "status": {
+                "enum": [
+                  "queued",
+                  "running",
+                  "succeeded",
+                  "failed",
+                  "cancelled",
+                  "interrupted"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "submitted_at": {
+                "title": "Submitted At",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "status",
+              "owner",
+              "proposed_by",
+              "submitted_at",
+              "finished_at",
+              "science_revision",
+              "science_hash",
+              "input_hash",
+              "options",
+              "run_id",
+              "error",
+              "stale"
+            ],
+            "title": "JobOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "jobs": {
+            "items": {
+              "$ref": "#/$defs/JobOut"
+            },
+            "title": "Jobs",
+            "type": "array"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "jobs"
+        ],
+        "title": "JobListOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none",
+      "summary": "The session's jobs (unfinished, and the latest finished)."
+    },
+    {
+      "capability": "query",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {
+          "job_id": "job_000001"
+        }
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "pattern": "^job_[0-9]{6}$",
+            "title": "Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "JobStatusIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "max_request_bytes": 1048576,
+      "name": "job.status",
+      "output_schema": {
+        "$defs": {
+          "JobError": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "title": "Code",
+                "type": "string"
+              },
+              "message": {
+                "title": "Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "title": "JobError",
+            "type": "object"
+          },
+          "JobOut": {
+            "additionalProperties": false,
+            "properties": {
+              "error": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/JobError"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "finished_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Finished At"
+              },
+              "id": {
+                "pattern": "^job_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "input_hash": {
+                "title": "Input Hash",
+                "type": "string"
+              },
+              "kind": {
+                "const": "fit",
+                "title": "Kind",
+                "type": "string"
+              },
+              "options": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "title": "Options",
+                "type": "object"
+              },
+              "owner": {
+                "title": "Owner",
+                "type": "string"
+              },
+              "proposed_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Proposed By"
+              },
+              "run_id": {
+                "anyOf": [
+                  {
+                    "pattern": "^run_[0-9]{6}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Run Id"
+              },
+              "science_hash": {
+                "title": "Science Hash",
+                "type": "string"
+              },
+              "science_revision": {
+                "title": "Science Revision",
+                "type": "integer"
+              },
+              "stale": {
+                "title": "Stale",
+                "type": "boolean"
+              },
+              "status": {
+                "enum": [
+                  "queued",
+                  "running",
+                  "succeeded",
+                  "failed",
+                  "cancelled",
+                  "interrupted"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "submitted_at": {
+                "title": "Submitted At",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "status",
+              "owner",
+              "proposed_by",
+              "submitted_at",
+              "finished_at",
+              "science_revision",
+              "science_hash",
+              "input_hash",
+              "options",
+              "run_id",
+              "error",
+              "stale"
+            ],
+            "title": "JobOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "job": {
+            "$ref": "#/$defs/JobOut"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "job"
+        ],
+        "title": "JobStatusOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none",
+      "summary": "One job: its status, input identity, run or error, and whether its input is stale."
+    },
+    {
+      "capability": "query",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {
+          "job_id": "job_000001",
+          "timeout_s": 5.0
+        }
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "pattern": "^job_[0-9]{6}$",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "timeout_s": {
+            "default": 10.0,
+            "maximum": 30.0,
+            "minimum": 0,
+            "title": "Timeout S",
+            "type": "number"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "JobWaitIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "max_request_bytes": 1048576,
+      "name": "job.wait",
+      "output_schema": {
+        "$defs": {
+          "JobError": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "title": "Code",
+                "type": "string"
+              },
+              "message": {
+                "title": "Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "title": "JobError",
+            "type": "object"
+          },
+          "JobOut": {
+            "additionalProperties": false,
+            "properties": {
+              "error": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/JobError"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "finished_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Finished At"
+              },
+              "id": {
+                "pattern": "^job_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "input_hash": {
+                "title": "Input Hash",
+                "type": "string"
+              },
+              "kind": {
+                "const": "fit",
+                "title": "Kind",
+                "type": "string"
+              },
+              "options": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "title": "Options",
+                "type": "object"
+              },
+              "owner": {
+                "title": "Owner",
+                "type": "string"
+              },
+              "proposed_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Proposed By"
+              },
+              "run_id": {
+                "anyOf": [
+                  {
+                    "pattern": "^run_[0-9]{6}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Run Id"
+              },
+              "science_hash": {
+                "title": "Science Hash",
+                "type": "string"
+              },
+              "science_revision": {
+                "title": "Science Revision",
+                "type": "integer"
+              },
+              "stale": {
+                "title": "Stale",
+                "type": "boolean"
+              },
+              "status": {
+                "enum": [
+                  "queued",
+                  "running",
+                  "succeeded",
+                  "failed",
+                  "cancelled",
+                  "interrupted"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "submitted_at": {
+                "title": "Submitted At",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "status",
+              "owner",
+              "proposed_by",
+              "submitted_at",
+              "finished_at",
+              "science_revision",
+              "science_hash",
+              "input_hash",
+              "options",
+              "run_id",
+              "error",
+              "stale"
+            ],
+            "title": "JobOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "finished": {
+            "title": "Finished",
+            "type": "boolean"
+          },
+          "job": {
+            "$ref": "#/$defs/JobOut"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "job",
+          "finished"
+        ],
+        "title": "JobWaitOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none",
+      "summary": "Wait until a job finishes, at most timeout_s (≤ 30 s); call again if it has not."
     },
     {
       "capability": "science_mutation",
@@ -4223,6 +4691,762 @@
       "proposable": false,
       "revision_check": "none",
       "summary": "Describe the shared view: revisions and the current selection, with labels."
+    },
+    {
+      "capability": "query",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {
+          "run_id": "run_000001"
+        }
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "pattern": "^run_[0-9]{6}$",
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "title": "RunGetIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "max_request_bytes": 1048576,
+      "name": "run.get",
+      "output_schema": {
+        "$defs": {
+          "BasinOut": {
+            "additionalProperties": false,
+            "properties": {
+              "chi2": {
+                "title": "Chi2",
+                "type": "number"
+              },
+              "delta_chi2": {
+                "title": "Delta Chi2",
+                "type": "number"
+              },
+              "theta": {
+                "items": {
+                  "$ref": "#/$defs/NamedValue"
+                },
+                "title": "Theta",
+                "type": "array"
+              }
+            },
+            "required": [
+              "theta",
+              "chi2",
+              "delta_chi2"
+            ],
+            "title": "BasinOut",
+            "type": "object"
+          },
+          "Degrees": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "deg",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Degrees",
+            "type": "object"
+          },
+          "FitRunOut": {
+            "additionalProperties": false,
+            "properties": {
+              "adequate": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Adequate"
+              },
+              "basins": {
+                "items": {
+                  "$ref": "#/$defs/BasinOut"
+                },
+                "title": "Basins",
+                "type": "array"
+              },
+              "chi2": {
+                "title": "Chi2",
+                "type": "number"
+              },
+              "couplings": {
+                "items": {
+                  "$ref": "#/$defs/FittedCoupling"
+                },
+                "title": "Couplings",
+                "type": "array"
+              },
+              "estimand": {
+                "title": "Estimand",
+                "type": "string"
+              },
+              "fit_version": {
+                "title": "Fit Version",
+                "type": "string"
+              },
+              "frame": {
+                "title": "Frame",
+                "type": "string"
+              },
+              "intervals": {
+                "items": {
+                  "$ref": "#/$defs/IntervalOut"
+                },
+                "title": "Intervals",
+                "type": "array"
+              },
+              "intervals_policy": {
+                "title": "Intervals Policy",
+                "type": "string"
+              },
+              "model": {
+                "$ref": "#/$defs/ModelOut"
+              },
+              "n_obs": {
+                "title": "N Obs",
+                "type": "integer"
+              },
+              "notes": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Notes",
+                "type": "array"
+              },
+              "nu": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Nu"
+              },
+              "numerical_context": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                "title": "Numerical Context",
+                "type": "object"
+              },
+              "order": {
+                "items": {
+                  "$ref": "#/$defs/NamedValue"
+                },
+                "title": "Order",
+                "type": "array"
+              },
+              "p_free": {
+                "title": "P Free",
+                "type": "integer"
+              },
+              "p_value": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "P Value"
+              },
+              "rms_residual": {
+                "$ref": "#/$defs/Hertz"
+              },
+              "science_hash": {
+                "title": "Science Hash",
+                "type": "string"
+              },
+              "science_revision": {
+                "title": "Science Revision",
+                "type": "integer"
+              },
+              "statement": {
+                "title": "Statement",
+                "type": "string"
+              },
+              "stderr": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "$ref": "#/$defs/NamedValue"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Stderr"
+              },
+              "theta": {
+                "items": {
+                  "$ref": "#/$defs/NamedValue"
+                },
+                "title": "Theta",
+                "type": "array"
+              },
+              "unidentified": {
+                "items": {
+                  "items": {
+                    "$ref": "#/$defs/NamedValue"
+                  },
+                  "type": "array"
+                },
+                "title": "Unidentified",
+                "type": "array"
+              },
+              "validity": {
+                "$ref": "#/$defs/FitValidity"
+              }
+            },
+            "required": [
+              "science_revision",
+              "science_hash",
+              "model",
+              "frame",
+              "estimand",
+              "notes",
+              "theta",
+              "order",
+              "chi2",
+              "n_obs",
+              "p_free",
+              "nu",
+              "p_value",
+              "adequate",
+              "validity",
+              "stderr",
+              "unidentified",
+              "basins",
+              "couplings",
+              "rms_residual",
+              "intervals_policy",
+              "intervals",
+              "fit_version",
+              "numerical_context",
+              "statement"
+            ],
+            "title": "FitRunOut",
+            "type": "object"
+          },
+          "FitValidity": {
+            "additionalProperties": false,
+            "properties": {
+              "at_bound": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "At Bound",
+                "type": "array"
+              },
+              "converged": {
+                "title": "Converged",
+                "type": "boolean"
+              },
+              "derivatives_resolved": {
+                "title": "Derivatives Resolved",
+                "type": "boolean"
+              },
+              "inner_condition_number": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Inner Condition Number"
+              },
+              "inner_parameters": {
+                "title": "Inner Parameters",
+                "type": "integer"
+              },
+              "inner_rank": {
+                "title": "Inner Rank",
+                "type": "integer"
+              },
+              "joint_parameters": {
+                "title": "Joint Parameters",
+                "type": "integer"
+              },
+              "joint_rank": {
+                "title": "Joint Rank",
+                "type": "integer"
+              },
+              "physically_admissible": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Physically Admissible"
+              },
+              "regular": {
+                "title": "Regular",
+                "type": "boolean"
+              },
+              "search_resolved": {
+                "title": "Search Resolved",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "inner_rank",
+              "inner_parameters",
+              "inner_condition_number",
+              "joint_rank",
+              "joint_parameters",
+              "converged",
+              "physically_admissible",
+              "at_bound",
+              "search_resolved",
+              "derivatives_resolved",
+              "regular"
+            ],
+            "title": "FitValidity",
+            "type": "object"
+          },
+          "FittedCoupling": {
+            "additionalProperties": false,
+            "properties": {
+              "calculated": {
+                "$ref": "#/$defs/Hertz"
+              },
+              "id": {
+                "pattern": "^cpl_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "label": {
+                "title": "Label",
+                "type": "string"
+              },
+              "normalized_residual": {
+                "title": "Normalized Residual",
+                "type": "number"
+              },
+              "observed": {
+                "$ref": "#/$defs/Hertz"
+              },
+              "residual": {
+                "$ref": "#/$defs/Hertz"
+              },
+              "sigma": {
+                "$ref": "#/$defs/Hertz"
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "observed",
+              "sigma",
+              "calculated",
+              "residual",
+              "normalized_residual"
+            ],
+            "title": "FittedCoupling",
+            "type": "object"
+          },
+          "Hertz": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Hz",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Hertz",
+            "type": "object"
+          },
+          "IntervalOut": {
+            "additionalProperties": false,
+            "properties": {
+              "estimate": {
+                "title": "Estimate",
+                "type": "number"
+              },
+              "kind": {
+                "const": "profile",
+                "title": "Kind",
+                "type": "string"
+              },
+              "label": {
+                "title": "Label",
+                "type": "string"
+              },
+              "lower": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Lower"
+              },
+              "note": {
+                "title": "Note",
+                "type": "string"
+              },
+              "parameter": {
+                "title": "Parameter",
+                "type": "string"
+              },
+              "supported": {
+                "title": "Supported",
+                "type": "boolean"
+              },
+              "upper": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Upper"
+              }
+            },
+            "required": [
+              "parameter",
+              "kind",
+              "label",
+              "estimate",
+              "lower",
+              "upper",
+              "supported",
+              "note"
+            ],
+            "title": "IntervalOut",
+            "type": "object"
+          },
+          "ModelOut": {
+            "additionalProperties": false,
+            "properties": {
+              "frame": {
+                "enum": [
+                  "bisector",
+                  "ring-a",
+                  "input"
+                ],
+                "title": "Frame",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "rigid",
+                  "jump4"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "order": {
+                "enum": [
+                  "bisector-diagonal",
+                  "c2z",
+                  "c1"
+                ],
+                "title": "Order",
+                "type": "string"
+              },
+              "phi_domain": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "$ref": "#/$defs/Degrees"
+                  },
+                  {
+                    "$ref": "#/$defs/Degrees"
+                  }
+                ],
+                "title": "Phi Domain",
+                "type": "array"
+              }
+            },
+            "required": [
+              "kind",
+              "order",
+              "frame",
+              "phi_domain"
+            ],
+            "title": "ModelOut",
+            "type": "object"
+          },
+          "NamedValue": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "name",
+              "value"
+            ],
+            "title": "NamedValue",
+            "type": "object"
+          },
+          "RunOut": {
+            "additionalProperties": false,
+            "properties": {
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "id": {
+                "pattern": "^run_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "input_hash": {
+                "title": "Input Hash",
+                "type": "string"
+              },
+              "job_id": {
+                "pattern": "^job_[0-9]{6}$",
+                "title": "Job Id",
+                "type": "string"
+              },
+              "kind": {
+                "const": "fit",
+                "title": "Kind",
+                "type": "string"
+              },
+              "owner": {
+                "title": "Owner",
+                "type": "string"
+              },
+              "result_sha256": {
+                "title": "Result Sha256",
+                "type": "string"
+              },
+              "science_hash": {
+                "title": "Science Hash",
+                "type": "string"
+              },
+              "science_revision": {
+                "title": "Science Revision",
+                "type": "integer"
+              },
+              "stale": {
+                "title": "Stale",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "job_id",
+              "kind",
+              "owner",
+              "created_at",
+              "science_revision",
+              "science_hash",
+              "input_hash",
+              "result_sha256",
+              "stale"
+            ],
+            "title": "RunOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/FitRunOut"
+          },
+          "run": {
+            "$ref": "#/$defs/RunOut"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "run",
+          "result"
+        ],
+        "title": "RunGetOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none",
+      "summary": "A run's result (the fit), verified against its stored hash, and whether it is stale."
+    },
+    {
+      "capability": "query",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {}
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "RunListIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "max_request_bytes": 1048576,
+      "name": "run.list",
+      "output_schema": {
+        "$defs": {
+          "RunOut": {
+            "additionalProperties": false,
+            "properties": {
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "id": {
+                "pattern": "^run_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "input_hash": {
+                "title": "Input Hash",
+                "type": "string"
+              },
+              "job_id": {
+                "pattern": "^job_[0-9]{6}$",
+                "title": "Job Id",
+                "type": "string"
+              },
+              "kind": {
+                "const": "fit",
+                "title": "Kind",
+                "type": "string"
+              },
+              "owner": {
+                "title": "Owner",
+                "type": "string"
+              },
+              "result_sha256": {
+                "title": "Result Sha256",
+                "type": "string"
+              },
+              "science_hash": {
+                "title": "Science Hash",
+                "type": "string"
+              },
+              "science_revision": {
+                "title": "Science Revision",
+                "type": "integer"
+              },
+              "stale": {
+                "title": "Stale",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "job_id",
+              "kind",
+              "owner",
+              "created_at",
+              "science_revision",
+              "science_hash",
+              "input_hash",
+              "result_sha256",
+              "stale"
+            ],
+            "title": "RunOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "runs": {
+            "items": {
+              "$ref": "#/$defs/RunOut"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "runs"
+        ],
+        "title": "RunListOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none",
+      "summary": "The session's runs, newest first, each with its input identity and staleness."
     },
     {
       "capability": "view_write",

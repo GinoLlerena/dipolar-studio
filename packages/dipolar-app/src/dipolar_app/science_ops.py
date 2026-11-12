@@ -518,11 +518,7 @@ def fit_preview(ctx: Context, p: PreviewIn) -> PreviewOut:
     )
 
 
-# --------------------------------------------------------------------------- fit.run
-class FitRunIn(Wire):
-    intervals: bool = False
-
-
+# --------------------------------------------------------------------------- fit.run (computed by a job)
 class BasinOut(Wire):
     theta: tuple[NamedValue, ...]
     chi2: float
@@ -582,11 +578,11 @@ class FitRunOut(Wire):
     statement: str
 
 
-def fit_run(ctx: Context, p: FitRunIn) -> FitRunOut:
+def compute_fit(project: Project, intervals: bool, science_revision: int, science_hash: str) -> FitRunOut:
+    """The D3 fit of ``project``, as a job computes it (``dipolar_app.jobs``). Pure: it reads no
+    session state, so it runs the same in a worker thread or a worker process."""
     from dipolar_core.fit import FIT_VERSION, fit, profile_interval  # SciPy stays off the start path
 
-    state = ctx.read()
-    project = require_project(state)
     problem = _problem(project)
     try:
         result = fit(problem)
@@ -594,8 +590,8 @@ def fit_run(ctx: Context, p: FitRunIn) -> FitRunOut:
         raise _not_evaluable(exc) from None
     v = result.validity
     policy = interval_policy(result)
-    intervals: list[IntervalOut] = []
-    if p.intervals:
+    out: list[IntervalOut] = []
+    if intervals:
         estimates = dict(zip(result.names, (*result.theta, *result.order), strict=True))
         for name in result.names:
             if policy.allowed:
@@ -603,7 +599,7 @@ def fit_run(ctx: Context, p: FitRunIn) -> FitRunOut:
                     iv = profile_interval(problem, result, name)
                 except ValueError as exc:
                     raise _not_evaluable(exc) from None
-                intervals.append(
+                out.append(
                     IntervalOut(
                         parameter=name,
                         kind="profile",
@@ -616,7 +612,7 @@ def fit_run(ctx: Context, p: FitRunIn) -> FitRunOut:
                     )
                 )
             else:
-                intervals.append(
+                out.append(
                     IntervalOut(
                         parameter=name,
                         kind="profile",
@@ -629,8 +625,8 @@ def fit_run(ctx: Context, p: FitRunIn) -> FitRunOut:
                     )
                 )
     return FitRunOut(
-        science_revision=state.science_revision,
-        science_hash=state.science_hash,
+        science_revision=science_revision,
+        science_hash=science_hash,
         model=_model_out(project.model),
         frame=FRAMES[project.model.frame],
         estimand=estimand_of(project),
@@ -665,7 +661,7 @@ def fit_run(ctx: Context, p: FitRunIn) -> FitRunOut:
         couplings=_fitted(project, result.predictions, result.residuals),
         rms_residual=hz(math.sqrt(float(np.mean(result.residuals**2)))),
         intervals_policy=policy.statement,
-        intervals=tuple(intervals),
+        intervals=tuple(out),
         fit_version=FIT_VERSION,
         numerical_context=numerical_context(),
         statement=(

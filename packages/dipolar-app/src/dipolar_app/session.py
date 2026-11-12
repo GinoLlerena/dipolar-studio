@@ -20,6 +20,13 @@ its outcome, so the deduplication table is rebuilt by replay: a retry after a lo
 after a restart, returns the stored outcome and is never applied twice. Keys are scoped to the
 actor; reusing a key for a different command is refused.
 
+**Jobs and runs (§8.1, D11, D18; M2 step 3).** Jobs live in the ``job`` domain, which advances
+neither revision: ``job.submitted`` records the input identity (science revision and hash) and
+``job.finished`` the one terminal state, with the run it produced. A run's result is an immutable
+blob, written and fsynced before the record that references it by SHA-256 (``BlobStore``).
+Replay never re-runs a job. After commit, listeners (the job runner) see the new state and its
+events; a dry run reaches no listener, so it never launches a job.
+
 **Undo (§8.2).** The science history is global and chronological. Every record that changes the
 science pushes one undo entry (the project before it); ``history.undo`` and ``history.redo`` are
 new, journaled commands whose events say which way they move, so revisions never decrease and
@@ -30,17 +37,20 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import os
 import threading
 import uuid
+from collections import deque
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Any, Literal, TypeVar
 
 from dipolar_core.context import numerical_context
 from pydantic import BaseModel
 
 from dipolar_app.errors import ErrorCode, OperationError
-from dipolar_app.journal import JOURNAL_SCHEMA_VERSION, Journal, JournalCorrupt, Recovery
+from dipolar_app.journal import JOURNAL_SCHEMA_VERSION, Journal, JournalCorrupt, Recovery, fsync_dir
 from dipolar_app.policy import Principal
 from dipolar_app.project import (
     PROJECT_SCHEMA_VERSION,
@@ -53,16 +63,23 @@ from dipolar_app.project import (
 
 T = TypeVar("T")
 
-SCIENCE, WORKSPACE, PROPOSAL = "science", "workspace", "proposal"
-DOMAINS = frozenset({SCIENCE, WORKSPACE, PROPOSAL})
+SCIENCE, WORKSPACE, PROPOSAL, JOB = "science", "workspace", "proposal", "job"
+DOMAINS = frozenset({SCIENCE, WORKSPACE, PROPOSAL, JOB})
 
 #: Undo depth: the oldest entries are dropped beyond this.
 MAX_UNDO = 100
 #: Decided proposals kept in the state for listing; pending ones are always kept.
 MAX_DECIDED_PROPOSALS = 64
+#: Finished jobs and runs kept in the state; unfinished jobs are always kept.
+MAX_FINISHED_JOBS = 64
+MAX_RUNS = 64
+#: Change-feed entries kept in memory for the event stream; a client further behind resyncs.
+FEED_SIZE = 1000
 
 HistoryKind = Literal["do", "undo", "redo"]
 ProposalStatus = Literal["pending", "accepted", "rejected", "expired"]
+JobStatus = Literal["queued", "succeeded", "failed", "cancelled", "interrupted"]
+TERMINAL: frozenset[str] = frozenset({"succeeded", "failed", "cancelled", "interrupted"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +127,41 @@ class Proposal:
 
 
 @dataclass(frozen=True, slots=True)
+class Job:
+    """A unit of long-running work (D18). Its input is the science state at submission."""
+
+    id: str
+    kind: str  # "fit"
+    owner: str  # the actor that committed the submission
+    proposed_by: str | None  # the proposer, when a human accepted it from a proposal
+    submitted_at: str
+    science_revision: int
+    science_hash: str
+    input_hash: str  # D11 canonical hash: science, options, solver version, numerical context
+    options_json: str
+    status: JobStatus = "queued"
+    finished_at: str | None = None
+    run_id: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Run:
+    """An immutable result (D11), published against the input identity of its job."""
+
+    id: str
+    job_id: str
+    kind: str
+    owner: str
+    created_at: str
+    science_revision: int
+    science_hash: str
+    input_hash: str
+    result_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
 class SessionState:
     project: Project | None = None
     view: ViewState = field(default_factory=ViewState)
@@ -120,6 +172,10 @@ class SessionState:
     redo: tuple[HistoryEntry, ...] = ()  # the next redo last
     proposals: tuple[Proposal, ...] = ()  # in the order of their last event (creation or decision)
     next_proposal: int = 1
+    jobs: tuple[Job, ...] = ()  # in the order of their last event (submission or finish)
+    next_job: int = 1
+    runs: tuple[Run, ...] = ()  # oldest first
+    next_run: int = 1
 
     @property
     def science_hash(self) -> str:
@@ -127,6 +183,12 @@ class SessionState:
 
     def proposal(self, proposal_id: str) -> Proposal | None:
         return next((p for p in self.proposals if p.id == proposal_id), None)
+
+    def job(self, job_id: str) -> Job | None:
+        return next((j for j in self.jobs if j.id == job_id), None)
+
+    def run(self, run_id: str) -> Run | None:
+        return next((r for r in self.runs if r.id == run_id), None)
 
 
 Event = dict[str, Any]
@@ -201,7 +263,67 @@ def apply_event(state: SessionState, event: Event) -> SessionState:
         # pruning drops the earliest decisions.
         proposals = (*(p for p in state.proposals if p.id != target.id), decided)
         return replace(state, proposals=_prune(proposals))
+    if kind == "job.submitted":
+        data = event["job"]
+        if data["id"] != f"job_{state.next_job:06d}":
+            raise ValueError(f"job {data['id']!r} out of sequence")
+        job = Job(
+            id=data["id"],
+            kind=data["kind"],
+            owner=data["owner"],
+            proposed_by=data["proposed_by"],
+            submitted_at=data["submitted_at"],
+            science_revision=data["science_revision"],
+            science_hash=data["science_hash"],
+            input_hash=data["input_hash"],
+            options_json=canonical_json(data["options"]),
+        )
+        return replace(state, jobs=(*state.jobs, job), next_job=state.next_job + 1)
+    if kind == "job.finished":
+        return _finish_job(state, event)
     raise ValueError(f"unknown event type {kind!r}")
+
+
+def _finish_job(state: SessionState, event: Event) -> SessionState:
+    target = state.job(event["id"])
+    if target is None or target.status in TERMINAL:
+        raise ValueError(f"job {event['id']!r} is not running")
+    status = event["status"]
+    if status not in TERMINAL:
+        raise ValueError(f"unknown job status {status!r}")
+    run_data = event.get("run")
+    if (status == "succeeded") != (run_data is not None):
+        raise ValueError("a succeeded job, and only a succeeded job, publishes a run")
+    error = event.get("error")
+    runs, next_run, run_id = state.runs, state.next_run, None
+    if run_data is not None:
+        if run_data["id"] != f"run_{state.next_run:06d}" or run_data["job_id"] != target.id:
+            raise ValueError(f"run {run_data['id']!r} out of sequence")
+        run = Run(
+            id=run_data["id"],
+            job_id=target.id,
+            kind=target.kind,
+            owner=target.owner,
+            created_at=event["at"],
+            science_revision=target.science_revision,
+            science_hash=target.science_hash,
+            input_hash=target.input_hash,
+            result_sha256=run_data["result_sha256"],
+        )
+        runs, next_run, run_id = (*state.runs, run)[-MAX_RUNS:], next_run + 1, run.id
+    finished = replace(
+        target,
+        status=status,
+        finished_at=event["at"],
+        run_id=run_id,
+        error_code=error["code"] if error else None,
+        error_message=error["message"] if error else None,
+    )
+    jobs = (*(j for j in state.jobs if j.id != target.id), finished)
+    done = [j.id for j in jobs if j.status in TERMINAL]
+    dropped = set(done[: max(0, len(done) - MAX_FINISHED_JOBS)])
+    jobs = tuple(j for j in jobs if j.id not in dropped)
+    return replace(state, jobs=jobs, runs=runs, next_run=next_run)
 
 
 def _history_kind(steps: Sequence[Sequence[Event]]) -> HistoryKind | None:
@@ -286,6 +408,56 @@ class Committed[R]:
     replayed: StoredOutcome | None = None
 
 
+class BlobStore:
+    """Immutable, content-addressed result blobs (D11, §8.2). With a directory, a blob is written
+    to a temporary file, fsynced and renamed before anything references it; without one (tests),
+    blobs live in memory."""
+
+    def __init__(self, directory: Path | None) -> None:
+        self.directory = directory
+        self._memory: dict[str, str] = {}
+
+    def put(self, data: dict[str, Any]) -> str:
+        text = canonical_json(data)
+        digest = hashlib.sha256(text.encode()).hexdigest()
+        if self.directory is None:
+            self._memory[digest] = text
+            return digest
+        target = self.directory / f"{digest}.json"
+        if target.exists():
+            return digest
+        self.directory.mkdir(mode=0o700, exist_ok=True)
+        tmp = self.directory / f".{digest}.{uuid.uuid4().hex}.tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            view = memoryview(text.encode())
+            while view:
+                written = os.write(fd, view)
+                if written <= 0:
+                    raise OSError("blob write stored no bytes")
+                view = view[written:]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(tmp, target)
+        fsync_dir(self.directory)
+        return digest
+
+    def text(self, digest: str) -> str | None:
+        """The blob's text if it exists and matches its digest, else None."""
+        if self.directory is None:
+            return self._memory.get(digest)
+        path = self.directory / f"{digest}.json"
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        return text if hashlib.sha256(text.encode()).hexdigest() == digest else None
+
+
+Listener = Callable[[SessionState, list[Event]], None]
+
+
 class Session:
     def __init__(self, journal: Journal | None = None, *, contract_version: str) -> None:
         self._lock = threading.Lock()
@@ -294,11 +466,66 @@ class Session:
         self._journal = journal
         self._contract_version = contract_version
         self._failure: str | None = None
+        self._listeners: list[Listener] = []
+        self._changed = threading.Condition()
+        self._feed: deque[tuple[int, dict[str, Any]]] = deque(maxlen=FEED_SIZE)
+        self._cursor = 0
+        self._live: dict[str, str] = {}  # job ID -> "running" (not journaled)
+        #: Names this process's session for event-stream clients (a restart starts a new feed).
+        self.boot_id = uuid.uuid4().hex
+        self.blobs = BlobStore(journal.path.parent / "runs" if journal is not None else None)
         #: What opening the journal repaired (an unacknowledged torn tail), if anything.
         self.recovery: Recovery | None = None
         if journal is not None:
             self.recovery = journal.recover_torn_tail()
             self._state, self._requests = replay_full(journal)
+            for run in self._state.runs:  # fsynced before its record: a missing blob is damage
+                if self.blobs.text(run.result_sha256) is None:
+                    raise JournalCorrupt(f"{run.id}: its result blob is missing or damaged")
+
+    # ------------------------------------------------------------------ observation
+    def add_listener(self, listener: Listener) -> None:
+        """Called after every applied commit, under the writer lock, with the new state and the
+        committed events. Listeners must be quick and must not commit."""
+        self._listeners.append(listener)
+
+    def wait_for(self, predicate: Callable[[SessionState], bool], timeout: float) -> SessionState:
+        """Block until ``predicate(state)`` holds or ``timeout`` seconds pass; return the state."""
+        with self._changed:
+            self._changed.wait_for(lambda: predicate(self._state), timeout=max(0.0, timeout))
+            return self._state
+
+    def live_status(self, job_id: str) -> str | None:
+        return self._live.get(job_id)
+
+    def set_live(self, job_id: str, status: str | None) -> None:
+        """Record a job's unjournaled progress (``running``) and announce it on the feed."""
+        with self._changed:
+            if status is None:
+                self._live.pop(job_id, None)
+                self._changed.notify_all()
+                return
+            self._live[job_id] = status
+            self._publish({"kind": "job", "job_id": job_id, "status": status})
+
+    def _publish(self, item: dict[str, Any]) -> None:  # call with self._changed held
+        self._cursor += 1
+        self._feed.append((self._cursor, item))
+        self._changed.notify_all()
+
+    def feed_after(self, cursor: int, timeout: float) -> tuple[list[tuple[int, dict[str, Any]]], int, bool]:
+        """Feed entries after ``cursor`` (waiting up to ``timeout`` for one), the latest cursor,
+        and whether the client must resync because entries it missed were dropped."""
+        with self._changed:
+            self._changed.wait_for(lambda: self._cursor > cursor, timeout=max(0.0, timeout))
+            oldest = self._feed[0][0] if self._feed else self._cursor + 1
+            if cursor > self._cursor or cursor + 1 < oldest:
+                return [], self._cursor, cursor != self._cursor
+            return [(c, item) for c, item in self._feed if c > cursor], self._cursor, False
+
+    @property
+    def cursor(self) -> int:
+        return self._cursor
 
     @property
     def state(self) -> SessionState:
@@ -406,6 +633,28 @@ class Session:
                 assert request_id is not None
                 self._requests[(principal.actor, request_id)] = outcome
             self._state = new_state
+            events = [e for step in steps for e in step]
+            for listener in self._listeners:
+                listener(new_state, events)
+            with self._changed:
+                self._publish(
+                    {
+                        "kind": "commit",
+                        "seq": new_state.seq,
+                        "operation": operation,
+                        "actor": principal.actor,
+                        "revisions": revisions,
+                        "domains": sorted({e["domain"] for e in events}),
+                        "jobs": [
+                            {
+                                "job_id": e["job"]["id"] if e["type"] == "job.submitted" else e["id"],
+                                "status": "queued" if e["type"] == "job.submitted" else e["status"],
+                            }
+                            for e in events
+                            if e["type"] in ("job.submitted", "job.finished")
+                        ],
+                    }
+                )
             return Committed(result, current, new_state)
 
 

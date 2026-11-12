@@ -282,7 +282,7 @@ def test_creation_validates_the_whole_change_set() -> None:
     assert body["details"]["step"] == 1
     bad_args = {"steps": [{"operation": "model.set", "args": {**model("jump", 1), "order": "c9"}}]}
     error(agent.call("proposal.create", bad_args), "INVALID_ARGUMENT", "steps[0].args.order")
-    for name in ("view.select", "fit.run", "proposal.create", "proposal.accept", "no.such"):
+    for name in ("view.select", "job.cancel", "proposal.create", "proposal.accept", "no.such"):
         step = {"steps": [{"operation": name, "args": {}}]}
         error(agent.call("proposal.create", step), "INVALID_ARGUMENT", "steps[0].operation")
     assert s.state.proposals == ()

@@ -11,6 +11,7 @@ from typing import Annotated, Literal
 from pydantic import Field
 
 from dipolar_app import history_ops as H
+from dipolar_app import job_ops as J
 from dipolar_app import proposal_ops as P
 from dipolar_app import science_ops as S
 from dipolar_app.errors import ErrorCode, OperationError
@@ -215,6 +216,7 @@ def build_registry() -> Registry:
     _register_science(registry)
     _register_history(registry)
     _register_proposals(registry)
+    _register_jobs(registry)
     return registry
 
 
@@ -222,20 +224,6 @@ def _register_science(registry: Registry) -> None:
     """The M2 step 1 science operations (``dipolar_app.science_ops``)."""
     revision = "expected_science_revision (required)"
     for op in (
-        Operation(
-            name="fit.run",
-            kind="query",
-            effect="none",
-            capability=Capability.COMPUTE_JOB,
-            summary="Fit the project's model (D3): estimates, validity, adequacy, and optional profile intervals "
-            "under the reporting policy.",
-            input_model=S.FitRunIn,
-            output_model=S.FitRunOut,
-            handler=S.fit_run,
-            cost="seconds",
-            idempotent=True,
-            examples=({}, {"intervals": True}),
-        ),
         Operation(
             name="model.set",
             kind="command",
@@ -490,3 +478,101 @@ def _register_proposals(registry: Registry) -> None:
             examples=({"proposal_id": "prp_000001", "reason": "keep the bisector-diagonal model"},),
         )
     )
+
+
+def _register_jobs(registry: Registry) -> None:
+    """Jobs and runs (M2 step 3, ``dipolar_app.job_ops``; the runner is ``dipolar_app.jobs``)."""
+    registry.register(
+        Operation(
+            name="fit.run",
+            kind="command",
+            effect="compute",
+            capability=Capability.COMPUTE_JOB,
+            summary="Submit the D3 fit of the current project as a job (estimates, validity, adequacy, and "
+            "optional profile intervals under the reporting policy). Returns the job at once; read the run "
+            "with job.wait and run.get.",
+            input_model=J.FitRunIn,
+            output_model=J.FitRunSubmitted,
+            handler=J.fit_run,
+            cost="job",
+            revision_check="expected_science_revision (required): the job computes from that state",
+            proposable=True,
+            examples=({"expected_science_revision": 1}, {"intervals": True, "expected_science_revision": 1}),
+        )
+    )
+    for op in (
+        Operation(
+            name="job.status",
+            kind="query",
+            effect="none",
+            capability=Capability.QUERY,
+            summary="One job: its status, input identity, run or error, and whether its input is stale.",
+            input_model=J.JobStatusIn,
+            output_model=J.JobStatusOut,
+            handler=J.job_status,
+            idempotent=True,
+            examples=({"job_id": "job_000001"},),
+        ),
+        Operation(
+            name="job.wait",
+            kind="query",
+            effect="none",
+            capability=Capability.QUERY,
+            summary=f"Wait until a job finishes, at most timeout_s (≤ {J.MAX_WAIT_S:.0f} s); call again if it has not.",
+            input_model=J.JobWaitIn,
+            output_model=J.JobWaitOut,
+            handler=J.job_wait,
+            idempotent=True,
+            examples=({"job_id": "job_000001", "timeout_s": 5.0},),
+        ),
+        Operation(
+            name="job.list",
+            kind="query",
+            effect="none",
+            capability=Capability.QUERY,
+            summary="The session's jobs (unfinished, and the latest finished).",
+            input_model=J.JobListIn,
+            output_model=J.JobListOut,
+            handler=J.job_list,
+            idempotent=True,
+            examples=({}, {"status": "unfinished"}),
+        ),
+        Operation(
+            name="job.cancel",
+            kind="command",
+            effect="compute",
+            capability=Capability.JOB_CANCEL,
+            summary="Cancel an unfinished job (a propose-tier caller: its own jobs only). A finished job is left "
+            "as it is.",
+            input_model=J.JobCancelIn,
+            output_model=J.JobCancelOut,
+            handler=J.job_cancel,
+            idempotent=True,
+            examples=({"job_id": "job_000001"},),
+        ),
+        Operation(
+            name="run.get",
+            kind="query",
+            effect="none",
+            capability=Capability.QUERY,
+            summary="A run's result (the fit), verified against its stored hash, and whether it is stale.",
+            input_model=J.RunGetIn,
+            output_model=J.RunGetOut,
+            handler=J.run_get,
+            idempotent=True,
+            examples=({"run_id": "run_000001"},),
+        ),
+        Operation(
+            name="run.list",
+            kind="query",
+            effect="none",
+            capability=Capability.QUERY,
+            summary="The session's runs, newest first, each with its input identity and staleness.",
+            input_model=J.RunListIn,
+            output_model=J.RunListOut,
+            handler=J.run_list,
+            idempotent=True,
+            examples=({},),
+        ),
+    ):
+        registry.register(op)
