@@ -45,19 +45,11 @@ def open_example(ctx: Context, p: OpenExampleIn) -> OpenExampleOut:
         S.check_revision(p.expected_science_revision, state)
         # IDs of the old project never stay selected, even where an ID also exists in the example
         # (round 27): always clear, never prune.
-        events = [e for e in S.replace_project(state, project) if e["type"] != "view.selection_set"]
-        if state.view.selection:
-            events.append(
-                {
-                    "type": "view.selection_set",
-                    "domain": WORKSPACE,
-                    "selection": [],
-                    "previous": list(state.view.selection),
-                }
-            )
+        opened = S.keep_allocator(state, project)
+        events = S.replace_project(state, opened, same_project=False)
         return events, OpenExampleOut(
             science_revision=state.science_revision + 1,
-            science_hash=science_hash(project),
+            science_hash=science_hash(opened),
             n_spins=len(project.molecule.spins),
             n_couplings=len(project.couplings),
         )

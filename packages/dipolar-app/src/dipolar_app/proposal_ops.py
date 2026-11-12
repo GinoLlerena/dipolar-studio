@@ -220,7 +220,8 @@ class CreateOut(Science):
     proposal: ProposalOut
 
 
-def proposal_create(ctx: Context, p: CreateIn) -> CreateOut:
+def _compile(ctx: Context, p: CreateIn) -> tuple[list[tuple[int, Operation, Plan[Any]]], list[dict[str, Any]], int]:
+    """Validate the steps and build their plans (no state is read or changed)."""
     assert ctx.registry is not None
     plans: list[tuple[int, Operation, Plan[Any]]] = []
     stored: list[dict[str, Any]] = []
@@ -248,9 +249,16 @@ def proposal_create(ctx: Context, p: CreateIn) -> CreateOut:
             f"the proposal's arguments take {size} bytes, above the limit of {MAX_PROPOSAL_BYTES}",
             offending_field="steps",
         )
+    return plans, stored, size
+
+
+def proposal_create(ctx: Context, p: CreateIn) -> CreateOut:
+    """Every check runs inside the plan, after the session's request-ID check, so a retried
+    creation returns its stored outcome even if the rules changed since (round 32)."""
     principal = ctx.principal
 
     def plan(state: SessionState) -> tuple[Steps, CreateOut]:
+        plans, stored, size = _compile(ctx, p)
         now = clock()
         expiries = _expiries(state, now)
         pending = [q for q in state.proposals if q.status == "pending" and not _expired(q, now)]
@@ -371,6 +379,13 @@ def _closed_error(found: Proposal, now: dt.datetime) -> OperationError:
 
 def _accept_plans(ctx: Context, found: Proposal, chosen: list[int]) -> list[tuple[int, Operation, Plan[Any]]]:
     assert ctx.registry is not None
+    if len(found.steps) > 1 and any(s.operation in HISTORY_COMMANDS for s in found.steps):
+        raise OperationError(
+            ErrorCode.INVALID_ARGUMENT,
+            f"{found.id} mixes an undo or redo with other steps, which cannot be applied as one change",
+            offending_field="proposal_id",
+            hint="reject it; propose the undo or redo alone (round 32)",
+        )
     plans: list[tuple[int, Operation, Plan[Any]]] = []
     for i in chosen:
         step = found.steps[i]

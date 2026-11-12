@@ -1,5 +1,15 @@
 # Status
 
+**M2 step 2 (idempotency keys, dry run, proposals, undo) is done: tag `m2-step2`.**
+- Commands take a `request_id` and are applied at most once, even across a restart.
+- Any command can be dry-run.
+- Agents change the science only through proposals that a human accepts, atomically.
+- Undo and redo are global, chronological and audited.
+
+Rounds 31 and 32 each returned NOT READY (three class-(A) findings each). All were fixed and
+mutation-checked; the round-32 fixes were not reviewed again, under the cap. See "Step 2" below
+and [round31-m2-step2.md](validation/round31-m2-step2.md).
+
 **M2 step 1b (TypeScript generated from the registry snapshot) is done: tag `m2-step1b`, also
 the stopping point.** `tools/codegen/ts_contract.py` writes `web/src/generated/contract.ts` and
 `conformance.ts` from `registry.snapshot.json`. `callOperation` takes one operation name and
@@ -153,30 +163,30 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: M2 step 2, or the owner's choice
+## Resume here: M2 step 3, or the owner's choice
 
-**Stopping point, set on 2026-11-11 at the owner's request: tag `m2-step1b`.** M2 step 1b is done.
-Earlier stopping points: `m1-complete`, then `m2-step1`. To resume:
+**Stopping point: tag `m2-step2`.** Earlier stopping points: `m1-complete`, `m2-step1`,
+`m2-step1b`. To resume:
 
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 599 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 661 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
    (cd web && pnpm install --frozen-lockfile && pnpm run build)
    ```
 
 2. **The owner chooses** what comes next:
-   - **M2 step 2:** idempotency keys, dry run, proposals (agents now get `PROPOSAL_REQUIRED`),
-     undo.
+   - **M2 step 3:** jobs as resources (`fit.run` becomes a job, with input snapshots and stale
+     results), D11 runs, the authenticated event stream, and compute proposals for agents.
    - **the small batch:** GitHub Actions off Node 20, a licence file in the wheels, a Windows CI
      job, caching interval evaluations.
 3. Work under the medium plan (below): at most two review rounds per step, a fresh session per
    step.
-4. **When the registry changes,** run `uv run python tools/codegen/ts_contract.py` after
-   regenerating the snapshot, and commit both. If the generator raises `Unsupported`, the new
-   schema uses a feature it cannot represent exactly. Extend the generator with tests; do not
-   loosen it.
+4. **When the registry changes,** regenerate the snapshot, then run
+   `uv run python tools/codegen/ts_contract.py`, and commit both.
+5. **When the registry changes and a command is proposable,** a proposal re-runs its handler up
+   to the commit (`capture_plan`). Keep handlers free of side effects before `ctx.commit`.
 
 The outline below was written before step 3.
 
@@ -486,7 +496,7 @@ Tests: 461 pass (`-m "not slow"`), plus the slow coverage rerun.
 |---|---|---|
 | 1. Science operations the beta UI needs | **done** (tag `m2-step1`); rounds 27–28, both fixed under the cap | |
 | 1b. TypeScript generated from the registry snapshot | **done** (tag `m2-step1b`); rounds 29–30, both fixed under the cap | |
-| 2. Idempotency, dry run, proposals, undo | — | |
+| 2. Idempotency, dry run, proposals, undo | **done** (tag `m2-step2`); rounds 31–32, both fixed under the cap | |
 | 3. Jobs, D11 runs, the authenticated event stream | — | |
 | 4. Scene description, `describe_view`, the SVG renderer | — | |
 
@@ -631,8 +641,12 @@ waits for Phase 3.
   stacks.
 - They need `expected_science_revision`, so an undo never reverts another actor's change that
   its caller has not seen (the §8.6 cross-actor check).
-- Opening the first project is not undoable. The depth is limited to 100. Undo prunes the
-  selection to surviving IDs.
+- Opening the first project is not undoable. The depth is limited to 100.
+- Undo and redo clear the selection: the restored project may be another document, whose IDs
+  name other objects (round 32).
+- An undo or redo must be proposed alone, never inside a multi-step proposal (round 31).
+- Coupling IDs are never reused within a session. Every replacement keeps the coupling-ID
+  high-water mark (`keep_allocator`; rounds 31–32).
 
 **Journal and contract:**
 - Journal schema 2 (multi-step records and request outcomes); schema-1 records still replay.
@@ -648,7 +662,12 @@ waits for Phase 3.
 - The serialization spike now prepares a state for every new operation. It validates their
   examples, results and dry-run envelopes against the published schemas, and produces every
   new error code.
-- 12 mutations of the safety checks were each caught.
+- 12 mutations of the safety checks were each caught, and so was every review fix.
+
+**Validation:** rounds 31 and 32 each returned NOT READY, with three class-(A) findings each. All
+were fixed and mutation-checked. The round-32 fixes were not reviewed again, under the cap. See
+[round31-m2-step2.md](validation/round31-m2-step2.md) (rounds 31 and 32 and the (B) limits:
+request-table growth, step parsing under the lock, selection cleared on undo).
 
 **Not in this step (planned):**
 - compute proposals (`fit.run` from an agent) arrive with jobs in step 3;

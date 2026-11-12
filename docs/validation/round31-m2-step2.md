@@ -27,10 +27,29 @@ Each fix was mutation-checked: reverting it makes its test fail. The reviewer's 
   - stale proposals are refused, not rebased;
   - runs from undone states cannot yet be marked stale (there are no stored runs before
     step 3).
+- **Selection after undo or redo** is cleared, even when the restored project is the same
+  document. This is deliberate and conservative until projects carry an identity (round 32).
+- **The creation and acceptance plans run the steps' parsing under the session lock** (round 32).
 - **Undo is not byte-exact.** It restores the science content. The coupling-ID counter keeps its
   high-water mark, so the science hash after an undo can differ from the hash before the undone
   change.
 
-## Round 32
+## Round 32 (final under the cap): NOT READY (three A), on commit c664a45
 
-(Pending.)
+The reviewer confirmed the round-31 pruning-retry fix and found no escalation or deadlock in the
+reviewed paths. It found three siblings of the round-31 classes. All are fixed and
+mutation-checked, and, under the two-round cap, **not reviewed again**.
+
+| # | Class | Finding | Resolution |
+|---|---|---|---|
+| 1 | A | **The history restriction was checked only at creation, before deduplication.** A mixed `[model.set, history.undo]` proposal stored by earlier code still crashed at acceptance (`ValueError`). A keyed creation retried after the rule changed got `INVALID_ARGUMENT` instead of its stored outcome. | Creation now validates inside the plan, after the request-ID check (`_compile`), as acceptance already did. Acceptance refuses a stored proposal that mixes undo or redo with other steps, with a structured `INVALID_ARGUMENT`. Tests: `test_a_stored_mixed_history_proposal_is_refused_not_crashed`, `test_a_retried_creation_returns_its_outcome_even_if_the_rules_changed`. |
+| 2 | A | **Loading an older file lowered the coupling-ID counter.** Export, import a pair (`cpl_000015`), undo, load the export (counter back to 15), import another pair: it received `cpl_000015` again. | `keep_allocator`: every replacement (open, import, load, undo, redo) keeps the session's high-water mark. `replace_project` refuses a counter that goes down, so no path can miss it. Test: `test_loading_an_older_file_never_lowers_the_coupling_id_counter`. |
+| 3 | A | **Undo and redo kept selected IDs that named other objects.** Open the example, import ethane, select `spn_000001` (H3), undo: the selection stayed `spn_000001`, which is H2 in the example. | A replacement by another document (import, load, open) or by undo or redo **clears** the selection. Edits of the same project (model, torsion, couplings) still prune it to surviving IDs. Tests: `test_another_document_clears_the_selection`, `test_undo_clears_the_selection`. |
+
+**Not reviewed again (cap):**
+- The round-32 fixes.
+- The creation plan now builds the steps' plans under the session lock. This includes the
+  handlers' parsing, such as XYZ text of at most 1 MiB, so a large proposal holds the lock for
+  that parsing (B).
+- Within a session, coupling IDs are never reused, but the counter can now rise above the loaded
+  file's own value. Exporting after a load writes the higher counter (B, harmless).

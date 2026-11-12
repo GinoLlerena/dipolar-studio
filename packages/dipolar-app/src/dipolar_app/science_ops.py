@@ -185,9 +185,28 @@ def check_revision(expected: int, state: SessionState) -> None:
         )
 
 
-def replace_project(state: SessionState, project: Project, *, field: str | None = None) -> list[Event]:
-    """The events that put ``project`` in the session: validated first, with the selection kept to
-    the IDs that still exist."""
+def keep_allocator(state: SessionState, project: Project) -> Project:
+    """``project`` with the session's coupling-ID high-water mark. A coupling ID is never handed
+    out twice in a session, whatever replaces the project: loading an older file, opening an
+    example, importing, undo or redo (D5; rounds 31–32)."""
+    current = state.project
+    if current is not None and current.next_coupling_id > project.next_coupling_id:
+        return project.model_copy(update={"next_coupling_id": current.next_coupling_id})
+    return project
+
+
+def replace_project(
+    state: SessionState, project: Project, *, field: str | None = None, same_project: bool = True
+) -> list[Event]:
+    """The events that put ``project`` in the session, validated first.
+
+    ``same_project``: the change edits the current project (model, torsion, couplings), so the
+    selection keeps the IDs that still exist. Otherwise (another document, an import, undo or
+    redo) the IDs may name different objects, so the selection is cleared (round 32). The caller
+    passes ``keep_allocator(state, project)``; a lower coupling-ID counter is refused here.
+    """
+    if state.project is not None and project.next_coupling_id < state.project.next_coupling_id:
+        raise AssertionError("replace_project needs keep_allocator: the coupling-ID counter would go down")
     try:
         validate_project(project)
     except ValueError as exc:
@@ -207,7 +226,7 @@ def replace_project(state: SessionState, project: Project, *, field: str | None 
             "previous_science_hash": state.science_hash,
         }
     ]
-    kept = tuple(i for i in state.view.selection if project.label_of(i) is not None)
+    kept = tuple(i for i in state.view.selection if project.label_of(i) is not None) if same_project else ()
     if kept != state.view.selection:
         events.append(
             {
@@ -731,11 +750,12 @@ def import_xyz(ctx: Context, p: ImportXyzIn) -> ImportXyzOut:
 
     def plan(state: SessionState) -> tuple[list[Event], ImportXyzOut]:
         check_revision(p.expected_science_revision, state)
-        events = replace_project(state, project, field="torsion")
-        reason = readiness(project)
+        imported = keep_allocator(state, project)
+        events = replace_project(state, imported, field="torsion", same_project=False)
+        reason = readiness(imported)
         return events, ImportXyzOut(
             science_revision=state.science_revision + 1,
-            science_hash=science_hash(project),
+            science_hash=science_hash(imported),
             n_atoms=len(molecule.elements),
             n_spins=len(project.molecule.spins),
             ready_to_fit=reason is None,
@@ -918,10 +938,11 @@ def project_load(ctx: Context, p: LoadIn) -> LoadOut:
 
     def plan(state: SessionState) -> tuple[list[Event], LoadOut]:
         check_revision(p.expected_science_revision, state)
-        events = replace_project(state, project, field="text")
+        loaded = keep_allocator(state, project)
+        events = replace_project(state, loaded, field="text", same_project=False)
         return events, LoadOut(
             science_revision=state.science_revision + 1,
-            science_hash=science_hash(project),
+            science_hash=science_hash(loaded),
             name=project.name,
             n_spins=len(project.molecule.spins),
             n_couplings=len(project.couplings),

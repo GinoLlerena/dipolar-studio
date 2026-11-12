@@ -10,9 +10,9 @@ Undo restores the science content but never the coupling-ID allocator: the resto
 keeps the current ``next_coupling_id`` when it is higher, so an ID is never reused for another
 observation (D5, round 31). Undo and redo are proposed alone, never inside a multi-step proposal.
 
-The view has no undo stack yet: the selection is its only state, and undoing a science change
-prunes it to the IDs that still exist. Runs and exports are not undone (there are no stored runs
-before M2 step 3).
+The view has no undo stack yet: the selection is its only state, and undo and redo clear it,
+because the restored project may be another document whose IDs name other objects (round 32).
+Runs and exports are not undone (there are no stored runs before M2 step 3).
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.project import Project, science_hash
 from dipolar_app.registry import Context
 from dipolar_app.schemas import Revision, Wire
-from dipolar_app.science_ops import Science, check_revision, replace_project
+from dipolar_app.science_ops import Science, check_revision, keep_allocator, replace_project
 from dipolar_app.session import MAX_UNDO, Event, HistoryEntry, SessionState
 
 
@@ -59,11 +59,10 @@ def _move(state: SessionState, kind: str, entry: HistoryEntry) -> tuple[list[Eve
     """The events that restore ``entry.project``. Coupling IDs are never reused (D5): the restored
     project keeps the current allocation high-water mark, so an ID handed out after the change
     being undone is never handed out again for another observation (round 31)."""
-    project = entry.project
-    current = state.project
-    if current is not None and current.next_coupling_id > project.next_coupling_id:
-        project = project.model_copy(update={"next_coupling_id": current.next_coupling_id})
-    events = replace_project(state, project)
+    project = keep_allocator(state, entry.project)
+    # The restored project may be another document (undoing an open, import or load), where the
+    # same ID names a different object: the selection is cleared, never pruned (round 32).
+    events = replace_project(state, project, same_project=False)
     for event in events:
         if event["type"] == "project.replaced":
             event["history"] = kind

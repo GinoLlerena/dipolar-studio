@@ -462,15 +462,13 @@ def test_an_accepted_proposal_is_undone_as_one_change() -> None:
     assert undone["operation"] == "proposal.accept" and current_model(user) == "base"
 
 
-def test_undo_prunes_the_selection_to_surviving_ids() -> None:
+def test_undo_clears_the_selection() -> None:
+    """The restored project may be another document, so its IDs may name other objects (round 32)."""
     s, c = opened()
     ok(c.call("couplings.import", {"csv": CSV, "confirmed_mapping": MAPPING, "expected_science_revision": 1}))
-    ids = [x["id"] for x in ok(c.call("project.describe"))["couplings"]]
-    new_ids = [i for i in ids if i not in {f"cpl_{k:06d}" for k in range(1, 15)}]
-    ok(c.call("view.select", {"ids": ids}))
+    ok(c.call("view.select", {"ids": [x["id"] for x in ok(c.call("project.describe"))["couplings"]]}))
     ok(c.call("history.undo", {"expected_science_revision": 2}))
-    assert not set(new_ids) & set(s.state.view.selection)
-    assert all(s.state.project.label_of(i) is not None for i in s.state.view.selection)  # type: ignore[union-attr]
+    assert s.state.view.selection == ()
 
 
 def test_undo_depth_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -590,3 +588,71 @@ def test_a_retried_acceptance_survives_pruning_and_restart(tmp_path: Path, monke
     restarted = client(new_session(tmp_path))
     after = restarted.call("proposal.accept", {"proposal_id": "prp_000001"}, request_id="accept-1")
     assert after["replayed"] and after["result"] == first["result"]
+
+
+# --------------------------------------------------------------------------- round 32
+def test_a_stored_mixed_history_proposal_is_refused_not_crashed() -> None:
+    """A proposal that mixes undo with other steps (as code before round 31 could store) is
+    refused at acceptance with a structured error."""
+    s, user = opened()
+    ok(user.call("model.set", model("jump", 1)))
+    steps = [
+        {"operation": "model.set", "args": model("wide", 2), "depends_on": []},
+        {"operation": "history.undo", "args": {"expected_science_revision": 3}, "depends_on": [0]},
+    ]
+    created = {
+        "type": "proposal.created",
+        "domain": "proposal",
+        "proposal": {
+            "id": "prp_000001",
+            "proposer": "agent:old",
+            "created_at": "2026-11-12T00:00:00+00:00",
+            "expires_at": "2999-01-01T00:00:00+00:00",
+            "base_science_revision": 2,
+            "note": "",
+            "steps": steps,
+        },
+    }
+    s.commit(AGENT, "proposal.create", {}, lambda state: ([created], None))
+    error(user.call("proposal.accept", {"proposal_id": "prp_000001"}), "INVALID_ARGUMENT", "proposal_id")
+    ok(user.call("proposal.reject", {"proposal_id": "prp_000001"}))
+
+
+def test_a_retried_creation_returns_its_outcome_even_if_the_rules_changed(monkeypatch: pytest.MonkeyPatch) -> None:
+    s, _ = opened()
+    agent = client(s, AGENT)
+    first = agent.call("proposal.create", two_steps(), request_id="create-1")
+    assert first["ok"]
+    monkeypatch.setattr(proposal_ops, "HISTORY_COMMANDS", frozenset({"model.set"}))  # a stricter rule
+    again = agent.call("proposal.create", two_steps(), request_id="create-1")
+    assert again["replayed"] and again["result"] == first["result"]
+
+
+def test_loading_an_older_file_never_lowers_the_coupling_id_counter() -> None:
+    _, c = opened()
+    exported = ok(c.call("project.export"))["text"]
+    first = import_pair(c, "H3,H5,100.0,0.5", 1)
+    ok(c.call("history.undo", {"expected_science_revision": 2}))
+    ok(c.call("project.load", {"text": exported, "expected_science_revision": 3}))
+    second = import_pair(c, "H4,H6,50.0,0.5", 4)
+    assert first and second and not first & second
+    ok(c.call("project.open_example", {"name": "biphenyl-synthetic", "expected_science_revision": 5}))
+    third = import_pair(c, "H2,H5,10.0,0.5", 6)
+    assert not third & (first | second)
+
+
+def test_another_document_clears_the_selection() -> None:
+    from dipolar_app.science_ops import ETHANE_XYZ
+
+    s, c = opened()
+    ok(c.call("project.import_xyz", {"xyz": ETHANE_XYZ, "name": "ethane", "expected_science_revision": 1}))
+    ok(c.call("view.select", {"ids": ["spn_000001"]}))
+    ok(c.call("history.undo", {"expected_science_revision": 2}))  # back to the example: spn_000001 is another H
+    assert s.state.view.selection == ()
+    ok(c.call("view.select", {"ids": ["spn_000001"]}))
+    ok(c.call("history.redo", {"expected_science_revision": 3}))
+    assert s.state.view.selection == ()
+    exported = ok(c.call("project.export"))["text"]
+    ok(c.call("view.select", {"ids": ["spn_000001"]}))
+    ok(c.call("project.load", {"text": exported, "expected_science_revision": 4}))
+    assert s.state.view.selection == ()
