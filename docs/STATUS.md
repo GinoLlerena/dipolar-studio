@@ -579,6 +579,83 @@ always-cleared selection on `project.open_example`. 529 pass in total.
 - **Not in scope:** `callOperation` still trusts the server's reply (a cast, not a runtime
   validation), and a network failure still rejects, as before.
 
+### Step 2: idempotency keys, dry run, proposals and undo
+
+The 04 D14, D17 and §8.1–§8.3 primitives. They are built for a non-human caller now; the chat UI
+waits for Phase 3.
+
+**Request options.** Every call is `{"args": {...}, "request_id"?, "dry_run"?}`
+(`RequestEnvelope` in the snapshot; `LocalClient.call(..., request_id=, dry_run=)`;
+`callOperation(..., options)` on the web).
+
+**Idempotency keys** (`request_id`, §8.1):
+- A retried command returns the stored outcome (`replayed: true`) and is never applied twice.
+- Keys are scoped to the actor. Reusing a key for another command is refused
+  (`IDEMPOTENCY_KEY_REUSED`).
+- The table lives in the journal: each record carries `request: {id, outcome}`. Replay
+  rebuilds the table, so deduplication survives a restart.
+- A refused request is not recorded. A request that changed nothing is recorded, so its retry
+  stays a no-op.
+
+**Dry run** (`dry_run`, D17, §8.3):
+- It plans the command under the lock and applies its events in memory only.
+- It returns a `DryRunReport`: the revisions the state would reach, the science diff (spin and
+  coupling IDs added, removed or changed), the new selection, and the proposals touched.
+- It journals nothing, stores nothing and consumes no revision.
+- Queries refuse it. A dry run with a `request_id` is refused.
+- An agent may dry-run a science change; a viewer may not.
+
+**Proposals** (`proposal.create`, `.list`, `.get`, `.accept`, `.reject`; §8.3):
+- **Direct calls.** A `propose`-tier caller that calls a science command directly still gets
+  `PROPOSAL_REQUIRED`, now with a hint naming `proposal.create`.
+- **Creation.** A proposal is an ordered change set of proposable commands. Creating it
+  validates every step on a scratch state, so a failing step is reported with its index and
+  field.
+- **What a proposal records:** its base science revision, each step's dependencies, a 24 h
+  expiry and the proposer. Proposals have their own event domain and advance no revision.
+- **Dependencies.** Step *i* expects the revision step *i − 1* produces, so the dependency-closed
+  subsets are the prefixes.
+- **Acceptance** is for a **human** principal only: the new `approve` capability requires
+  `human`, so a script or agent token is refused whatever its tier. A whole proposal or a
+  closed subset is re-planned and committed as **one** journal record (`step_lengths`), so it
+  applies entirely or not at all.
+- **Refusals.** A stale base is refused with a conflict report (`PROPOSAL_STALE`; no rebase). An
+  expired or decided proposal is closed (`PROPOSAL_CLOSED`).
+- **Bounds.** At most 8 pending proposals (`QUOTA_EXCEEDED`), with 20 steps each and bounded
+  argument bytes. The 64 latest decided proposals are kept.
+
+**Undo** (`history.undo`, `.redo`, `.log`; D14, §8.2):
+- Undo is global and chronological. Each transaction that changes the science pushes one entry
+  (the project before it), so an accepted proposal undoes as one change.
+- Undo and redo are new journaled commands: revisions never decrease, and replay rebuilds the
+  stacks.
+- They need `expected_science_revision`, so an undo never reverts another actor's change that
+  its caller has not seen (the §8.6 cross-actor check).
+- Opening the first project is not undoable. The depth is limited to 100. Undo prunes the
+  selection to surviving IDs.
+
+**Journal and contract:**
+- Journal schema 2 (multi-step records and request outcomes); schema-1 records still replay.
+- Contract 0.3.0 adds the request envelope, `replayed` and `dry_run` in the success envelope,
+  the `proposable` flag, five error codes, and the `propose` and `approve` capabilities.
+- The ready file has an `agent` token (`agent:local`, tier `propose`).
+
+**Tests and checks:**
+- `tests/test_app_agent_safety.py` (39 tests) covers the §8.6 checks this step touches:
+  deduplication after a retry and a restart, concurrent retries, no tier escalation through
+  arguments, stale and expired proposals, dependency closure, cross-actor undo, and replay
+  equality.
+- The serialization spike now prepares a state for every new operation. It validates their
+  examples, results and dry-run envelopes against the published schemas, and produces every
+  new error code.
+- 12 mutations of the safety checks were each caught.
+
+**Not in this step (planned):**
+- compute proposals (`fit.run` from an agent) arrive with jobs in step 3;
+- the view undo stack;
+- rebasing stale proposals;
+- marking runs from undone states stale (no stored runs before step 3).
+
 ## Open items for the owner
 
 - Log your hours per M1 step in the table above. The re-baseline needs them for a first date

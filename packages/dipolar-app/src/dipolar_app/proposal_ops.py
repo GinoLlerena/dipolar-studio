@@ -59,6 +59,11 @@ MAX_PENDING_BYTES = 2 * LOAD_REQUEST_BYTES
 PROPOSAL_TTL = dt.timedelta(hours=24)
 MAX_NOTE = 2000
 
+#: Commands that move through the undo history. Their plans read the history stacks, which a
+#: multi-step transaction updates once (one undo entry per record), so they are proposed alone
+#: (round 31).
+HISTORY_COMMANDS = frozenset({"history.undo", "history.redo"})
+
 #: The clock (UTC). Tests replace it to move time forward.
 clock: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.UTC)  # noqa: E731
 
@@ -221,6 +226,13 @@ def proposal_create(ctx: Context, p: CreateIn) -> CreateOut:
     stored: list[dict[str, Any]] = []
     for i, step in enumerate(p.steps):
         op = _proposable(ctx.registry, step.operation, f"steps[{i}].operation")
+        if op.name in HISTORY_COMMANDS and len(p.steps) > 1:
+            raise OperationError(
+                ErrorCode.INVALID_ARGUMENT,
+                f"{op.name} must be proposed alone, as the only step of its proposal",
+                offending_field=f"steps[{i}].operation",
+                hint="propose the undo or redo by itself; propose other changes separately",
+            )
         parsed = parse_input(op, step.args, prefix=f"steps[{i}].args")
         try:
             plans.append((i, op, capture_plan(ctx, op, parsed)))
@@ -357,11 +369,8 @@ def _closed_error(found: Proposal, now: dt.datetime) -> OperationError:
     )
 
 
-def proposal_accept(ctx: Context, p: AcceptIn) -> AcceptOut:
+def _accept_plans(ctx: Context, found: Proposal, chosen: list[int]) -> list[tuple[int, Operation, Plan[Any]]]:
     assert ctx.registry is not None
-    found = _find(ctx.session.state, p.proposal_id)
-    chosen = sorted(set(p.steps)) if p.steps is not None else list(range(len(found.steps)))
-    _closed(found, chosen)
     plans: list[tuple[int, Operation, Plan[Any]]] = []
     for i in chosen:
         step = found.steps[i]
@@ -377,6 +386,13 @@ def proposal_accept(ctx: Context, p: AcceptIn) -> AcceptOut:
             plans.append((i, op, capture_plan(ctx, op, parsed)))
         except OperationError as exc:
             raise _in_step(exc, i) from None
+    return plans
+
+
+def proposal_accept(ctx: Context, p: AcceptIn) -> AcceptOut:
+    """Everything that reads the proposal runs inside the plan, after the session's request-ID
+    check, so a retried acceptance returns its stored outcome even once the proposal has been
+    pruned (round 31). The steps' handlers only validate and build plans; they never commit."""
     principal = ctx.principal
 
     def plan(state: SessionState) -> tuple[Steps, AcceptOut]:
@@ -384,6 +400,9 @@ def proposal_accept(ctx: Context, p: AcceptIn) -> AcceptOut:
         current = _find(state, p.proposal_id)
         if current.status != "pending" or _expired(current, now):
             raise _closed_error(current, now)
+        chosen = sorted(set(p.steps)) if p.steps is not None else list(range(len(current.steps)))
+        _closed(current, chosen)
+        plans = _accept_plans(ctx, current, chosen)
         if current.base_science_revision != state.science_revision:
             raise OperationError(
                 ErrorCode.PROPOSAL_STALE,

@@ -529,3 +529,64 @@ def test_http_request_options_and_the_agent_credential(server: Server) -> None:
     status, accepted = call("proposal.accept", {"args": {"proposal_id": "prp_000001"}})
     assert status == 200 and accepted["result"]["proposal"]["status"] == "accepted"
     assert call("proposal.accept", {"args": {"proposal_id": "prp_000001"}})[0] == 409
+
+
+# --------------------------------------------------------------------------- round 31
+def test_undo_and_redo_are_proposed_alone() -> None:
+    """A multi-step transaction updates the history once, so history steps cannot be chained."""
+    s, user = opened()
+    ok(user.call("model.set", model("jump", 1)))
+    ok(user.call("model.set", model("wide", 2)))
+    agent = client(s, AGENT)
+    for steps in (
+        [
+            {"operation": "history.undo", "args": {"expected_science_revision": 3}},
+            {"operation": "history.undo", "args": {"expected_science_revision": 4}},
+        ],
+        [
+            {"operation": "model.set", "args": model("base", 3)},
+            {"operation": "history.undo", "args": {"expected_science_revision": 4}},
+        ],
+    ):
+        error(agent.call("proposal.create", {"steps": steps}), "INVALID_ARGUMENT")
+    assert s.state.proposals == ()
+
+
+def import_pair(c: LocalClient, row: str, revision: int) -> set[str]:
+    """Import a one-coupling CSV under the proposed mapping; return the coupling IDs it created."""
+    before = {x["id"] for x in ok(c.call("project.describe"))["couplings"]}
+    csv = "spin_a,spin_b,D_obs_Hz,sigma_Hz\n" + row + "\n"
+    mapping = ok(c.call("couplings.reconcile", {"csv": csv}))["proposed_mapping"]
+    ok(c.call("couplings.import", {"csv": csv, "confirmed_mapping": mapping, "expected_science_revision": revision}))
+    return {x["id"] for x in ok(c.call("project.describe"))["couplings"]} - before
+
+
+def test_undo_never_lets_a_coupling_id_be_reused() -> None:
+    s, c = opened()
+    first = import_pair(c, "H3,H5,100.0,0.5", 1)
+    assert first
+    ok(c.call("history.undo", {"expected_science_revision": 2}))
+    assert not first & {x.id for x in s.state.project.couplings}  # type: ignore[union-attr]
+    second = import_pair(c, "H4,H6,50.0,0.5", 3)
+    assert second and not first & second  # a cached ID never names another observation
+    ok(c.call("history.undo", {"expected_science_revision": 4}))
+    ok(c.call("history.redo", {"expected_science_revision": 5}))
+    assert {x.id for x in s.state.project.couplings} >= second  # type: ignore[union-attr]
+
+
+def test_a_retried_acceptance_survives_pruning_and_restart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(session_module, "MAX_DECIDED_PROPOSALS", 1)
+    s, user = journaled(tmp_path)
+    agent = client(s, AGENT)
+    ok(agent.call("proposal.create", two_steps()))
+    first = user.call("proposal.accept", {"proposal_id": "prp_000001"}, request_id="accept-1")
+    assert first["ok"]
+    for pid in ("prp_000002", "prp_000003"):
+        ok(agent.call("proposal.create", two_steps(3)))
+        ok(user.call("proposal.reject", {"proposal_id": pid}))
+    assert s.state.proposal("prp_000001") is None  # pruned
+    again = user.call("proposal.accept", {"proposal_id": "prp_000001"}, request_id="accept-1")
+    assert again["replayed"] and again["result"] == first["result"]
+    restarted = client(new_session(tmp_path))
+    after = restarted.call("proposal.accept", {"proposal_id": "prp_000001"}, request_id="accept-1")
+    assert after["replayed"] and after["result"] == first["result"]

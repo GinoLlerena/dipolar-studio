@@ -6,6 +6,10 @@ session builds the stacks from journaled events, so replay rebuilds them). ``his
 and they need ``expected_science_revision``, so an undo never silently reverts a change its caller
 has not seen, such as another actor's (the §8.6 cross-actor check).
 
+Undo restores the science content but never the coupling-ID allocator: the restored project
+keeps the current ``next_coupling_id`` when it is higher, so an ID is never reused for another
+observation (D5, round 31). Undo and redo are proposed alone, never inside a multi-step proposal.
+
 The view has no undo stack yet: the selection is its only state, and undoing a science change
 prunes it to the IDs that still exist. Runs and exports are not undone (there are no stored runs
 before M2 step 3).
@@ -18,7 +22,7 @@ from typing import Annotated
 from pydantic import Field
 
 from dipolar_app.errors import ErrorCode, OperationError
-from dipolar_app.project import science_hash
+from dipolar_app.project import Project, science_hash
 from dipolar_app.registry import Context
 from dipolar_app.schemas import Revision, Wire
 from dipolar_app.science_ops import Science, check_revision, replace_project
@@ -51,12 +55,19 @@ class RedoOut(Science):
     redone: HistoryEntryOut
 
 
-def _move(state: SessionState, kind: str, entry: HistoryEntry) -> list[Event]:
-    events = replace_project(state, entry.project)
+def _move(state: SessionState, kind: str, entry: HistoryEntry) -> tuple[list[Event], Project]:
+    """The events that restore ``entry.project``. Coupling IDs are never reused (D5): the restored
+    project keeps the current allocation high-water mark, so an ID handed out after the change
+    being undone is never handed out again for another observation (round 31)."""
+    project = entry.project
+    current = state.project
+    if current is not None and current.next_coupling_id > project.next_coupling_id:
+        project = project.model_copy(update={"next_coupling_id": current.next_coupling_id})
+    events = replace_project(state, project)
     for event in events:
         if event["type"] == "project.replaced":
             event["history"] = kind
-    return events
+    return events, project
 
 
 def history_undo(ctx: Context, p: UndoIn) -> UndoOut:
@@ -69,9 +80,10 @@ def history_undo(ctx: Context, p: UndoIn) -> UndoOut:
                 hint="history.log lists what can be undone and redone",
             )
         entry = state.undo[-1]
-        return _move(state, "undo", entry), UndoOut(
+        events, restored = _move(state, "undo", entry)
+        return events, UndoOut(
             science_revision=state.science_revision + 1,
-            science_hash=science_hash(entry.project),
+            science_hash=science_hash(restored),
             undone=_entry(entry),
         )
 
@@ -88,9 +100,10 @@ def history_redo(ctx: Context, p: RedoIn) -> RedoOut:
                 hint="history.log lists what can be undone and redone",
             )
         entry = state.redo[-1]
-        return _move(state, "redo", entry), RedoOut(
+        events, restored = _move(state, "redo", entry)
+        return events, RedoOut(
             science_revision=state.science_revision + 1,
-            science_hash=science_hash(entry.project),
+            science_hash=science_hash(restored),
             redone=_entry(entry),
         )
 
