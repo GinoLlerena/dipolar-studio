@@ -58,12 +58,17 @@ export function project(camera: Camera, width: number, height: number, points: r
   });
 }
 
-/** The visible IDs, far to near (ties by ID, in code-point order, as Python sorts strings). */
+/** Depths within this many Å tie (see DEPTH_QUANTUM in dipolar_app/scene.py). */
+export const DEPTH_QUANTUM = 1e-9;
+const depthKey = (depth: number): number => Math.floor(depth / DEPTH_QUANTUM + 0.5);
+
+/** The visible IDs, far to near; depths within DEPTH_QUANTUM tie and go by ID (code-point order,
+ * as Python sorts strings). */
 export function drawOrder(ids: readonly string[], projected: readonly Projected[]): string[] {
   const keyed: [number, string][] = [];
   ids.forEach((id, k) => {
     const p = projected[k];
-    if (p !== undefined && p.visible) keyed.push([-p.depth, id]);
+    if (p !== undefined && p.visible) keyed.push([-depthKey(p.depth), id]);
   });
   keyed.sort((a, b) => (a[0] !== b[0] ? a[0] - b[0] : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0));
   return keyed.map(([, id]) => id);

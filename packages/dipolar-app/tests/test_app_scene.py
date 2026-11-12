@@ -75,7 +75,10 @@ def test_the_scene_describes_the_template_before_any_fit() -> None:
     assert [a["id"] for a in atoms] == [sp.id for sp in s.state.project.molecule.spins]  # type: ignore[union-attr]
     assert all(a["screen"]["visible"] for a in atoms) and len(scene["draw_order"]) == 10
     depths = {a["id"]: a["screen"]["depth"] for a in atoms}
-    assert [depths[i] for i in scene["draw_order"]] == sorted(depths.values(), reverse=True)  # far to near
+    from dipolar_app.scene import depth_key
+
+    expected_order = sorted(depths, key=lambda i: (-depth_key(depths[i]), i))  # far to near; ties by ID
+    assert scene["draw_order"] == expected_order
     position = {a["id"]: a["position"]["xyz"] for a in atoms}
     for cpl in scene["couplings"]:
         assert cpl["residual"] is None

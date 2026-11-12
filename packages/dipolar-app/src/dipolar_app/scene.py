@@ -127,9 +127,20 @@ def project(camera: Camera, width: int, height: int, points: Sequence[Vec3]) -> 
     return out
 
 
+#: Depths within this many Å are a tie for the draw order (resolved by ID). Symmetric atoms sit at
+#: equal depths that differ only in the last bit, which differs between math libraries; quantizing
+#: makes the order the same in Python and in every browser.
+DEPTH_QUANTUM = 1e-9
+
+
+def depth_key(depth: float) -> int:
+    """The draw-order key: the depth in quanta, rounded half up (as JavaScript's Math.floor(x + 0.5))."""
+    return math.floor(depth / DEPTH_QUANTUM + 0.5)
+
+
 def draw_order(ids: Sequence[str], projected: Sequence[tuple[float, float, float, bool]]) -> list[str]:
-    """The visible IDs, far to near (ties by ID)."""
-    keyed = [(-p[2], i) for i, p in zip(ids, projected, strict=True) if p[3]]
+    """The visible IDs, far to near; depths within ``DEPTH_QUANTUM`` tie and go by ID."""
+    keyed = [(-depth_key(p[2]), i) for i, p in zip(ids, projected, strict=True) if p[3]]
     return [i for _, i in sorted(keyed)]
 
 

@@ -22,8 +22,20 @@ Each fix was mutation-checked, except one of the two guards for finding 2. The `
 redundant with the `result is not None` checks downstream, so removing it changes nothing; the
 `available` flag and the warning are what the test checks.
 
+## Found by CI after round 36: draw order across platforms
+
+The symmetric biphenyl protons sit at depths that are equal in exact arithmetic but differ in the
+last bit. Linux and macOS libm round them differently, so the far-to-near order of a symmetric pair
+flipped between platforms, and could flip between Python and a browser too. Depths are now
+quantized to 1e-9 Å for ordering (`depth_key`, rounding half up identically in Python and
+TypeScript), so true ties go by ID everywhere. The fixture test compares numbers within
+`tolerance_px` and orders exactly. A TypeScript drawOrder without quantization fails parity.
+
 ## Documented limits (B)
 
+- **The draw order uses depth quanta of 1e-9 Å.** Two depths exactly at a rounding boundary could
+  still order differently across platforms. This is vanishingly rare, and it is a draw-order tie,
+  never a position error.
 - **The round-36 fixes were not reviewed again** (the two-round cap).
 - **Highlight parity** is not checked: the browser does not render highlights before M3.
 - **The 45° default torsion** for the template before any fit is labelled `phi_source: default`
