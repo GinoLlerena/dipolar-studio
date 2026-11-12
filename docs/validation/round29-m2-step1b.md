@@ -75,4 +75,54 @@ Both were found by the mutation checks and fixed.
 
 ## Round 30
 
-Final round under the cap. See below once it returns.
+- **Reviewer:** GPT-6.1-Sol (high effort), independent and read-only. This was the final round
+  under the cap.
+- **Reviewed:** 3a9770c against 65fb10a.
+- **Verdict: NOT READY.** Two class-(A) findings, one major and one minor. Both were fixed in the
+  next commit and not reviewed again, under the cap.
+- **Confirmed:** every round-29 fix closes its finding:
+  - typed extras are refused;
+  - direct extra keys are caught, and closed unions are exclusive, through references too;
+  - structural siblings and literal types are checked;
+  - success-envelope mutations are refused;
+  - union names and mismatched envelopes fail to compile.
+
+  Positive probes pass: optional, nullable, nullable literals, annotated and defaulted
+  references, records, tuples, union inputs, integer and float literals.
+
+### Findings and fixes
+
+1. **A union-typed argument masked an invalid member (major).** `args: {phi} | {phi; extra}`
+   compiled, because `Exact` distributed over the argument type and the valid member satisfied
+   the check for both.
+   - **Fix:** `Exact<T, A>` is now `false extends ExactOK<T, A> ? never : unknown`. `ExactOK`
+     checks each member of `A` on its own: the member must fit some branch of `T`, with no
+     undeclared key at any depth.
+   - A key whose type is `never` (a `Record<string, never>` member) can hold no value, so it
+     counts as absent.
+   - **Tests:** in `contract.typetest.ts`, top-level and nested union negatives, a union whose
+     members are all valid (accepted), and direct `Exact` checks against records, tuples, optional
+     properties and union targets. Each of the reviewer's reproducers (`union-repro.ts`,
+     `union-extra.ts`, `union-extra-deep.ts`) is rejected at every call.
+2. **The recursive walk was unbounded (minor).** `{ value: JsonValue }` held in a variable hit
+   TS2589, "excessively deep". A recursive alias (`JsonTree = str | list[JsonTree]`) failed too.
+   - **Fix:** a target that accepts any JSON value needs no check, and `ExactOK` stops there.
+   - The generator refuses recursive definitions, direct or indirect (`Unsupported`, naming the
+     cycle). `JsonValue` is the one built-in recursive type.
+   - **Tests:** Pydantic `JsonTree` and a recursive `Node` model are refused, an indirect cycle is
+     refused, an acyclic chain is accepted, and `value: Any` generates `JsonValue` and type-checks,
+     both as a variable and as a deep literal.
+   - **What remains (B, documented):** recursive models cannot be operation inputs or outputs
+     until `Exact` gets a bounded walk.
+
+**Mutation checks:** six mutations, all caught. Two are in the generator (the cycle check),
+caught by pytest. Four are in the template, caught by `tsc`: no per-member check, no stop at
+`JsonValue`, never-valued keys rejected, undeclared keys allowed.
+
+## Limits carried forward (B)
+
+- Integrality, bounds, patterns and lengths are doc comments only; the server enforces them.
+- Outside `callOperation`, TypeScript's structural typing lets a variable carry undeclared keys.
+- Recursive definitions (other than `JsonValue`) are refused by the generator.
+- `callOperation` trusts the server's reply (a cast, not runtime validation), and a network
+  failure rejects, as before.

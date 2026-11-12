@@ -1,11 +1,12 @@
 # Status
 
-**M2 step 1b (TypeScript generated from the registry snapshot) is done locally, under review.**
-`tools/codegen/ts_contract.py` writes `web/src/generated/contract.ts` and `conformance.ts`
-from `registry.snapshot.json`, and `callOperation` is typed by operation name. CI fails if the
-generated files are stale. Round 29 returned NOT READY with five class-(A) findings, all fixed;
-round 30 (the final round) is pending. See "Step 1b" below and
-[round29-m2-step1b.md](validation/round29-m2-step1b.md).
+**M2 step 1b (TypeScript generated from the registry snapshot) is done: tag `m2-step1b`, also
+the stopping point.** `tools/codegen/ts_contract.py` writes `web/src/generated/contract.ts` and
+`conformance.ts` from `registry.snapshot.json`. `callOperation` takes one operation name and
+exactly its arguments, and returns that operation's result type. CI fails if the generated
+files are stale. Rounds 29 and 30 returned NOT READY (five and two class-(A) findings). All were
+fixed and mutation-checked; the round-30 fixes were not reviewed again, under the cap. See "Step
+1b" below and [round29-m2-step1b.md](validation/round29-m2-step1b.md) (rounds 29 and 30).
 
 **M2 step 1 (the science operations) is done: tag `m2-step1`.** Rounds 27 and 28 each returned NOT READY (five and two findings). All were fixed and mutation-checked; the round-28 fixes were not reviewed again, under the cap. Every project the
 core can fit now reaches the operations:
@@ -152,25 +153,30 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: M2 step 1b (TypeScript from the snapshot), or the owner's choice
+## Resume here: M2 step 2, or the owner's choice
 
-M2 step 1 is done (tag `m2-step1`). Earlier stopping point: `m1-complete`. To resume:
+**Stopping point, set on 2026-11-11 at the owner's request: tag `m2-step1b`.** M2 step 1b is done.
+Earlier stopping points: `m1-complete`, then `m2-step1`. To resume:
 
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 529 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 599 passed
+   uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
+   (cd web && pnpm install --frozen-lockfile && pnpm run build)
    ```
 
 2. **The owner chooses** what comes next:
-   - **M2 step 1b:** generate the web client's TypeScript types from `registry.snapshot.json`,
-     with a CI check that they are current. `web/src/api.ts` is still written by hand.
    - **M2 step 2:** idempotency keys, dry run, proposals (agents now get `PROPOSAL_REQUIRED`),
      undo.
    - **the small batch:** GitHub Actions off Node 20, a licence file in the wheels, a Windows CI
      job, caching interval evaluations.
 3. Work under the medium plan (below): at most two review rounds per step, a fresh session per
    step.
+4. **When the registry changes,** run `uv run python tools/codegen/ts_contract.py` after
+   regenerating the snapshot, and commit both. If the generator raises `Unsupported`, the new
+   schema uses a feature it cannot represent exactly. Extend the generator with tests; do not
+   loosen it.
 
 The outline below was written before step 3.
 
@@ -479,7 +485,7 @@ Tests: 461 pass (`-m "not slow"`), plus the slow coverage rerun.
 | M2 step | Status | Owner hours (owner fills in) |
 |---|---|---|
 | 1. Science operations the beta UI needs | **done** (tag `m2-step1`); rounds 27–28, both fixed under the cap | |
-| 1b. TypeScript generated from the registry snapshot | **done locally**, under review | |
+| 1b. TypeScript generated from the registry snapshot | **done** (tag `m2-step1b`); rounds 29–30, both fixed under the cap | |
 | 2. Idempotency, dry run, proposals, undo | — | |
 | 3. Jobs, D11 runs, the authenticated event stream | — | |
 | 4. Scene description, `describe_view`, the SVG renderer | — | |
@@ -557,7 +563,12 @@ always-cleared selection on `project.open_example`. 529 pass in total.
   - `SuccessEnvelope<N>` distributes over unions.
   - Remaining limit: outside `callOperation`, TypeScript's structural typing still lets a
     variable carry undeclared keys.
-- **Checks.** `tests/test_ts_contract.py` (66 tests after round 29): the committed files are current, the chain
+- **Round 30 hardening.**
+  - `Exact` checks each member of a union-typed argument on its own, so a valid member cannot
+    mask an invalid one.
+  - The check stops at targets that accept any JSON value.
+  - The generator refuses recursive definitions (`JsonValue` excepted).
+- **Checks.** `tests/test_ts_contract.py` (67 tests after round 30): the committed files are current, the chain
   from the live registry to TypeScript, every operation and definition is emitted, the renderer
   cases, and every fail-closed path. `web/src/contract.typetest.ts` uses `@ts-expect-error` to
   check that the generated types reject what the schema rejects: unknown operations, wrong unit

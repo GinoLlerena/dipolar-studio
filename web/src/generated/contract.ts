@@ -528,26 +528,45 @@ export type OperationOutput<N extends OperationName> = Operations[N]["output"];
 export type SingleName<N extends OperationName> = { [K in N]: [Exclude<N, K>] extends [never] ? K : never }[N];
 
 type JsonScalar = null | boolean | number | string;
+type AllTrue<B> = false extends B ? false : true; // `never` (nothing to check) counts as true
 
-/** `A` checked as exactly `T`, at every depth: a key that `T` does not declare must be absent,
- * even when `A` is not a fresh object literal. Used as `args: A & Exact<T, A>`. It distributes
- * over unions in `T`, so `A` must fit one branch exactly. */
-export type Exact<T, A> = T extends unknown ? ExactBranch<T, A> : never;
-type ExactBranch<T, A> = T extends JsonScalar | undefined
-  ? T
+/** `true` when every member of `A` fits some branch of `T` exactly, at every depth: no key that
+ * the branch does not declare. Each member of a union-typed `A` is checked on its own, so a valid
+ * member cannot mask an invalid one (round 30). A target that accepts any JSON value needs no
+ * check, which also ends the recursion there. */
+export type ExactOK<T, A> = [JsonValue] extends [T]
+  ? true
+  : A extends unknown
+    ? true extends FitsSomeBranch<T, A>
+      ? true
+      : false
+    : never;
+type FitsSomeBranch<T, A> = T extends unknown ? Fits<T, A> : never;
+type Fits<T, A> = T extends JsonScalar | undefined
+  ? [A] extends [T]
+    ? true
+    : false
   : T extends readonly unknown[]
     ? A extends readonly unknown[]
-      ? T & { [I in keyof A]: Exact<I extends keyof T ? T[I] : T[number], A[I]> }
-      : T
-    : A extends object
-      ? T & {
-          [K in keyof A]: K extends keyof T
-            ? Exact<T[K], A[K]>
-            : string extends keyof T
-              ? Exact<T[string & keyof T], A[K]>
-              : never;
-        }
-      : T;
+      ? AllTrue<{ [I in keyof A]: ExactOK<I extends keyof T ? T[I] : T[number], A[I]> }[number]>
+      : false
+    : A extends JsonScalar | undefined | readonly unknown[]
+      ? false
+      : AllTrue<
+          {
+            [K in keyof A]-?: [A[K]] extends [never]
+              ? true // a key that can hold no value is never sent
+              : K extends keyof T
+              ? ExactOK<T[K], A[K]>
+              : string extends keyof T
+                ? ExactOK<T[string & keyof T], A[K]>
+                : false;
+          }[keyof A]
+        >;
+
+/** Used as `args: A & Exact<T, A>`: `unknown` when `A` is exactly `T` (see `ExactOK`), otherwise
+ * `never`, so the call does not compile. */
+export type Exact<T, A> = false extends ExactOK<T, A> ? never : unknown;
 
 /** Each operation's metadata from the registry. */
 export const OPERATIONS = {

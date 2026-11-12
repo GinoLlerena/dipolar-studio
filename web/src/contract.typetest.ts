@@ -4,8 +4,11 @@
 
 import { callOperation } from "./api";
 import type {
+  Degrees,
   DescribeProjectOut,
   Envelope,
+  Exact,
+  JsonValue,
   ErrorCode,
   OperationInput,
   OperationName,
@@ -95,6 +98,22 @@ export async function callBoundary(token: string, flip: boolean): Promise<void> 
   // @ts-expect-error: an argument-free operation takes no keys (its type alone already says so)
   await callOperation("render.describe_view", empty, token);
 
+  // Round 30: a union-typed argument is checked member by member; a valid member cannot mask an
+  // invalid one, at the top level or nested.
+  const either = (flip ? { phi: { value: 1, unit: "deg" } } : { phi: { value: 1, unit: "deg" }, extra: 1 }) as
+    | { phi: Degrees }
+    | { phi: Degrees; extra: number };
+  // @ts-expect-error: one member of the union carries `extra`
+  await callOperation("fit.preview", either, token);
+  const eitherNested = { phi: { value: 1, unit: "deg" } } as { phi: Degrees } | { phi: Degrees & { extra: number } };
+  // @ts-expect-error: one member of the union carries `phi.extra`
+  await callOperation("fit.preview", eitherNested, token);
+  const bothValid = (flip ? { intervals: true } : {}) as { intervals: boolean } | Record<string, never>;
+  await callOperation("fit.run", bothValid, token); // every member fits: accepted
+  const readonlyIds: readonly string[] = ["cpl_000001"];
+  // @ts-expect-error: the schema's array is mutable (the plain type check, not Exact)
+  await callOperation("view.select", { ids: readonlyIds }, token);
+
   // One operation per call: a union of names cannot pair with either operation's arguments.
   const name = flip ? "fit.preview" : "view.select";
   // @ts-expect-error: the name is a union
@@ -133,3 +152,17 @@ const mixed = { ...template, atoms: [] };
 // @ts-expect-error: a template geometry carrying the imported branch's `atoms`
 const geometryMixed: DescribeProjectOut["geometry"] = mixed;
 void geometryMixed;
+
+// Exact on its own, with targets the snapshot does not use yet (round 30).
+type _ok = Expect<Equal<Exact<{ a: number }, { a: number }>, unknown>>;
+type _extra = Expect<Equal<Exact<{ a: number }, { a: number; b: number }>, never>>;
+type _unionSource = Expect<Equal<Exact<{ a: number }, { a: number } | { a: number; b: number }>, never>>;
+type _unionTarget = Expect<Equal<Exact<{ a: number } | { b: string }, { a: number } | { b: string }>, unknown>>;
+type _record = Expect<Equal<Exact<{ [key: string]: string }, { x: string; y: string }>, unknown>>;
+type _tuple = Expect<Equal<Exact<[{ a: number }, number], [{ a: number; b: 1 }, number]>, never>>;
+type _optional = Expect<Equal<Exact<{ a?: number }, {}>, unknown>>;
+// A target that accepts any JSON value ends the walk: no "excessively deep" error, even for a
+// variable whose own type is JsonValue.
+type _json = Expect<Equal<Exact<{ value: JsonValue }, { value: JsonValue }>, unknown>>;
+type _jsonLiteral = Expect<Equal<Exact<{ value: JsonValue }, { value: { x: [1, { y: null }] } }>, unknown>>;
+type _jsonExtra = Expect<Equal<Exact<{ value: JsonValue }, { value: 1; other: 2 }>, never>>;

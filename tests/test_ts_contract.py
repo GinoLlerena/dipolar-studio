@@ -245,10 +245,53 @@ def test_real_pydantic_models() -> None:
     assert "mapping: { [key: string]: string | number };" in out
 
 
+def test_recursive_definitions_are_refused() -> None:
+    """Round 30, finding 2: Exact walks the argument type, so a recursive definition is refused
+    (JsonValue, built in, is the one recursive type and ends the walk)."""
+    from pydantic import BaseModel, ConfigDict
+
+    type JsonTree = str | list[JsonTree]
+
+    class TreeIn(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        tree: JsonTree
+
+    with pytest.raises(Unsupported, match=r"recursive definition \(JsonTree -> JsonTree\)"):
+        generate(_snapshot(TreeIn.model_json_schema()))
+
+    class Node(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        children: list[Node]
+
+    class NodeIn(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        root: Node
+
+    with pytest.raises(Unsupported, match="recursive definition"):
+        generate(_snapshot(NodeIn.model_json_schema()))
+
+    # Indirect cycles too, and an acyclic chain is fine.
+    a = {"type": "object", "properties": {"b": {"$ref": "#/$defs/B"}}, "required": ["b"], "additionalProperties": False}
+    b = {"type": "object", "properties": {"a": {"$ref": "#/$defs/A"}}, "required": ["a"], "additionalProperties": False}
+    with pytest.raises(Unsupported, match="recursive definition"):
+        generate(_snapshot({**_obj({"x": {"$ref": "#/$defs/A"}}), "$defs": {"A": a, "B": b}}))
+    leaf = {"type": "object", "properties": {"v": {"type": "number"}}, "required": ["v"], "additionalProperties": False}
+    chain = {"A": {**a, "properties": {"b": {"$ref": "#/$defs/B"}}}, "B": leaf}
+    assert "export type A = " in generate(_snapshot({**_obj({"x": {"$ref": "#/$defs/A"}}), "$defs": chain}))
+    # Any JSON value is allowed: it is the built-in recursive type.
+
+    class AnyIn(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        value: Any
+
+    assert "value: JsonValue;" in generate(_snapshot(AnyIn.model_json_schema()))
+
+
 def test_call_helpers_are_emitted() -> None:
     text = generate(SNAPSHOT)
     assert "export type SingleName<N extends OperationName>" in text
-    assert "export type Exact<T, A> = T extends unknown ? ExactBranch<T, A> : never;" in text
+    assert "export type Exact<T, A> = false extends ExactOK<T, A> ? never : unknown;" in text
+    assert "export type ExactOK<T, A> = [JsonValue] extends [T]" in text  # JsonValue ends the walk
     assert "export type SuccessEnvelope<N extends OperationName = OperationName> = N extends OperationName" in text
 
 
