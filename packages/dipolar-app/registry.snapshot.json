@@ -1,5 +1,5 @@
 {
-  "contract_version": "0.4.0",
+  "contract_version": "0.5.0",
   "envelopes": {
     "error": {
       "$defs": {
@@ -4615,6 +4615,90 @@
       "name": "render.describe_view",
       "output_schema": {
         "$defs": {
+          "Degrees": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "deg",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Degrees",
+            "type": "object"
+          },
+          "Hertz": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Hz",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Hertz",
+            "type": "object"
+          },
+          "ResidualOut": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "pattern": "^(spn|cpl)_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "label": {
+                "title": "Label",
+                "type": "string"
+              },
+              "residual": {
+                "$ref": "#/$defs/Hertz"
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "residual"
+            ],
+            "title": "ResidualOut",
+            "type": "object"
+          },
+          "SceneRun": {
+            "additionalProperties": false,
+            "properties": {
+              "run_id": {
+                "pattern": "^run_[0-9]{6}$",
+                "title": "Run Id",
+                "type": "string"
+              },
+              "stale": {
+                "title": "Stale",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "run_id",
+              "stale"
+            ],
+            "title": "SceneRun",
+            "type": "object"
+          },
           "SelectedObject": {
             "additionalProperties": false,
             "properties": {
@@ -4647,6 +4731,43 @@
         },
         "additionalProperties": false,
         "properties": {
+          "hidden": {
+            "title": "Hidden",
+            "type": "integer"
+          },
+          "highlights": {
+            "items": {
+              "$ref": "#/$defs/SelectedObject"
+            },
+            "title": "Highlights",
+            "type": "array"
+          },
+          "phi": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Degrees"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phi_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "run",
+                  "imported",
+                  "default"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phi Source"
+          },
           "project_name": {
             "anyOf": [
               {
@@ -4662,6 +4783,16 @@
             "title": "Project Open",
             "type": "boolean"
           },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SceneRun"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "science_revision": {
             "title": "Science Revision",
             "type": "integer"
@@ -4671,6 +4802,28 @@
               "$ref": "#/$defs/SelectedObject"
             },
             "title": "Selection",
+            "type": "array"
+          },
+          "top_residuals": {
+            "items": {
+              "$ref": "#/$defs/ResidualOut"
+            },
+            "maxItems": 5,
+            "title": "Top Residuals",
+            "type": "array"
+          },
+          "visible": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Visible",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
             "type": "array"
           },
           "workspace_revision": {
@@ -4683,14 +4836,542 @@
           "workspace_revision",
           "project_open",
           "project_name",
-          "selection"
+          "selection",
+          "highlights",
+          "phi",
+          "phi_source",
+          "run",
+          "visible",
+          "hidden",
+          "top_residuals",
+          "warnings"
         ],
         "title": "DescribeViewOut",
         "type": "object"
       },
       "proposable": false,
       "revision_check": "none",
-      "summary": "Describe the shared view: revisions and the current selection, with labels."
+      "summary": "Describe the shared view: revisions, the run it reflects and whether it is stale, visible objects, selection, highlights, the largest residuals and warnings."
+    },
+    {
+      "capability": "query",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {}
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "SceneIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "max_request_bytes": 1048576,
+      "name": "render.scene",
+      "output_schema": {
+        "$defs": {
+          "Angstrom": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Å",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "exclusiveMinimum": 0,
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Angstrom",
+            "type": "object"
+          },
+          "Degrees": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "deg",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Degrees",
+            "type": "object"
+          },
+          "Hertz": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Hz",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Hertz",
+            "type": "object"
+          },
+          "SceneAtom": {
+            "additionalProperties": false,
+            "properties": {
+              "element": {
+                "title": "Element",
+                "type": "string"
+              },
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "label": {
+                "title": "Label",
+                "type": "string"
+              },
+              "position": {
+                "$ref": "#/$defs/Vector"
+              },
+              "screen": {
+                "$ref": "#/$defs/Screen"
+              }
+            },
+            "required": [
+              "id",
+              "element",
+              "label",
+              "position",
+              "screen"
+            ],
+            "title": "SceneAtom",
+            "type": "object"
+          },
+          "SceneBond": {
+            "additionalProperties": false,
+            "properties": {
+              "a": {
+                "title": "A",
+                "type": "string"
+              },
+              "b": {
+                "title": "B",
+                "type": "string"
+              }
+            },
+            "required": [
+              "a",
+              "b"
+            ],
+            "title": "SceneBond",
+            "type": "object"
+          },
+          "SceneCamera": {
+            "additionalProperties": false,
+            "properties": {
+              "automatic": {
+                "title": "Automatic",
+                "type": "boolean"
+              },
+              "far": {
+                "$ref": "#/$defs/Angstrom"
+              },
+              "fov": {
+                "$ref": "#/$defs/Degrees"
+              },
+              "near": {
+                "$ref": "#/$defs/Angstrom"
+              },
+              "position": {
+                "$ref": "#/$defs/Vector"
+              },
+              "target": {
+                "$ref": "#/$defs/Vector"
+              },
+              "up": {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "title": "Up",
+                "type": "array"
+              }
+            },
+            "required": [
+              "position",
+              "target",
+              "up",
+              "fov",
+              "near",
+              "far",
+              "automatic"
+            ],
+            "title": "SceneCamera",
+            "type": "object"
+          },
+          "SceneCoupling": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "pattern": "^(spn|cpl)_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "label": {
+                "title": "Label",
+                "type": "string"
+              },
+              "length": {
+                "$ref": "#/$defs/Angstrom"
+              },
+              "residual": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Hertz"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "spin_a": {
+                "pattern": "^(spn|cpl)_[0-9]{6}$",
+                "title": "Spin A",
+                "type": "string"
+              },
+              "spin_b": {
+                "pattern": "^(spn|cpl)_[0-9]{6}$",
+                "title": "Spin B",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "spin_a",
+              "spin_b",
+              "label",
+              "residual",
+              "length"
+            ],
+            "title": "SceneCoupling",
+            "type": "object"
+          },
+          "SceneLayers": {
+            "additionalProperties": false,
+            "properties": {
+              "bonds": {
+                "title": "Bonds",
+                "type": "boolean"
+              },
+              "couplings": {
+                "title": "Couplings",
+                "type": "boolean"
+              },
+              "labels": {
+                "title": "Labels",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "labels",
+              "bonds",
+              "couplings"
+            ],
+            "title": "SceneLayers",
+            "type": "object"
+          },
+          "SceneRun": {
+            "additionalProperties": false,
+            "properties": {
+              "run_id": {
+                "pattern": "^run_[0-9]{6}$",
+                "title": "Run Id",
+                "type": "string"
+              },
+              "stale": {
+                "title": "Stale",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "run_id",
+              "stale"
+            ],
+            "title": "SceneRun",
+            "type": "object"
+          },
+          "SceneViewport": {
+            "additionalProperties": false,
+            "properties": {
+              "height": {
+                "title": "Height",
+                "type": "integer"
+              },
+              "width": {
+                "title": "Width",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "width",
+              "height"
+            ],
+            "title": "SceneViewport",
+            "type": "object"
+          },
+          "Screen": {
+            "additionalProperties": false,
+            "properties": {
+              "depth": {
+                "title": "Depth",
+                "type": "number"
+              },
+              "visible": {
+                "title": "Visible",
+                "type": "boolean"
+              },
+              "x": {
+                "title": "X",
+                "type": "number"
+              },
+              "y": {
+                "title": "Y",
+                "type": "number"
+              }
+            },
+            "required": [
+              "x",
+              "y",
+              "depth",
+              "visible"
+            ],
+            "title": "Screen",
+            "type": "object"
+          },
+          "Vector": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Å",
+                "title": "Unit",
+                "type": "string"
+              },
+              "xyz": {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "title": "Xyz",
+                "type": "array"
+              }
+            },
+            "required": [
+              "xyz",
+              "unit"
+            ],
+            "title": "Vector",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "atoms": {
+            "items": {
+              "$ref": "#/$defs/SceneAtom"
+            },
+            "title": "Atoms",
+            "type": "array"
+          },
+          "bonds": {
+            "items": {
+              "$ref": "#/$defs/SceneBond"
+            },
+            "title": "Bonds",
+            "type": "array"
+          },
+          "camera": {
+            "$ref": "#/$defs/SceneCamera"
+          },
+          "couplings": {
+            "items": {
+              "$ref": "#/$defs/SceneCoupling"
+            },
+            "title": "Couplings",
+            "type": "array"
+          },
+          "draw_order": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Draw Order",
+            "type": "array"
+          },
+          "highlights": {
+            "items": {
+              "pattern": "^(spn|cpl)_[0-9]{6}$",
+              "type": "string"
+            },
+            "title": "Highlights",
+            "type": "array"
+          },
+          "layers": {
+            "$ref": "#/$defs/SceneLayers"
+          },
+          "phi": {
+            "$ref": "#/$defs/Degrees"
+          },
+          "phi_source": {
+            "enum": [
+              "run",
+              "imported",
+              "default"
+            ],
+            "title": "Phi Source",
+            "type": "string"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SceneRun"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          },
+          "selection": {
+            "items": {
+              "pattern": "^(spn|cpl)_[0-9]{6}$",
+              "type": "string"
+            },
+            "title": "Selection",
+            "type": "array"
+          },
+          "viewport": {
+            "$ref": "#/$defs/SceneViewport"
+          },
+          "workspace_revision": {
+            "title": "Workspace Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "workspace_revision",
+          "phi",
+          "phi_source",
+          "run",
+          "camera",
+          "viewport",
+          "layers",
+          "atoms",
+          "bonds",
+          "couplings",
+          "draw_order",
+          "selection",
+          "highlights"
+        ],
+        "title": "SceneOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none",
+      "summary": "The scene description (04 §8.4): atoms with coordinates and projected screen positions, bonds, couplings with residuals, camera, layers, selection and highlights."
+    },
+    {
+      "capability": "query",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {}
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "SvgIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "max_request_bytes": 1048576,
+      "name": "render.view_svg",
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          },
+          "svg": {
+            "title": "Svg",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          },
+          "workspace_revision": {
+            "title": "Workspace Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "workspace_revision",
+          "width",
+          "height",
+          "svg"
+        ],
+        "title": "SvgOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none",
+      "summary": "The shared view as an SVG, rendered on the server from the scene description."
     },
     {
       "capability": "query",
@@ -5455,6 +6136,68 @@
       "examples": [
         {
           "ids": [
+            "cpl_000001",
+            "spn_000002"
+          ]
+        }
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "ids": {
+            "items": {
+              "pattern": "^(spn|cpl)_[0-9]{6}$",
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "title": "HighlightIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "max_request_bytes": 1048576,
+      "name": "view.highlight",
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "highlights": {
+            "items": {
+              "pattern": "^(spn|cpl)_[0-9]{6}$",
+              "type": "string"
+            },
+            "title": "Highlights",
+            "type": "array"
+          },
+          "workspace_revision": {
+            "title": "Workspace Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "workspace_revision",
+          "highlights"
+        ],
+        "title": "HighlightOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none: an absolute set of view state; never touches the science",
+      "summary": "Set the shared highlights to the given spin or coupling IDs (replaces them)."
+    },
+    {
+      "capability": "view_write",
+      "cost": "instant",
+      "effect": "view",
+      "examples": [
+        {
+          "ids": [
             "cpl_000002"
           ]
         }
@@ -5538,6 +6281,329 @@
       "proposable": false,
       "revision_check": "none: an absolute set; IDs are validated atomically and never reused",
       "summary": "Set the shared selection to the given spin or coupling IDs (replaces it)."
+    },
+    {
+      "capability": "view_write",
+      "cost": "instant",
+      "effect": "view",
+      "examples": [
+        {
+          "camera": null,
+          "viewport": {
+            "height": 600,
+            "width": 800
+          }
+        },
+        {
+          "camera": {
+            "far": {
+              "unit": "Å",
+              "value": 100.0
+            },
+            "fov": {
+              "unit": "deg",
+              "value": 45.0
+            },
+            "near": {
+              "unit": "Å",
+              "value": 1.0
+            },
+            "position": {
+              "unit": "Å",
+              "xyz": [
+                0.0,
+                0.0,
+                20.0
+              ]
+            },
+            "target": {
+              "unit": "Å",
+              "xyz": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "up": {
+              "xyz": [
+                0.0,
+                1.0,
+                0.0
+              ]
+            }
+          },
+          "viewport": {
+            "height": 480,
+            "width": 640
+          }
+        }
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "$defs": {
+          "Angstrom": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Å",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "exclusiveMinimum": 0,
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Angstrom",
+            "type": "object"
+          },
+          "CameraIn": {
+            "additionalProperties": false,
+            "properties": {
+              "far": {
+                "$ref": "#/$defs/Angstrom"
+              },
+              "fov": {
+                "$ref": "#/$defs/Degrees"
+              },
+              "near": {
+                "$ref": "#/$defs/Angstrom"
+              },
+              "position": {
+                "$ref": "#/$defs/Vector"
+              },
+              "target": {
+                "$ref": "#/$defs/Vector"
+              },
+              "up": {
+                "$ref": "#/$defs/Direction"
+              }
+            },
+            "required": [
+              "position",
+              "target",
+              "up",
+              "fov",
+              "near",
+              "far"
+            ],
+            "title": "CameraIn",
+            "type": "object"
+          },
+          "Degrees": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "deg",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Degrees",
+            "type": "object"
+          },
+          "Direction": {
+            "additionalProperties": false,
+            "properties": {
+              "xyz": {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "title": "Xyz",
+                "type": "array"
+              }
+            },
+            "required": [
+              "xyz"
+            ],
+            "title": "Direction",
+            "type": "object"
+          },
+          "Vector": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Å",
+                "title": "Unit",
+                "type": "string"
+              },
+              "xyz": {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "title": "Xyz",
+                "type": "array"
+              }
+            },
+            "required": [
+              "xyz",
+              "unit"
+            ],
+            "title": "Vector",
+            "type": "object"
+          },
+          "Viewport": {
+            "additionalProperties": false,
+            "properties": {
+              "height": {
+                "maximum": 8192,
+                "minimum": 16,
+                "title": "Height",
+                "type": "integer"
+              },
+              "width": {
+                "maximum": 8192,
+                "minimum": 16,
+                "title": "Width",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "width",
+              "height"
+            ],
+            "title": "Viewport",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "camera": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CameraIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "viewport": {
+            "$ref": "#/$defs/Viewport"
+          }
+        },
+        "required": [
+          "camera",
+          "viewport"
+        ],
+        "title": "SetCameraIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "max_request_bytes": 1048576,
+      "name": "view.set_camera",
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "automatic": {
+            "title": "Automatic",
+            "type": "boolean"
+          },
+          "workspace_revision": {
+            "title": "Workspace Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "workspace_revision",
+          "automatic"
+        ],
+        "title": "SetCameraOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none: an absolute set of view state; never touches the science",
+      "summary": "Set the shared camera (a perspective camera in Å) and viewport; camera null fits the molecule automatically."
+    },
+    {
+      "capability": "view_write",
+      "cost": "instant",
+      "effect": "view",
+      "examples": [
+        {
+          "bonds": true,
+          "couplings": false,
+          "labels": true
+        }
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "bonds": {
+            "title": "Bonds",
+            "type": "boolean"
+          },
+          "couplings": {
+            "title": "Couplings",
+            "type": "boolean"
+          },
+          "labels": {
+            "title": "Labels",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "labels",
+          "bonds",
+          "couplings"
+        ],
+        "title": "LayersIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "max_request_bytes": 1048576,
+      "name": "view.set_layers",
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "workspace_revision": {
+            "title": "Workspace Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "workspace_revision"
+        ],
+        "title": "LayersOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none: an absolute set of view state; never touches the science",
+      "summary": "Show or hide the labels, bonds and coupling lines of the shared view."
     }
   ]
 }

@@ -32,6 +32,12 @@ void ({} satisfies OperationInput<"proposal.list">); // example 0
 void ({"status": "pending"} satisfies OperationInput<"proposal.list">); // example 1
 void ({"proposal_id": "prp_000001", "reason": "keep the bisector-diagonal model"} satisfies OperationInput<"proposal.reject">); // example 0
 void ({} satisfies OperationInput<"render.describe_view">); // example 0
+void ({} satisfies OperationInput<"render.scene">); // example 0
+void ({} satisfies OperationInput<"render.view_svg">); // example 0
 void ({"run_id": "run_000001"} satisfies OperationInput<"run.get">); // example 0
 void ({} satisfies OperationInput<"run.list">); // example 0
+void ({"ids": ["cpl_000001", "spn_000002"]} satisfies OperationInput<"view.highlight">); // example 0
 void ({"ids": ["cpl_000002"]} satisfies OperationInput<"view.select">); // example 0
+void ({"camera": null, "viewport": {"height": 600, "width": 800}} satisfies OperationInput<"view.set_camera">); // example 0
+void ({"camera": {"far": {"unit": "Å", "value": 100.0}, "fov": {"unit": "deg", "value": 45.0}, "near": {"unit": "Å", "value": 1.0}, "position": {"unit": "Å", "xyz": [0.0, 0.0, 20.0]}, "target": {"unit": "Å", "xyz": [0.0, 0.0, 0.0]}, "up": {"xyz": [0.0, 1.0, 0.0]}}, "viewport": {"height": 480, "width": 640}} satisfies OperationInput<"view.set_camera">); // example 1
+void ({"bonds": true, "couplings": false, "labels": true} satisfies OperationInput<"view.set_layers">); // example 0

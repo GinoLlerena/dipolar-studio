@@ -82,11 +82,63 @@ JobStatus = Literal["queued", "succeeded", "failed", "cancelled", "interrupted"]
 TERMINAL: frozenset[str] = frozenset({"succeeded", "failed", "cancelled", "interrupted"})
 
 
+Vec3 = tuple[float, float, float]
+
+
+@dataclass(frozen=True, slots=True)
+class Camera:
+    """A perspective camera, as the browser's (04 §8.4): positions in Å, angles in degrees."""
+
+    position: Vec3
+    target: Vec3
+    up: Vec3
+    fov_deg: float  # vertical field of view
+    near: float
+    far: float
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "position": list(self.position),
+            "target": list(self.target),
+            "up": list(self.up),
+            "fov_deg": self.fov_deg,
+            "near": self.near,
+            "far": self.far,
+        }
+
+    @classmethod
+    def from_json(cls, data: dict[str, Any]) -> Camera:
+        return cls(
+            position=_vec(data["position"]),
+            target=_vec(data["target"]),
+            up=_vec(data["up"]),
+            fov_deg=float(data["fov_deg"]),
+            near=float(data["near"]),
+            far=float(data["far"]),
+        )
+
+
+def _vec(values: Sequence[float]) -> Vec3:
+    x, y, z = (float(v) for v in values)
+    return (x, y, z)
+
+
+@dataclass(frozen=True, slots=True)
+class Layers:
+    labels: bool = True
+    bonds: bool = True
+    couplings: bool = True
+
+
 @dataclass(frozen=True, slots=True)
 class ViewState:
     """Shared view state (D15). The beta has a single shared view."""
 
     selection: tuple[str, ...] = ()
+    highlights: tuple[str, ...] = ()
+    camera: Camera | None = None  # None: fit the molecule in view automatically
+    viewport: tuple[int, int] = (800, 600)  # width, height in pixels
+    layers: Layers = field(default_factory=Layers)
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,6 +291,14 @@ def apply_event(state: SessionState, event: Event) -> SessionState:
         return replace(state, project=project)
     if kind == "view.selection_set":
         return replace(state, view=replace(state.view, selection=tuple(event["selection"])))
+    if kind == "view.highlights_set":
+        return replace(state, view=replace(state.view, highlights=tuple(event["highlights"])))
+    if kind == "view.camera_set":
+        camera = Camera.from_json(event["camera"]) if event["camera"] is not None else None
+        width, height = event["viewport"]
+        return replace(state, view=replace(state.view, camera=camera, viewport=(int(width), int(height))))
+    if kind == "view.layers_set":
+        return replace(state, view=replace(state.view, layers=Layers(**event["layers"])))
     if kind == "proposal.created":
         proposal = _proposal_from_event(event["proposal"])
         if proposal.id != f"prp_{state.next_proposal:06d}":

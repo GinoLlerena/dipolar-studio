@@ -47,6 +47,8 @@ jobs:
         run: npm install -g pnpm@9
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
+      - name: Projection parity with the Python renderer (04 §8.4)
+        run: pnpm run parity
 
   packaged:
     name: Packaged build (D10 negative tests on the installed wheel)

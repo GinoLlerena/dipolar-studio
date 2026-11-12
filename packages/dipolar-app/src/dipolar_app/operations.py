@@ -6,7 +6,7 @@ science operations (projects, the model, couplings and fitting) are in ``dipolar
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import Field
 
@@ -14,9 +14,10 @@ from dipolar_app import history_ops as H
 from dipolar_app import job_ops as J
 from dipolar_app import proposal_ops as P
 from dipolar_app import science_ops as S
+from dipolar_app import view_ops as V
 from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.policy import Capability
-from dipolar_app.project import Project, load_example, science_hash
+from dipolar_app.project import load_example, science_hash
 from dipolar_app.registry import Context, Operation, Registry
 from dipolar_app.schemas import ExampleName, ObjectId, Revision, Wire
 from dipolar_app.session import WORKSPACE, Event, SessionState
@@ -63,25 +64,9 @@ class SelectIn(Wire):
     ids: Annotated[tuple[ObjectId, ...], Field(max_length=MAX_SELECTION)]
 
 
-class SelectedObject(Wire):
-    id: ObjectId
-    kind: Literal["spin", "coupling"]
-    label: str
-
-
 class SelectOut(Wire):
     workspace_revision: int
-    selection: tuple[SelectedObject, ...]
-
-
-def _selected(project: Project | None, ids: tuple[str, ...]) -> tuple[SelectedObject, ...]:
-    out: list[SelectedObject] = []
-    for object_id in ids:
-        found = project.label_of(object_id) if project else None
-        if found is not None:
-            kind, label = found
-            out.append(SelectedObject(id=object_id, kind="spin" if kind == "spin" else "coupling", label=label))
-    return tuple(out)
+    selection: tuple[V.SelectedObject, ...]
 
 
 def view_select(ctx: Context, p: SelectIn) -> SelectOut:
@@ -99,7 +84,7 @@ def view_select(ctx: Context, p: SelectIn) -> SelectOut:
                 )
         out = SelectOut(
             workspace_revision=state.workspace_revision + (ids != state.view.selection),
-            selection=_selected(project, ids),
+            selection=V.selected(project, ids),
         )
         if ids == state.view.selection:
             return [], out  # nothing changes: no event, no revision
@@ -112,30 +97,6 @@ def view_select(ctx: Context, p: SelectIn) -> SelectOut:
         return [event], out
 
     return ctx.commit("view.select", p.model_dump(mode="json"), plan)
-
-
-# --------------------------------------------------------------------------- render.describe_view
-class DescribeViewIn(Wire):
-    pass
-
-
-class DescribeViewOut(Wire):
-    science_revision: int
-    workspace_revision: int
-    project_open: bool
-    project_name: str | None
-    selection: tuple[SelectedObject, ...]
-
-
-def describe_view(ctx: Context, _: DescribeViewIn) -> DescribeViewOut:
-    state = ctx.read()
-    return DescribeViewOut(
-        science_revision=state.science_revision,
-        workspace_revision=state.workspace_revision,
-        project_open=state.project is not None,
-        project_name=state.project.name if state.project else None,
-        selection=_selected(state.project, state.view.selection),
-    )
 
 
 # --------------------------------------------------------------------------- registry
@@ -199,24 +160,11 @@ def build_registry() -> Registry:
             examples=({"ids": ["cpl_000002"]},),
         )
     )
-    registry.register(
-        Operation(
-            name="render.describe_view",
-            kind="query",
-            effect="none",
-            capability=Capability.QUERY,
-            summary="Describe the shared view: revisions and the current selection, with labels.",
-            input_model=DescribeViewIn,
-            output_model=DescribeViewOut,
-            handler=describe_view,
-            idempotent=True,
-            examples=({},),
-        )
-    )
     _register_science(registry)
     _register_history(registry)
     _register_proposals(registry)
     _register_jobs(registry)
+    _register_view(registry)
     return registry
 
 
@@ -571,6 +519,105 @@ def _register_jobs(registry: Registry) -> None:
             input_model=J.RunListIn,
             output_model=J.RunListOut,
             handler=J.run_list,
+            idempotent=True,
+            examples=({},),
+        ),
+    ):
+        registry.register(op)
+
+
+def _register_view(registry: Registry) -> None:
+    """View commands and perception (M2 step 4, ``dipolar_app.view_ops``; ``dipolar_app.scene``)."""
+    absolute = "none: an absolute set of view state; never touches the science"
+    for op in (
+        Operation(
+            name="view.set_camera",
+            kind="command",
+            effect="view",
+            capability=Capability.VIEW_WRITE,
+            summary="Set the shared camera (a perspective camera in Å) and viewport; camera null fits the "
+            "molecule automatically.",
+            input_model=V.SetCameraIn,
+            output_model=V.SetCameraOut,
+            handler=V.view_set_camera,
+            idempotent=True,
+            revision_check=absolute,
+            examples=(
+                {"camera": None, "viewport": {"width": 800, "height": 600}},
+                {
+                    "camera": {
+                        "position": {"xyz": [0.0, 0.0, 20.0], "unit": "Å"},
+                        "target": {"xyz": [0.0, 0.0, 0.0], "unit": "Å"},
+                        "up": {"xyz": [0.0, 1.0, 0.0]},
+                        "fov": {"value": 45.0, "unit": "deg"},
+                        "near": {"value": 1.0, "unit": "Å"},
+                        "far": {"value": 100.0, "unit": "Å"},
+                    },
+                    "viewport": {"width": 640, "height": 480},
+                },
+            ),
+        ),
+        Operation(
+            name="view.highlight",
+            kind="command",
+            effect="view",
+            capability=Capability.VIEW_WRITE,
+            summary="Set the shared highlights to the given spin or coupling IDs (replaces them).",
+            input_model=V.HighlightIn,
+            output_model=V.HighlightOut,
+            handler=V.view_highlight,
+            idempotent=True,
+            revision_check=absolute,
+            examples=({"ids": ["cpl_000001", "spn_000002"]},),
+        ),
+        Operation(
+            name="view.set_layers",
+            kind="command",
+            effect="view",
+            capability=Capability.VIEW_WRITE,
+            summary="Show or hide the labels, bonds and coupling lines of the shared view.",
+            input_model=V.LayersIn,
+            output_model=V.LayersOut,
+            handler=V.view_set_layers,
+            idempotent=True,
+            revision_check=absolute,
+            examples=({"labels": True, "bonds": True, "couplings": False},),
+        ),
+        Operation(
+            name="render.scene",
+            kind="query",
+            effect="none",
+            capability=Capability.QUERY,
+            summary="The scene description (04 §8.4): atoms with coordinates and projected screen positions, "
+            "bonds, couplings with residuals, camera, layers, selection and highlights.",
+            input_model=V.SceneIn,
+            output_model=V.SceneOut,
+            handler=V.render_scene,
+            idempotent=True,
+            examples=({},),
+        ),
+        Operation(
+            name="render.view_svg",
+            kind="query",
+            effect="none",
+            capability=Capability.QUERY,
+            summary="The shared view as an SVG, rendered on the server from the scene description.",
+            input_model=V.SvgIn,
+            output_model=V.SvgOut,
+            handler=V.render_view_svg,
+            idempotent=True,
+            examples=({},),
+        ),
+        Operation(
+            name="render.describe_view",
+            kind="query",
+            effect="none",
+            capability=Capability.QUERY,
+            summary="Describe the shared view: revisions, the run it reflects and whether it is stale, visible "
+            "objects, selection, highlights, the largest residuals and warnings.",
+            input_model=V.DescribeViewIn,
+            output_model=V.DescribeViewOut,
+            handler=V.describe_view,
             idempotent=True,
             examples=({},),
         ),

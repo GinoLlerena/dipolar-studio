@@ -9,7 +9,8 @@
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "parity": "node --experimental-strip-types --no-warnings scripts/projection-parity.mjs"
   },
   "dependencies": {
     "react": "^19.3.1",

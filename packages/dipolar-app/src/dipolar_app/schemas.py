@@ -41,6 +41,7 @@ SpinId = Annotated[str, StringConstraints(pattern=r"^spn_[0-9]{6}$")]
 CouplingId = Annotated[str, StringConstraints(pattern=r"^cpl_[0-9]{6}$")]
 ObjectId = Annotated[str, StringConstraints(pattern=r"^(spn|cpl)_[0-9]{6}$")]
 ProposalId = Annotated[str, StringConstraints(pattern=r"^prp_[0-9]{6}$")]
+RunIdStr = Annotated[str, StringConstraints(pattern=r"^run_[0-9]{6}$")]
 
 #: A client-chosen idempotency key (04 §8.1): retry a command with the same key after a lost
 #: response, and it is applied at most once.

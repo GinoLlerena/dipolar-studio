@@ -226,16 +226,13 @@ def replace_project(
             "previous_science_hash": state.science_hash,
         }
     ]
-    kept = tuple(i for i in state.view.selection if project.label_of(i) is not None) if same_project else ()
-    if kept != state.view.selection:
-        events.append(
-            {
-                "type": "view.selection_set",
-                "domain": WORKSPACE,
-                "selection": list(kept),
-                "previous": list(state.view.selection),
-            }
-        )
+    for kind, key, current in (
+        ("view.selection_set", "selection", state.view.selection),
+        ("view.highlights_set", "highlights", state.view.highlights),
+    ):
+        kept = tuple(x for x in current if project.label_of(x) is not None) if same_project else ()
+        if kept != current:
+            events.append({"type": kind, "domain": WORKSPACE, key: list(kept), "previous": list(current)})
     return events
 
 

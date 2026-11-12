@@ -1,12 +1,12 @@
 // GENERATED FILE: do not edit. Regenerate with `uv run python tools/codegen/ts_contract.py`.
-// Source: packages/dipolar-app/registry.snapshot.json (sha256 b81850d398dc968d01a9038ec83765249eb9805bfce8b1b49794129ccc52ed70).
+// Source: packages/dipolar-app/registry.snapshot.json (sha256 dbfe011a8278bbf0630e9091fc0f2791b2dee11827308f1f83e648c3296b8e00).
 // CI fails if this file is stale (tests/test_ts_contract.py).
 //
 // Value constraints that TypeScript cannot express (bounds, lengths, patterns) appear as doc
 // comments; the server enforces them.
 /* eslint-disable */
 
-export const CONTRACT_VERSION = "0.4.0";
+export const CONTRACT_VERSION = "0.5.0";
 
 /** Any JSON value. */
 export type JsonValue =
@@ -35,6 +35,15 @@ export type BasinOut = {
   theta: NamedValue[];
 };
 
+export type CameraIn = {
+  far: Angstrom;
+  fov: Degrees;
+  near: Angstrom;
+  position: Vector;
+  target: Vector;
+  up: Direction;
+};
+
 export type CouplingOut = {
   equivalent_pairs: string[];
   /** pattern "^cpl_[0-9]{6}$" */
@@ -56,6 +65,11 @@ export type CouplingOut = {
 export type Degrees = {
   unit: "deg";
   value: number;
+};
+
+export type Direction = {
+  /** minItems 3, maxItems 3 */
+  xyz: [number, number, number];
 };
 
 export type DryRunReport = {
@@ -253,6 +267,13 @@ export type ProposalOut = {
   steps: StepOut[];
 };
 
+export type ResidualOut = {
+  /** pattern "^(spn|cpl)_[0-9]{6}$" */
+  id: string;
+  label: string;
+  residual: Hertz;
+};
+
 export type Revisions = {
   /** integer, minimum 0, maximum 9007199254740991 */
   science: number;
@@ -276,6 +297,61 @@ export type RunOut = {
   stale: boolean;
 };
 
+export type SceneAtom = {
+  element: string;
+  id: string;
+  label: string;
+  position: Vector;
+  screen: Screen;
+};
+
+export type SceneBond = {
+  a: string;
+  b: string;
+};
+
+export type SceneCamera = {
+  automatic: boolean;
+  far: Angstrom;
+  fov: Degrees;
+  near: Angstrom;
+  position: Vector;
+  target: Vector;
+  /** minItems 3, maxItems 3 */
+  up: [number, number, number];
+};
+
+export type SceneCoupling = {
+  /** pattern "^(spn|cpl)_[0-9]{6}$" */
+  id: string;
+  label: string;
+  length: Angstrom;
+  residual: Hertz | null;
+  /** pattern "^(spn|cpl)_[0-9]{6}$" */
+  spin_a: string;
+  /** pattern "^(spn|cpl)_[0-9]{6}$" */
+  spin_b: string;
+};
+
+export type SceneLayers = {
+  bonds: boolean;
+  couplings: boolean;
+  labels: boolean;
+};
+
+export type SceneRun = {
+  /** pattern "^run_[0-9]{6}$" */
+  run_id: string;
+  stale: boolean;
+};
+
+export type SceneViewport = {
+  /** integer */
+  height: number;
+  /** integer */
+  width: number;
+};
+
 export type ScienceChanges = {
   couplings: IdChanges;
   geometry_changed: boolean;
@@ -285,6 +361,13 @@ export type ScienceChanges = {
   science_hash_after: string;
   science_hash_before: string;
   spins: IdChanges;
+};
+
+export type Screen = {
+  depth: number;
+  visible: boolean;
+  x: number;
+  y: number;
 };
 
 export type SelectedObject = {
@@ -336,6 +419,19 @@ export type TemplateOut = {
   r_ch: Angstrom;
   r_inter: Angstrom;
   template: string;
+};
+
+export type Vector = {
+  unit: "Å";
+  /** minItems 3, maxItems 3 */
+  xyz: [number, number, number];
+};
+
+export type Viewport = {
+  /** integer, minimum 16, maximum 8192 */
+  height: number;
+  /** integer, minimum 16, maximum 8192 */
+  width: number;
 };
 
 export type WouldRevisions = {
@@ -808,11 +904,60 @@ export type DescribeViewIn = { [key: string]: never };
 
 /** `render.describe_view` output. */
 export type DescribeViewOut = {
+  /** integer */
+  hidden: number;
+  highlights: SelectedObject[];
+  phi: Degrees | null;
+  phi_source: "run" | "imported" | "default" | null;
   project_name: string | null;
   project_open: boolean;
+  run: SceneRun | null;
   /** integer */
   science_revision: number;
   selection: SelectedObject[];
+  /** maxItems 5 */
+  top_residuals: ResidualOut[];
+  visible: string[];
+  warnings: string[];
+  /** integer */
+  workspace_revision: number;
+};
+
+/** `render.scene` input. */
+export type SceneIn = { [key: string]: never };
+
+/** `render.scene` output. */
+export type SceneOut = {
+  atoms: SceneAtom[];
+  bonds: SceneBond[];
+  camera: SceneCamera;
+  couplings: SceneCoupling[];
+  draw_order: string[];
+  highlights: string[];
+  layers: SceneLayers;
+  phi: Degrees;
+  phi_source: "run" | "imported" | "default";
+  run: SceneRun | null;
+  /** integer */
+  science_revision: number;
+  selection: string[];
+  viewport: SceneViewport;
+  /** integer */
+  workspace_revision: number;
+};
+
+/** `render.view_svg` input. */
+export type SvgIn = { [key: string]: never };
+
+/** `render.view_svg` output. */
+export type SvgOut = {
+  /** integer */
+  height: number;
+  /** integer */
+  science_revision: number;
+  svg: string;
+  /** integer */
+  width: number;
   /** integer */
   workspace_revision: number;
 };
@@ -843,6 +988,19 @@ export type RunListOut = {
   science_revision: number;
 };
 
+/** `view.highlight` input. */
+export type HighlightIn = {
+  /** maxItems 1000 */
+  ids: string[];
+};
+
+/** `view.highlight` output. */
+export type HighlightOut = {
+  highlights: string[];
+  /** integer */
+  workspace_revision: number;
+};
+
 /** `view.select` input. */
 export type SelectIn = {
   /** maxItems 1000 */
@@ -852,6 +1010,32 @@ export type SelectIn = {
 /** `view.select` output. */
 export type SelectOut = {
   selection: SelectedObject[];
+  /** integer */
+  workspace_revision: number;
+};
+
+/** `view.set_camera` input. */
+export type SetCameraIn = {
+  camera: CameraIn | null;
+  viewport: Viewport;
+};
+
+/** `view.set_camera` output. */
+export type SetCameraOut = {
+  automatic: boolean;
+  /** integer */
+  workspace_revision: number;
+};
+
+/** `view.set_layers` input. */
+export type LayersIn = {
+  bonds: boolean;
+  couplings: boolean;
+  labels: boolean;
+};
+
+/** `view.set_layers` output. */
+export type LayersOut = {
   /** integer */
   workspace_revision: number;
 };
@@ -904,14 +1088,24 @@ export interface Operations {
   "proposal.list": { input: ListIn; output: ListOut };
   /** Reject a pending proposal (human only), with an optional reason. */
   "proposal.reject": { input: RejectIn; output: RejectOut };
-  /** Describe the shared view: revisions and the current selection, with labels. */
+  /** Describe the shared view: revisions, the run it reflects and whether it is stale, visible objects, selection, highlights, the largest residuals and warnings. */
   "render.describe_view": { input: DescribeViewIn; output: DescribeViewOut };
+  /** The scene description (04 §8.4): atoms with coordinates and projected screen positions, bonds, couplings with residuals, camera, layers, selection and highlights. */
+  "render.scene": { input: SceneIn; output: SceneOut };
+  /** The shared view as an SVG, rendered on the server from the scene description. */
+  "render.view_svg": { input: SvgIn; output: SvgOut };
   /** A run's result (the fit), verified against its stored hash, and whether it is stale. */
   "run.get": { input: RunGetIn; output: RunGetOut };
   /** The session's runs, newest first, each with its input identity and staleness. */
   "run.list": { input: RunListIn; output: RunListOut };
+  /** Set the shared highlights to the given spin or coupling IDs (replaces them). */
+  "view.highlight": { input: HighlightIn; output: HighlightOut };
   /** Set the shared selection to the given spin or coupling IDs (replaces it). */
   "view.select": { input: SelectIn; output: SelectOut };
+  /** Set the shared camera (a perspective camera in Å) and viewport; camera null fits the molecule automatically. */
+  "view.set_camera": { input: SetCameraIn; output: SetCameraOut };
+  /** Show or hide the labels, bonds and coupling lines of the shared view. */
+  "view.set_layers": { input: LayersIn; output: LayersOut };
 }
 
 export type OperationName = keyof Operations;
@@ -989,8 +1183,13 @@ export const OPERATIONS = {
   "proposal.list": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "proposal.reject": { kind: "command", effect: "proposal", capability: "approve", cost: "instant", idempotent: false, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "render.describe_view": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "render.scene": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "render.view_svg": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "run.get": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "run.list": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "view.highlight": { kind: "command", effect: "view", capability: "view_write", cost: "instant", idempotent: true, revision_check: "none: an absolute set of view state; never touches the science", max_request_bytes: 1048576, proposable: false },
   "view.select": { kind: "command", effect: "view", capability: "view_write", cost: "instant", idempotent: true, revision_check: "none: an absolute set; IDs are validated atomically and never reused", max_request_bytes: 1048576, proposable: false },
+  "view.set_camera": { kind: "command", effect: "view", capability: "view_write", cost: "instant", idempotent: true, revision_check: "none: an absolute set of view state; never touches the science", max_request_bytes: 1048576, proposable: false },
+  "view.set_layers": { kind: "command", effect: "view", capability: "view_write", cost: "instant", idempotent: true, revision_check: "none: an absolute set of view state; never touches the science", max_request_bytes: 1048576, proposable: false },
 } as const satisfies Record<OperationName, unknown>;
 

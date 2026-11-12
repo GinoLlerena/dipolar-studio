@@ -15,10 +15,11 @@ from dipolar_app import journal as journal_module
 from dipolar_app.auth import Credentials
 from dipolar_app.http import MAX_BODY_BYTES, create_app
 from dipolar_app.journal import Journal, JournalCorrupt
-from dipolar_app.operations import DescribeViewIn, DescribeViewOut, build_registry, describe_view
+from dipolar_app.operations import build_registry
 from dipolar_app.policy import Capability
 from dipolar_app.registry import Context, Operation, dispatch
 from dipolar_app.session import replay
+from dipolar_app.view_ops import DescribeViewIn, DescribeViewOut, describe_view
 
 OPEN0 = {"name": "biphenyl-synthetic", "expected_science_revision": 0}
 
