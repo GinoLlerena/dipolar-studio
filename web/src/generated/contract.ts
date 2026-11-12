@@ -1,5 +1,5 @@
 // GENERATED FILE: do not edit. Regenerate with `uv run python tools/codegen/ts_contract.py`.
-// Source: packages/dipolar-app/registry.snapshot.json (sha256 71bfde1b145fcf93ca2e2f6dc45ca3871674b43ba4a91d8b00df2dfe0858ddf7).
+// Source: packages/dipolar-app/registry.snapshot.json (sha256 cfee1f8b443d66c2e2fd8ff620f5aaae85fe10e5a31b568bb9f5eeaa78c1d4cf).
 // CI fails if this file is stale (tests/test_ts_contract.py).
 //
 // Value constraints that TypeScript cannot express (bounds, lengths, patterns) appear as doc
@@ -126,6 +126,7 @@ export type FitSummary = {
   converged: boolean;
   notes: string[];
   p_value: number | null;
+  physically_admissible: boolean | null;
   regular: boolean;
 };
 

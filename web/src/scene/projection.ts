@@ -43,15 +43,17 @@ export function project(camera: Camera, width: number, height: number, points: r
   const up = cross(side, forward);
   const t = Math.tan(radians(camera.fov_deg) / 2);
   const aspect = width / height;
+  if (!(t > 0 && Number.isFinite(t))) throw new Error("the field of view cannot project");
   return points.map((p) => {
     const v = sub(p, camera.position);
     const depth = dot(v, forward);
-    if (depth <= 0) return { x: 0, y: 0, depth, visible: false };
+    // Clipped before any division, so a point inside the near plane never divides by ~0.
+    if (!(camera.near <= depth && depth <= camera.far)) return { x: 0, y: 0, depth, visible: false };
     const ndcX = dot(v, side) / (depth * t * aspect);
     const ndcY = dot(v, up) / (depth * t);
     const x = ((ndcX + 1) / 2) * width;
     const y = ((1 - ndcY) / 2) * height;
-    const visible = camera.near <= depth && depth <= camera.far && Math.abs(ndcX) <= 1 && Math.abs(ndcY) <= 1;
+    const visible = Math.abs(ndcX) <= 1 && Math.abs(ndcY) <= 1;
     return { x, y, depth, visible };
   });
 }

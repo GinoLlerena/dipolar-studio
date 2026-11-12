@@ -57,11 +57,25 @@ class BiphenylTemplate(Wire):
     r_inter: Angstrom
 
 
+#: Imported coordinates lie within ±MAX_COORD_A Å of the origin (round 36): molecules are a few Å
+#: across, and the bound keeps every projection and auto-fitted camera numerically safe.
+MAX_COORD_A = 1e4
+Coordinate = Annotated[float, Field(ge=-MAX_COORD_A, le=MAX_COORD_A)]
+
+#: Display labels in outputs are cut to this many characters (rounds 35–36): a label joined into
+#: many outputs (a coupling's "A–B") never multiplies a long label's length.
+MAX_LABEL_OUT = 64
+
+
+def short(label: str) -> str:
+    return label if len(label) <= MAX_LABEL_OUT else label[: MAX_LABEL_OUT - 1] + "…"
+
+
 class Atom(Wire):
     element: Annotated[str, Field(min_length=1, max_length=2)]
-    x: float  # Å, in the input frame (the frame of the order tensor)
-    y: float
-    z: float
+    x: Coordinate  # Å, in the input frame (the frame of the order tensor)
+    y: Coordinate
+    z: Coordinate
 
 
 class ImportedGeometry(Wire):
@@ -129,14 +143,14 @@ class Project(Wire):
     def label_of(self, object_id: str) -> tuple[str, str] | None:
         """Return (kind, display label) for a spin or coupling ID, or None if absent."""
         if (s := self.spin(object_id)) is not None:
-            return "spin", s.label
+            return "spin", short(s.label)
         if (c := self.coupling(object_id)) is not None:
             return "coupling", self.coupling_label(c)
         return None
 
     def coupling_label(self, c: Coupling) -> str:
         a, b = self.spin(c.spin_a), self.spin(c.spin_b)
-        return f"{a.label if a else c.spin_a}–{b.label if b else c.spin_b}"
+        return f"{short(a.label) if a else c.spin_a}–{short(b.label) if b else c.spin_b}"
 
 
 def canonical_json(data: Any) -> str:

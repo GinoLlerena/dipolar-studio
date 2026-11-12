@@ -44,7 +44,7 @@ from dipolar_app.formats import (
     project_from_xyz,
     reconcile,
 )
-from dipolar_app.project import BiphenylTemplate, ImportedGeometry, ModelSpec, Project, science_hash
+from dipolar_app.project import BiphenylTemplate, ImportedGeometry, ModelSpec, Project, science_hash, short
 from dipolar_app.registry import Context
 from dipolar_app.reporting import interval_policy
 from dipolar_app.schemas import Angstrom, CouplingId, Degrees, Hertz, Revision, SpinId, Wire, deg, hz
@@ -828,7 +828,7 @@ class ReconcileOut(Science):
 def _pairs(project: Project, keys: tuple[tuple[str, str], ...]) -> tuple[PairOut, ...]:
     def label(i: str) -> str:
         s = project.spin(i)
-        return s.label if s else i
+        return short(s.label) if s else i
 
     return tuple(PairOut(spin_a=a, spin_b=b, label=f"{label(a)}–{label(b)}") for a, b in keys)
 

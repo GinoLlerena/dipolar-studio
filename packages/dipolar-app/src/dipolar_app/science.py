@@ -39,6 +39,10 @@ def _resolve_pair(entry: str, by_label: dict[str, str]) -> frozenset[str]:
     return frozenset((by_label[a], by_label[b]))
 
 
+#: The template's bond lengths are a few Å; the bound keeps its geometry numerically safe (round 36).
+MAX_BOND_A = 10.0
+
+
 def validate_project(project: Project) -> None:
     """Raise ValueError naming the first broken invariant, or return None."""
     g, m = project.molecule.geometry, project.model
@@ -49,6 +53,8 @@ def validate_project(project: Project) -> None:
         raise ValueError("spin labels must be unique (they identify spins during import)")
     if len({c.id for c in project.couplings}) != len(project.couplings):
         raise ValueError("coupling IDs must be unique")
+    if isinstance(g, BiphenylTemplate) and max(g.r_cc.value, g.r_ch.value, g.r_inter.value) > MAX_BOND_A:
+        raise ValueError(f"the template's bond lengths must not exceed {MAX_BOND_A:g} Å (round 36)")
     numbers = [int(c.id[4:]) for c in project.couplings]
     if numbers and max(numbers) >= project.next_coupling_id:
         raise ValueError("next_coupling_id must exceed every coupling number (IDs are never reused)")

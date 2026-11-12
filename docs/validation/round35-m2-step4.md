@@ -24,12 +24,29 @@ redundant with the `result is not None` checks downstream, so removing it change
 
 ## Documented limits (B)
 
+- **The round-36 fixes were not reviewed again** (the two-round cap).
 - **Highlight parity** is not checked: the browser does not render highlights before M3.
 - **The 45° default torsion** for the template before any fit is labelled `phi_source: default`
   and warned about. It is not a result.
 - **`render.scene` and `render.view_svg` grow with the project.** They are bounded by the project
   limits: at most 1000 atoms, with bond perception O(n²) on imported geometry.
 
-## Round 36
+## Round 36 (final under the cap): NOT READY (five A, one B), on commit 74b1751
 
-(Pending.)
+The reviewer confirmed that the following held up:
+- the round-35 snapshot fix and missing-result handling;
+- snapshot consistency and replay;
+- workspace/science separation;
+- parity and the TypeScript contract.
+
+They found five siblings. All are fixed and mutation-checked, and, under the two-round cap,
+**not reviewed again**.
+
+| # | Class | Finding | Resolution |
+|---|---|---|---|
+| 1 | A | **The fit summary dropped physical admissibility.** A fit with S outside the order-matrix domain read as adequate and regular, with no warning. | `fit.physically_admissible` is carried through the scene and `describe_view`, with a warning when it is false. Test: `test_describe_view_reports_physical_inadmissibility`. |
+| 2 | A | **An atom inside the near plane broke every render.** The projection divided by a depth of ~5e-324 before clipping. | The projection clips by depth (near ≤ depth ≤ far) before any division, in Python and TypeScript alike. A new parity fixture, "near and far planes on the axis", places centred points inside the near plane and beyond the far plane. Test: `test_an_atom_inside_the_near_plane_never_breaks_rendering`. |
+| 3 | A | **Imported coordinates bypassed the numerical bounds.** One H at 1e20 Å, or two atoms 1e200 Å apart, imported fine and then broke the auto-fitted camera. | Coordinates are bounded to ±1e4 Å (`Atom`, on import and on load), and template bond lengths to at most 10 Å (`validate_project`). An auto-fitted camera is checked like any other. Test: `test_geometry_is_bounded_on_import_and_load`. |
+| 4 | A | **`project.describe` amplified labels.** Coupling labels repeated the full spin labels, so a 0.36 MB document gave an 8.6 MB response. | `Project.coupling_label` and `label_of` join display labels cut to 64 characters, wherever they are used: `project.describe`, fit results, reconciliation, the selection. A spin's own label is still shown whole, once. Test: `test_coupling_labels_never_repeat_a_long_spin_label`. |
+| 5 | A | **Control characters made the SVG invalid.** A label with U+0000 escaped to malformed XML. | `xml_text` replaces the characters XML 1.0 forbids with U+FFFD before escaping. Test: `test_control_characters_never_break_the_svg`. |
+| 6 | B | **`describe_view` copied the project name whole.** | It is cut to 64 characters. Test: `test_the_project_name_is_cut_in_the_view_summary`. |

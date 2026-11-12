@@ -329,7 +329,7 @@ def test_numerically_unsafe_cameras_are_refused(change: dict[str, Any], message:
 
 
 def test_long_labels_are_cut_in_perception_outputs() -> None:
-    from dipolar_app.scene import MAX_LABEL_OUT
+    from dipolar_app.project import MAX_LABEL_OUT
 
     c = client(new_session())
     ok(c.call("project.import_xyz", {"xyz": ETHANE_XYZ, "name": "ethane", "expected_science_revision": 0}))
@@ -356,3 +356,85 @@ def test_describe_view_reports_an_inadequate_fit() -> None:
     assert any("inadequate" in w for w in view["warnings"])
     good = ok(run_fit(opened()[1]))
     assert good["adequate"] is True
+
+
+# --------------------------------------------------------------------------- round 36
+def ethane(c: LocalClient) -> dict[str, Any]:
+    ok(c.call("project.import_xyz", {"xyz": ETHANE_XYZ, "name": "ethane", "expected_science_revision": 0}))
+    doc: dict[str, Any] = json.loads(ok(c.call("project.export"))["text"])
+    return doc
+
+
+def test_describe_view_reports_physical_inadmissibility() -> None:
+    _, c = opened()
+    doc = json.loads(ok(c.call("project.export"))["text"])
+    for coupling in doc["project"]["couplings"]:
+        coupling["value"]["value"] *= 1000.0
+        coupling["sigma"]["value"] *= 1000.0
+    ok(c.call("project.load", {"text": json.dumps(doc), "expected_science_revision": 1}))
+    ok(run_fit(c))
+    view = ok(c.call("render.describe_view"))
+    assert view["fit"]["physically_admissible"] is False
+    assert any("not physically admissible" in w for w in view["warnings"])
+
+
+def test_an_atom_inside_the_near_plane_never_breaks_rendering() -> None:
+    c = client(new_session())
+    ethane(c)
+    args = camera_args([0.0, 0.0, 5e-324], [0.0, 1.0, 0.0], 45.0)
+    args["camera"]["target"] = {"xyz": [0.0, 0.0, -1.0], "unit": "Å"}
+    args["camera"]["near"] = {"value": 0.001, "unit": "Å"}
+    args["camera"]["far"] = {"value": 100.0, "unit": "Å"}
+    ok(c.call("view.set_camera", args))
+    for name in ("render.scene", "render.describe_view", "render.view_svg"):
+        ok(c.call(name))
+
+
+def test_geometry_is_bounded_on_import_and_load() -> None:
+    c = client(new_session())
+    error(
+        c.call("project.import_xyz", {"xyz": "1\nfar\nH 0 0 1e20\n", "name": "x", "expected_science_revision": 0}),
+        "INVALID_ARGUMENT",
+    )
+    doc = ethane(c)
+    doc["project"]["molecule"]["geometry"]["atoms"][0]["x"] = 1e200
+    error(c.call("project.load", {"text": json.dumps(doc), "expected_science_revision": 1}), "INVALID_ARGUMENT")
+    _, t = opened()
+    template = json.loads(ok(t.call("project.export"))["text"])
+    template["project"]["molecule"]["geometry"]["r_cc"]["value"] = 1e3
+    error(t.call("project.load", {"text": json.dumps(template), "expected_science_revision": 1}), "INVALID_ARGUMENT")
+
+
+def test_coupling_labels_never_repeat_a_long_spin_label() -> None:
+    from dipolar_app.project import MAX_LABEL_OUT
+
+    c = client(new_session())
+    doc = ethane(c)
+    spins = doc["project"]["molecule"]["spins"]
+    long = "H" * 150
+    spins[0]["label"] = long
+    ok(c.call("project.load", {"text": json.dumps(doc), "expected_science_revision": 1}))
+    csv = f"spin_a,spin_b,D_obs_Hz,sigma_Hz\n{long},{spins[1]['label']},100.0,1.0\n"
+    mapping = {long: spins[0]["id"], spins[1]["label"]: spins[1]["id"]}
+    ok(c.call("couplings.import", {"csv": csv, "confirmed_mapping": mapping, "expected_science_revision": 2}))
+    described = ok(c.call("project.describe"))
+    assert len(described["couplings"][0]["label"]) <= 2 * MAX_LABEL_OUT + 1
+    assert any(s["label"] == long for s in described["spins"])  # a spin's own label is shown once, whole
+
+
+def test_control_characters_never_break_the_svg() -> None:
+    c = client(new_session())
+    doc = ethane(c)
+    doc["project"]["molecule"]["spins"][0]["label"] = "H\u0000bad\u001f"
+    ok(c.call("project.load", {"text": json.dumps(doc), "expected_science_revision": 1}))
+    ET.fromstring(ok(c.call("render.view_svg"))["svg"])
+
+
+def test_the_project_name_is_cut_in_the_view_summary() -> None:
+    from dipolar_app.project import MAX_LABEL_OUT
+
+    c = client(new_session())
+    doc = ethane(c)
+    doc["project"]["name"] = "n" * 100_000
+    ok(c.call("project.load", {"text": json.dumps(doc), "expected_science_revision": 1}))
+    assert len(ok(c.call("render.describe_view"))["project_name"]) == MAX_LABEL_OUT

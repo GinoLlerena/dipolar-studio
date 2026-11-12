@@ -22,9 +22,9 @@ from typing import Annotated, Literal
 from pydantic import Field
 
 from dipolar_app.errors import ErrorCode, OperationError
-from dipolar_app.project import Project
+from dipolar_app.project import Project, short
 from dipolar_app.registry import Context
-from dipolar_app.scene import build_scene, check_camera, render_svg, short
+from dipolar_app.scene import build_scene, check_camera, render_svg
 from dipolar_app.schemas import Angstrom, Degrees, Hertz, ObjectId, RunIdStr, Wire
 from dipolar_app.session import WORKSPACE, Camera, Event, SessionState
 
@@ -229,6 +229,7 @@ class FitSummary(Wire):
     p_value: float | None
     regular: bool
     converged: bool
+    physically_admissible: bool | None  # None: the model has no admissibility test
     at_bound: tuple[str, ...]
     notes: tuple[str, ...]
 
@@ -346,7 +347,7 @@ def describe_view(ctx: Context, _: DescribeViewIn) -> DescribeViewOut:
         "science_revision": state.science_revision,
         "workspace_revision": state.workspace_revision,
         "project_open": project is not None,
-        "project_name": project.name if project else None,
+        "project_name": short(project.name) if project else None,
         "selection": selected(project, state.view.selection),
         "highlights": selected(project, state.view.highlights),
     }
@@ -376,6 +377,8 @@ def describe_view(ctx: Context, _: DescribeViewIn) -> DescribeViewOut:
             warnings.append(f"the fit is inadequate under the stated σ (p = {fit.p_value:.3g})")
         if not fit.regular:
             warnings.append("the optimum is not regular: no standard errors or intervals apply")
+        if fit.physically_admissible is False:
+            warnings.append("the order parameters are not physically admissible (outside the order-matrix domain)")
         if fit.at_bound:
             warnings.append(f"the optimum lies on a bound ({', '.join(fit.at_bound)})")
     if scene.phi_source != "run":

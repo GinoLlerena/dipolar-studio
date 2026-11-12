@@ -1,5 +1,12 @@
 # Status
 
+**M2, the application layer, is complete: tag `m2-complete`** (step 4, tag `m2-step4`). Step 4
+added the scene description, `render.describe_view` and the server-side SVG renderer. The
+browser's projection (`web/src/scene/projection.ts`) is checked against the Python renderer in CI.
+Rounds 35 and 36 each returned NOT READY (five class-(A) findings each). All were fixed and
+mutation-checked; the round-36 fixes were not reviewed again, under the cap. See "Step 4" below and
+[round35-m2-step4.md](validation/round35-m2-step4.md).
+
 **M2 step 3 (jobs, D11 runs, the authenticated event stream) is done: tag `m2-step3`.**
 - `fit.run` returns a job at once; the fit runs in a supervised worker process.
 - Results are durable runs, verified by hash and reported `stale` after an edit.
@@ -173,28 +180,30 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: M2 step 4, or the owner's choice
+## Resume here: M3 (browser beta), or the owner's choice
 
-**Stopping point: tag `m2-step3`.** Earlier stopping points: `m1-complete`, `m2-step1`,
-`m2-step1b`, `m2-step2`. To resume:
+**Stopping point: tag `m2-complete`.** Earlier stopping points: `m1-complete`, `m2-step1`,
+`m2-step1b`, `m2-step2`, `m2-step3`, `m2-step4`. To resume:
 
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 705 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 748 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
-   (cd web && pnpm install --frozen-lockfile && pnpm run build)
+   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity)
    ```
 
 2. **The owner chooses** what comes next:
-   - **M2 step 4:** the scene description, `describe_view` and the SVG renderer, with projection
-     parity (the last M2 step).
+   - **M3 step 1:** the Data and Fit workspaces in the browser, on the generated client and the
+     event stream.
    - **the small batch:**
      - GitHub Actions off Node 20;
      - a licence file in the wheels;
      - a Windows CI job;
      - caching interval evaluations;
-     - blob and journal compaction (the B limits of steps 2 and 3).
+     - blob and journal compaction.
+   - **the M2 exit check:** the plan's M2 exit criteria (all §8.6 checks; replay reproduces the
+     science hash; a published benchmark). A short audit step before M3.
 3. Work under the medium plan (below): at most two review rounds per step, a fresh session per
    step.
 4. **When the registry changes,** regenerate the snapshot, then run
@@ -504,7 +513,7 @@ total.
 
 Tests: 461 pass (`-m "not slow"`), plus the slow coverage rerun.
 
-## M2, the application layer: in progress
+## M2, the application layer: done
 
 | M2 step | Status | Owner hours (owner fills in) |
 |---|---|---|
@@ -512,7 +521,7 @@ Tests: 461 pass (`-m "not slow"`), plus the slow coverage rerun.
 | 1b. TypeScript generated from the registry snapshot | **done** (tag `m2-step1b`); rounds 29–30, both fixed under the cap | |
 | 2. Idempotency, dry run, proposals, undo | **done** (tag `m2-step2`); rounds 31–32, both fixed under the cap | |
 | 3. Jobs, D11 runs, the authenticated event stream | **done** (tag `m2-step3`); rounds 33–34, both fixed under the cap | |
-| 4. Scene description, `describe_view`, the SVG renderer | — | |
+| 4. Scene description, `describe_view`, the SVG renderer | **done** (tag `m2-step4`); rounds 35–36, both fixed under the cap | |
 
 The plan's step 1 is "operations the beta UI needs, with TypeScript generated from the
 snapshot". The owner chose to start with the science operations; the TypeScript generation is
@@ -793,8 +802,19 @@ The displayed torsion comes from the current run, else the imported dihedral, el
 - `pnpm run parity` (in the CI web job and in pytest) checks the positions, depths, visibility and
   draw order against them. The largest difference is 6e-14 px.
 
-**Contract:** 0.5.0. **Tests:** `tests/test_app_scene.py` (18), including a negative parity test
-(a 1 px change fails). Eight mutations of the Python and TypeScript code were each caught.
+**Contract:** 0.5.0. **Tests:** `tests/test_app_scene.py` (32), including a negative parity test
+(a 1 px change fails). Six parity fixtures; every review fix was mutation-checked in Python and
+TypeScript.
+
+**Validation:** rounds 35 and 36 each returned NOT READY (five class-(A) findings each). All were
+fixed and mutation-checked; the round-36 fixes were not reviewed again, under the cap. They cover:
+- one snapshot per perception call;
+- unreadable results reported, never shown;
+- numerically safe cameras and geometry, with clipping before division;
+- labels bounded in every output, and XML-safe SVG text;
+- the fit's adequacy, regularity and admissibility in `describe_view`.
+
+See [round35-m2-step4.md](validation/round35-m2-step4.md).
 
 ## Open items for the owner
 

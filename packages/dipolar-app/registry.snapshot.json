@@ -4679,6 +4679,17 @@
                 ],
                 "title": "P Value"
               },
+              "physically_admissible": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Physically Admissible"
+              },
               "regular": {
                 "title": "Regular",
                 "type": "boolean"
@@ -4689,6 +4700,7 @@
               "p_value",
               "regular",
               "converged",
+              "physically_admissible",
               "at_bound",
               "notes"
             ],
@@ -5033,6 +5045,17 @@
                 ],
                 "title": "P Value"
               },
+              "physically_admissible": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Physically Admissible"
+              },
               "regular": {
                 "title": "Regular",
                 "type": "boolean"
@@ -5043,6 +5066,7 @@
               "p_value",
               "regular",
               "converged",
+              "physically_admissible",
               "at_bound",
               "notes"
             ],
