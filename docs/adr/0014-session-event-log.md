@@ -18,8 +18,29 @@
 - After a journal failure the session stays fail-stopped until it restarts (fsync errors cannot
   be retried safely).
 
+## Compaction (after M3 step 2, 2026-11-13)
+
+The journal and the request table no longer grow for ever (`dipolar_app.snapshot`).
+
+- **A snapshot** (`project.snapshot.json`) is the whole session state at one sequence number:
+  project, view, undo and redo stacks, proposals, jobs, runs, ID counters and the most recent
+  10 000 request outcomes, with the revisions, science hash, schema versions, numerical context
+  and a checksum. It is written only after decoding it reproduces the in-memory state exactly.
+- **Compaction** runs automatically after 5 000 records since the last snapshot (after a commit,
+  or when a project opens): the snapshot is written atomically (temporary file, fsync, rename,
+  directory fsync), then the covered journal moves to `archive/project.events.<first>-<last>.jsonl`
+  and an empty journal starts. Nothing is deleted; archives keep the audit trail.
+- **Opening** loads and verifies the snapshot, then replays only the records after it; the first
+  must continue its sequence. If a crash left the covered records in the journal, they are
+  replayed and must reproduce the snapshot exactly, otherwise the project is refused.
+- **Bounded deduplication:** a retry of a request older than the last 10 000, after a
+  compaction, is treated as new; commands with an expected revision then fail their precondition.
+- A failed snapshot write leaves everything as it was (the commits are durable; compaction is
+  retried after the next commit). A failed journal rotation fail-stops the session like a failed
+  append.
+
 ## Verified by
 
 Replay and REVISION_CONFLICT tests; `spikes/test_spike_journal_crash.py` (SIGKILL loop, real server
-restart); recovery unit tests in `test_app_journal.py`. Evidence:
+restart); recovery unit tests in `test_app_journal.py`; compaction in `test_app_snapshot.py`. Evidence:
 [docs/spikes/m0-spikes.md](../spikes/m0-spikes.md#4-journal-crash-recovery).

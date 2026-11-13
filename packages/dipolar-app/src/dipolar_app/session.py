@@ -50,7 +50,7 @@ from dipolar_core.context import numerical_context
 from pydantic import BaseModel
 
 from dipolar_app.errors import ErrorCode, OperationError
-from dipolar_app.journal import JOURNAL_SCHEMA_VERSION, Journal, JournalCorrupt, Recovery, fsync_dir
+from dipolar_app.journal import JOURNAL_SCHEMA_VERSION, Journal, JournalCorrupt, Recovery, fsync_dir, make_durable_dirs
 from dipolar_app.policy import Principal
 from dipolar_app.project import (
     PROJECT_SCHEMA_VERSION,
@@ -604,14 +604,20 @@ class Session:
         #: What opening the journal repaired (an unacknowledged torn tail), if anything.
         self.recovery: Recovery | None = None
         self.collected = 0
+        #: Journal records since the last snapshot (compaction, ``dipolar_app.snapshot``).
+        self._since_snapshot = 0
+        #: Why the last automatic compaction failed, if it did (the commit itself had succeeded).
+        self.compaction_error: str | None = None
         if journal is not None:
             self.recovery = journal.recover_torn_tail()
-            self._state, self._requests = replay_full(journal)
+            self._state, self._requests, self._since_snapshot = _replay(journal)
             for run in self._state.runs:  # fsynced before its record: a missing blob is damage
                 if self.blobs.text(run.result_sha256) is None:
                     raise JournalCorrupt(f"{run.id}: its result blob is missing or damaged")
             #: Blobs removed when the session opened: those no run in the state references.
             self.collected = self.blobs.collect({run.result_sha256 for run in self._state.runs})
+            with self._lock:
+                self._compact_if_due()
 
     # ------------------------------------------------------------------ observation
     def add_listener(self, listener: Listener) -> None:
@@ -795,7 +801,54 @@ class Session:
                         ],
                     }
                 )
+            if self._journal is not None:
+                self._since_snapshot += 1
+                self._compact_if_due()
             return Committed(result, current, new_state)
+
+    # ------------------------------------------------------------------ compaction
+    def compact(self) -> None:
+        """Write a snapshot of the current state and archive the journal it covers
+        (``dipolar_app.snapshot``). Fails like a journal write: the session stops accepting
+        commands if the journal could not be rotated."""
+        with self._lock:
+            self._compact_locked()
+
+    def _compact_if_due(self) -> None:  # call with self._lock held
+        from dipolar_app import snapshot as snap
+
+        if self._journal is None or self._failure is not None or self._since_snapshot < snap.COMPACT_RECORDS:
+            return
+        try:
+            self._compact_locked()
+            self.compaction_error = None
+        except Exception as exc:  # the commits are durable already; compaction is retried later
+            self.compaction_error = f"{type(exc).__name__}: {exc}"
+
+    def _compact_locked(self) -> None:
+        from dipolar_app import snapshot as snap
+
+        journal = self._journal
+        if journal is None:
+            raise ValueError("an in-memory session has no journal to compact")
+        if self._failure is not None:
+            raise OperationError(ErrorCode.JOURNAL_FAILED, "the session stopped after a journal failure")
+        state = self._state
+        first = state.seq - self._since_snapshot + 1
+        body = snap.build(state, self._requests, self._contract_version)
+        snap.write(snap.snapshot_path(journal.path), body)  # step 1: the snapshot is durable
+        if self._since_snapshot > 0:
+            archive = journal.path.parent / snap.ARCHIVE_DIR
+            make_durable_dirs(archive)
+            try:
+                journal.rotate(archive / snap.archive_name(first, state.seq))  # step 2
+            except Exception as exc:
+                # The journal may be gone or half rotated: stop, as after a failed append; opening
+                # again recovers from the snapshot (a missing journal is recreated empty).
+                self._failure = f"journal rotation failed: {type(exc).__name__}: {exc}"
+                raise
+        self._since_snapshot = 0
+        self._requests = dict(list(self._requests.items())[-snap.MAX_REQUESTS :])
 
 
 def _record_schema(record: dict[str, Any], previous: int) -> int:
@@ -863,18 +916,61 @@ def _record_request(record: dict[str, Any]) -> tuple[str, dict[str, Any]] | None
 
 
 def replay_full(journal: Journal) -> tuple[SessionState, dict[tuple[str, str], StoredOutcome]]:
-    """Rebuild the state and the request table from the journal, checking sequence, revisions and
-    science hash.
+    """Rebuild the state and the request table from the snapshot next to the journal, if there is
+    one, and the journal records after it, checking sequence, revisions and science hash.
 
     A record written under an older project schema is checked against the hash of the project
     payload *as stored*, then migrated (``migrate_project``, round 22). So old journals replay,
     and their integrity is still verified.
     """
-    state = SessionState()
-    requests: dict[tuple[str, str], StoredOutcome] = {}
-    stored: dict[str, Any] | None = None  # the last project payload as written in the journal
-    schema = 1
-    for record in journal.records():
+    state, requests, _ = _replay(journal)
+    return state, requests
+
+
+def _replay(journal: Journal) -> tuple[SessionState, dict[tuple[str, str], StoredOutcome], int]:
+    """``replay_full``, plus the number of journal records applied after the snapshot."""
+    from dipolar_app import snapshot as snap
+
+    loaded = snap.load(snap.snapshot_path(journal.path))
+    if loaded is None:
+        return _replay_records(journal.records(), SessionState(), {}, None, 1)
+    base, requests, meta = loaded
+    records = journal.records()
+    first = next(records, None)
+    if first is not None and first["seq"] <= base.seq:
+        # A compaction stopped after its snapshot and before rotating the journal: the journal
+        # still begins with the records the snapshot covers. They are replayed and must give
+        # exactly the snapshot's state; the records after them continue from it.
+        if first["seq"] != 1:
+            raise JournalCorrupt(f"record seq {first['seq']}: the journal neither starts at 1 nor follows the snapshot")
+        covered: list[dict[str, Any]] = [first]
+        tail: list[dict[str, Any]] = []
+        for record in records:
+            (covered if record["seq"] <= base.seq else tail).append(record)
+        state, _, _ = _replay_records(iter(covered), SessionState(), {}, None, 1)
+        if state != base:
+            raise JournalCorrupt("the snapshot does not match the journal records it covers")
+        return _replay_records(iter(tail), base, requests, meta["state"]["project"], meta["project_schema"])
+    rest = records if first is None else _chain(first, records)
+    return _replay_records(rest, base, requests, meta["state"]["project"], meta["project_schema"])
+
+
+def _chain(first: dict[str, Any], rest: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]:
+    yield first
+    yield from rest
+
+
+def _replay_records(
+    records: Iterable[dict[str, Any]],
+    state: SessionState,
+    requests: dict[tuple[str, str], StoredOutcome],
+    stored: dict[str, Any] | None,  # the last project payload as written (journal or snapshot)
+    schema: int,
+) -> tuple[SessionState, dict[tuple[str, str], StoredOutcome], int]:
+    requests = dict(requests)
+    applied = 0
+    for record in records:
+        applied += 1
         schema = _record_schema(record, schema)
         steps = _record_steps(record)
         for event in record["events"]:
@@ -904,7 +1000,7 @@ def replay_full(journal: Journal) -> tuple[SessionState, dict[tuple[str, str], S
                 raise JournalCorrupt(f"record seq {record['seq']}: request_id {request[0]!r} recorded twice")
             fingerprint = request_fingerprint(str(record["operation"]), record["args"])
             requests[key] = StoredOutcome(fingerprint, str(record["operation"]), request[1], dict(recorded))
-    return state, requests
+    return state, requests, applied
 
 
 def replay(journal: Journal) -> SessionState:

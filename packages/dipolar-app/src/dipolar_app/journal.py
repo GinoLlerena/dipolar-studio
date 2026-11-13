@@ -117,6 +117,20 @@ class Journal:
             os.close(fd)
         return stored
 
+    def rotate(self, archive: Path) -> None:
+        """Move the journal to ``archive`` (a new file in an existing directory) and start an empty
+        journal in its place (compaction, ``dipolar_app.snapshot``). Each step is made durable: the
+        archive's directory, then the new journal and its directory. A crash in between leaves
+        either the old journal in place or no journal, which opening recreates empty."""
+        if archive.exists():
+            raise FileExistsError(f"{archive} already exists")
+        os.replace(self.path, archive)
+        fsync_dir(archive.parent)
+        fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.fsync(fd)
+        os.close(fd)
+        fsync_dir(self.path.parent)
+
     def records(self) -> Iterator[dict[str, Any]]:
         """Yield verified records in order; raise ``JournalCorrupt`` on any damaged line."""
         with self.path.open("rb") as handle:

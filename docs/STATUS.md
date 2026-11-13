@@ -1,5 +1,9 @@
 # Status
 
+**Journal compaction is in review (branch `journal-compaction`).** Verified snapshots of the whole
+session state bound the journal and the request table; see the ADR-0014 amendment and
+[round43-journal-compaction.md](validation/round43-journal-compaction.md).
+
 **M3 step 2 (Structure view, couplings reconciliation, staleness by content) is done: tag
 `m3-step2`.**
 - **Staleness by content** (the owner's decision): a run is stale when the science differs from
