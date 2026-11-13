@@ -68,10 +68,12 @@ type Pair = { label: string; spin_a: string; spin_b: string; before: Values; aft
 
 /** The whole diff as CSV, for inspection outside the page: every pair, the values at full
  * precision (round 41: the page shows the first rows of each kind). Text cells are quoted, and
- * a cell that a spreadsheet would read as a formula is prefixed with an apostrophe. */
+ * any text cell that does not start with a letter or a digit is prefixed with an apostrophe, so a
+ * spreadsheet reads it as text: formula characters, but also a leading space, tab, CR or LF before
+ * one (round 42; OWASP CSV injection guidance). */
 export function diffCsv(diff: Record<"added" | "changed" | "removed" | "unchanged", readonly Pair[]>): string {
   const cell = (text: string) => {
-    const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+    const safe = text === "" || /^[\p{L}\p{N}]/u.test(text) ? text : `'${text}`;
     return `"${safe.replaceAll('"', '""')}"`;
   };
   const num = (v: number | undefined) => (v === undefined ? "" : String(v));

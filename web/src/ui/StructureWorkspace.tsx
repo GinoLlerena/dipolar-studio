@@ -39,7 +39,7 @@ export function StructureWorkspace({ studio, state }: Props) {
         {open && <Legend hasResiduals={scene.couplings.some((c) => c.residual !== null)} />}
       </div>
       <div className="column main">
-        {open ? <ScenePane studio={studio} scene={scene} project={project} /> : <p className="empty">{strings.noProjectYet}</p>}
+        {open ? <ScenePane studio={studio} scene={scene} project={project} viewRevision={view?.workspace_revision ?? 0} /> : <p className="empty">{strings.noProjectYet}</p>}
         {open && <ResidualTable studio={studio} scene={scene} project={project} />}
       </div>
     </div>
@@ -81,7 +81,17 @@ function useSize(): [RefObject<HTMLDivElement | null>, { width: number; height: 
   return [ref, size];
 }
 
-function ScenePane({ studio, scene, project: prj }: { studio: Studio; scene: SceneOut; project: DescribeProjectOut }) {
+function ScenePane({
+  studio,
+  scene,
+  project: prj,
+  viewRevision,
+}: {
+  studio: Studio;
+  scene: SceneOut;
+  project: DescribeProjectOut;
+  viewRevision: number;
+}) {
   const [box, { width, height }] = useSize();
   const svg = useRef<SVGSVGElement | null>(null);
   // A camera moved here and not yet echoed back by the server. It is shown only while the shared
@@ -100,40 +110,54 @@ function ScenePane({ studio, scene, project: prj }: { studio: Studio; scene: Sce
   const latest = useRef({ camera, width, height, revision: scene.workspace_revision, points });
   latest.current = { camera, width, height, revision: scene.workspace_revision, points };
 
-  // One committer per pane: it drops a delayed commit that a newer revision or action supersedes
-  // (round 41: a key's delayed commit used to overwrite another client's camera, or "fit to view").
+  // One committer per pane: it drops a delayed commit that a newer revision or action supersedes,
+  // and each commit names the revision its camera was moved from, so the server refuses a camera
+  // that a newer one has replaced meanwhile (rounds 41–42).
   const [commits] = useState(
     () =>
       new CameraCommits(
         scene.workspace_revision,
-        (next) => {
+        (next, revision) => {
           const { width: w, height: h } = latest.current;
           void studio
-            .command("view.set_camera", (t) =>
-              callOperation(
-                "view.set_camera",
-                { camera: next === null ? null : cameraIn(next), viewport: { width: w, height: h } },
-                t,
-              ),
+            .command(
+              "view.set_camera",
+              (t) =>
+                callOperation(
+                  "view.set_camera",
+                  {
+                    camera: next === null ? null : cameraIn(next),
+                    viewport: { width: w, height: h },
+                    expected_workspace_revision: revision,
+                  },
+                  t,
+                ),
+              ["REVISION_CONFLICT"], // superseded: the newer camera stays, quietly
             )
             .then((done) => {
-              if (done === null) setLocal(null); // refused: show the shared camera again
+              if (done === null) {
+                setLocal(null); // refused: show the shared camera again
+                studio.refresh(["view", "scene"]);
+              }
             });
         },
         { set: (fn, ms) => window.setTimeout(fn, ms), clear: (handle) => window.clearTimeout(handle as number) },
       ),
   );
-  commits.observe(scene.workspace_revision);
+  // The newest workspace revision any response has shown: the scene's, or the view's when its
+  // read answers first.
+  commits.observe(Math.max(scene.workspace_revision, viewRevision));
   useEffect(() => () => commits.cancel(), [commits]);
 
   const move = (next: Camera, later: boolean) => {
-    setLocal({ camera: next, revision: latest.current.revision });
-    if (later) commits.later(next, COMMIT_DELAY_MS);
+    const revision = latest.current.revision;
+    setLocal({ camera: next, revision });
+    if (later) commits.later(next, revision, COMMIT_DELAY_MS);
   };
   const radius = () => radiusAbout(latest.current.points, latest.current.camera.target);
   const fitToView = () => {
     setLocal(null);
-    commits.now(null);
+    commits.now(null, null);
   };
 
   // The wheel needs a non-passive listener to keep the page from scrolling.
@@ -176,7 +200,7 @@ function ScenePane({ studio, scene, project: prj }: { studio: Studio; scene: Sce
     if (d?.moved) {
       suppressClick.current = true; // the click that ends a drag is not a pick
       if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
-      commits.now(latest.current.camera);
+      commits.now(latest.current.camera, latest.current.revision);
     }
   };
   const onKeyDown = (e: KeyboardEvent<SVGSVGElement>) => {

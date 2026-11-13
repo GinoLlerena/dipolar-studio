@@ -7017,6 +7017,20 @@
               }
             ]
           },
+          "expected_workspace_revision": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expected Workspace Revision"
+          },
           "viewport": {
             "$ref": "#/$defs/Viewport"
           }
@@ -7051,7 +7065,7 @@
         "type": "object"
       },
       "proposable": false,
-      "revision_check": "none: an absolute set of view state; never touches the science",
+      "revision_check": "optional expected_workspace_revision: a delayed gesture never overwrites a newer camera; otherwise an absolute set of view state",
       "summary": "Set the shared camera (a perspective camera in Å) and viewport; camera null fits the molecule automatically."
     },
     {

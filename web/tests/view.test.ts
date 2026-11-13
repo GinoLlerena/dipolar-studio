@@ -120,37 +120,58 @@ function fakeTimers() {
 
 test("a delayed camera commit is dropped when a newer revision arrives first (round 41)", () => {
   const clock = fakeTimers();
-  const sent: (Camera | null)[] = [];
-  const commits = new CameraCommits(3, (c) => sent.push(c), clock.timers);
+  const sent: [Camera | null, number | null][] = [];
+  const commits = new CameraCommits(3, (c, r) => sent.push([c, r]), clock.timers);
   const moved = orbit(start, 15, 0);
-  commits.later(moved, 400);
+  commits.later(moved, 3, 400);
   commits.observe(4); // another client moved the camera meanwhile: theirs wins
   assert.equal(clock.pending(), 0); // the timer is cancelled at once
   assert.ok(!commits.waiting);
   clock.runAll();
   assert.deepEqual(sent, []);
-  // At the same revision the commit goes out once, after the delay.
-  commits.later(moved, 400);
+  // Moved from the current view, the commit goes out once, after the delay, naming its revision.
+  commits.later(moved, 4, 400);
   commits.observe(4);
   clock.runAll();
-  assert.deepEqual(sent, [moved]);
+  assert.deepEqual(sent, [[moved, 4]]);
+});
+
+test("a camera moved from a view older than any response has shown is never sent (round 42)", () => {
+  const clock = fakeTimers();
+  const sent: [Camera | null, number | null][] = [];
+  const commits = new CameraCommits(5, (c, r) => sent.push([c, r]), clock.timers);
+  // The view read answered at revision 6 while the scene (and the camera shown) is still at 5.
+  commits.observe(6);
+  commits.later(orbit(start, 15, 0), 5, 400);
+  assert.equal(clock.pending(), 0);
+  commits.now(orbit(start, 30, 0), 5); // a drag that ends on the old scene
+  clock.runAll();
+  assert.deepEqual(sent, []);
+  commits.observe(5); // an older report changes nothing
+  commits.later(orbit(start, 15, 0), 6, 400);
+  clock.runAll();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]?.[1], 6);
 });
 
 test("fit to view supersedes a pending key commit, and a later key restarts the delay (round 41)", () => {
   const clock = fakeTimers();
-  const sent: (Camera | null)[] = [];
-  const commits = new CameraCommits(1, (c) => sent.push(c), clock.timers);
-  commits.later(orbit(start, 15, 0), 400);
-  commits.now(null);
+  const sent: [Camera | null, number | null][] = [];
+  const commits = new CameraCommits(1, (c, r) => sent.push([c, r]), clock.timers);
+  commits.later(orbit(start, 15, 0), 1, 400);
+  commits.now(null, null);
   clock.runAll();
-  assert.deepEqual(sent, [null]);
+  assert.deepEqual(sent, [[null, null]]);
   const a = orbit(start, 15, 0);
   const b = orbit(a, 15, 0);
-  commits.later(a, 400);
-  commits.later(b, 400);
+  commits.later(a, 1, 400);
+  commits.later(b, 1, 400);
   assert.equal(clock.pending(), 1);
   clock.runAll();
-  assert.deepEqual(sent, [null, b]);
+  assert.deepEqual(sent, [
+    [null, null],
+    [b, 1],
+  ]);
 });
 
 test("keys orbit and zoom; other keys do nothing", () => {

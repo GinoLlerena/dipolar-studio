@@ -160,10 +160,11 @@ export class Studio {
   async command<N extends OperationName>(
     name: N,
     call: (token: string) => Promise<Envelope<N>>,
+    quiet: readonly string[] = [],
   ): Promise<OperationOutput<N> | null> {
     this.set({ busy: name });
     try {
-      const result = await this.run(call);
+      const result = await this.run(call, quiet);
       if (result !== null) {
         this.set({ error: null });
         this.refresh(readsAfter(name));

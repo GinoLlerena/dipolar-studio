@@ -25,7 +25,7 @@ from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.project import Project, short
 from dipolar_app.registry import Context
 from dipolar_app.scene import build_scene, check_camera, render_svg
-from dipolar_app.schemas import Angstrom, Degrees, Hertz, ObjectId, RunIdStr, Wire
+from dipolar_app.schemas import Angstrom, Degrees, Hertz, ObjectId, Revision, RunIdStr, Wire
 from dipolar_app.session import WORKSPACE, Camera, Event, SessionState
 
 MAX_HIGHLIGHTS = 1000
@@ -60,6 +60,9 @@ class Viewport(Wire):
 class SetCameraIn(Wire):
     camera: CameraIn | None  # null: fit the molecule in view automatically
     viewport: Viewport
+    # Optional (M3 step 2, round 42): refuse with REVISION_CONFLICT if the shared view moved on
+    # since the caller read it, so a delayed gesture never overwrites a newer camera.
+    expected_workspace_revision: Revision | None = None
 
 
 class SetCameraOut(Wire):
@@ -84,6 +87,15 @@ def view_set_camera(ctx: Context, p: SetCameraIn) -> SetCameraOut:
     viewport = (p.viewport.width, p.viewport.height)
 
     def plan(state: SessionState) -> tuple[list[Event], SetCameraOut]:
+        expected = p.expected_workspace_revision
+        if expected is not None and expected != state.workspace_revision:
+            raise OperationError(
+                ErrorCode.REVISION_CONFLICT,
+                "the shared view changed since the caller last read it",
+                offending_field="expected_workspace_revision",
+                hint="read the view again and move the camera from there",
+                details={"current_workspace_revision": state.workspace_revision},
+            )
         unchanged = state.view.camera == camera and state.view.viewport == viewport
         out = SetCameraOut(workspace_revision=state.workspace_revision + (not unchanged), automatic=camera is None)
         if unchanged:

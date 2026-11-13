@@ -541,7 +541,8 @@ def _register_view(registry: Registry) -> None:
             output_model=V.SetCameraOut,
             handler=V.view_set_camera,
             idempotent=True,
-            revision_check=absolute,
+            revision_check="optional expected_workspace_revision: a delayed gesture never overwrites a newer camera; "
+            "otherwise an absolute set of view state",
             examples=(
                 {"camera": None, "viewport": {"width": 800, "height": 600}},
                 {

@@ -32,6 +32,8 @@ const MAX_FIGURES = 16;
  * Never throws: decimals beyond what a double carries are capped at 20. */
 export function fixed(value: number, decimals: number): string {
   if (!Number.isFinite(value)) return nonFinite(value);
+  // toFixed switches to exponent notation at 1e21, which grouping would mangle (round 42).
+  if (Math.abs(value) >= 1e21) return scientific(value, 3);
   const places = Math.min(Math.max(decimals, 0), 20);
   const scaled = decimals < 0 ? Math.round(value / 10 ** -decimals) * 10 ** -decimals : value;
   const text = Math.abs(scaled).toFixed(places);
@@ -130,14 +132,18 @@ export function extent(values: Iterable<number>): [number, number] | null {
 
 /** Values with uncertainties shown side by side (a reconciliation's "now" and "after"): all at
  * one decimal place, the finest any of their uncertainties needs, and finer still when two
- * different values would otherwise read the same (round 41: one decimal hid 0.123 → 0.124). */
+ * different values or uncertainties would otherwise read the same (rounds 41–42). The full
+ * diff (CSV) has every value at full precision. */
 export function comparable(items: readonly ({ value: number; sigma: number } | null)[]): string[] {
   const present = items.filter((x): x is { value: number; sigma: number } => x !== null);
   let decimals = Math.max(0, ...present.map((x) => decimalsFor(x.sigma) ?? 0));
   const show = (d: number) =>
     items.map((x) => (x === null ? "—" : `${atPlace(x.value, d)} ± ${atPlace(x.sigma, d)}`));
-  const distinct = new Set(present.map((x) => x.value)).size;
-  while (decimals < 17 && new Set(present.map((x) => atPlace(x.value, decimals))).size < distinct) decimals += 1;
+  // Finer until different values, and different uncertainties, read differently (round 42); a
+  // place beyond MAX_FIXED is scientific notation, so the loop ends within a double's range.
+  const collide = (key: "value" | "sigma") =>
+    new Set(present.map((x) => atPlace(x[key], decimals))).size < new Set(present.map((x) => x[key])).size;
+  while (decimals < 400 && (collide("value") || collide("sigma"))) decimals += 1;
   return show(decimals);
 }
 

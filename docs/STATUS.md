@@ -1,6 +1,21 @@
 # Status
 
-**M3 step 1 (the Data and Fit workspaces) is done: tag `m3-step1`.** The browser page is now a
+**M3 step 2 (Structure view, couplings reconciliation, staleness by content) is done: tag
+`m3-step2`.**
+- **Staleness by content** (the owner's decision): a run is stale when the science differs from
+  its input by content; an undo that restores the exact input makes it current again
+  (ADR-0011 amendment; the coupling-ID allocator is excluded; derived on replay, never journaled).
+- **Structure view:** the shared scene in the browser with misfit arcs (colour and width),
+  selection, layers, and a camera committed once per gesture with `expected_workspace_revision`.
+- **Couplings CSV import in the browser:** keyboard mapping, collisions flagged, each pair's values
+  now and after, the full diff as CSV, and an import of exactly the mapping shown.
+- **Stricter numbers:** CSV values and XYZ coordinates must be plain ASCII decimals.
+
+Contract 0.7.0. Rounds 41 and 42 returned NOT READY (three and two class-(A) findings); all were
+fixed and mutation-checked; the round-42 fixes were not reviewed again, under the cap. See
+[round41-m3-step2.md](validation/round41-m3-step2.md).
+
+**M3 step 1 (the Data and Fit workspaces): tag `m3-step1`.** The browser page is now a
 working client:
 - it follows the change feed (`GET /api/v1/events`) instead of polling, and re-reads through
   registry operations;
@@ -201,28 +216,25 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: M3 step 2, or the owner's choice
+## Resume here: journal compaction, then interval warm starts
 
-**Stopping point: tag `m3-step1`.** Earlier stopping points: `m2-complete`, `m2-exit-audit`, and
-one tag per step before them. To resume:
+**Stopping point: tag `m3-step2`.** Earlier stopping points: `m3-step1`, `m2-complete`,
+`m2-exit-audit`, and one tag per step before them. To resume:
 
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 765 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 780 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
-   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)
+   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 37 web tests
    ```
 
-2. **The owner chooses** what comes next:
-   - **M3 step 2:** the minimal Structure view (the scene in the browser, misfit arcs) and
-     reconciliation of a couplings CSV (`couplings.reconcile`, `couplings.import`).
+2. **Next, as the owner chose (2026-11-13):**
    - **journal compaction:** snapshots that replay can verify, which bound the journal and the
-     request table (the remaining storage limit).
+     request table (the remaining storage limit);
    - **interval warm starts:** faster profile intervals; this needs a `FIT_VERSION` bump and a
-     gate (c) rerun.
-   - **owner decision:** should a run stay stale after an undo that restores its exact input?
-     Today staleness is by revision; by science hash it would become current again.
+     gate (c) rerun;
+   - then M3 step 3 (the proposal inbox and live preview) and step 4 (Playwright, performance).
 3. Work under the medium plan (below): at most two review rounds per step, a fresh session per
    step.
 4. **When the registry changes,** regenerate the snapshot, then run
@@ -868,6 +880,24 @@ See [round35-m2-step4.md](validation/round35-m2-step4.md).
   The page was driven by hand in Chromium against `dipolar serve`, including a second client's
   changes appearing live. Automated browser tests are M3 step 4.
 
+### Step 2: Structure view, reconciliation, staleness by content
+
+- **Staleness by content** (owner's decision after step 1): `project.content_hash` is the science
+  hash without `next_coupling_id`; a job's is derived when its submission is applied (on replay
+  too) and its run inherits it; `CurrentScience.is_stale` compares it, falling back to
+  `science_hash` when it could not be derived. `science_hash`, `input_hash` and journal hashes
+  are unchanged.
+- **Structure view** (`ui/StructureWorkspace.tsx`, `scene/view.ts`): `render.scene` is a page
+  resource; projection.ts draws it; misfit arcs; click and shift-click selection; layers; drag,
+  arrow keys, + and −, 0 to fit; `CameraCommits` commits once per gesture with
+  `expected_workspace_revision` (new, optional, on `view.set_camera`); moves stay within the
+  server's camera limits.
+- **Reconciliation** (`ui/ImportCouplings.tsx`, `reconcile.ts`): `PairOut.before`/`after` in the
+  contract; the import sends the exact mapping and revision of the diff shown.
+- **Formats:** strict ASCII decimals in CSV values and XYZ coordinates (and the atom count).
+- **Tests:** 780 Python, 37 web (formatter, feed, camera, reconciliation). Driven by hand in
+  Chromium, including a robot-set camera and import → undo making the run current again.
+
 ## The small batch (after M2)
 
 Housekeeping chosen by the owner after the M2 exit audit. It went through pull request #1, so that
@@ -915,6 +945,9 @@ the new Windows job could be brought to green before merging.
   lists Gino Llerena as the only author of Dipolar Studio. Marco Idrogo stays credited as
   co-author of the original 1998 thesis and *Proyecto* application: in the README credits and in
   the cited 1998 reference in `CITATION.cff`.
+- 2026-11-13: **Staleness is by content.** A run is current whenever the science equals its
+  input, so an undo that restores the exact input makes it current again (ADR-0011 amendment,
+  M3 step 2).
 
 ## Known minor issue
 

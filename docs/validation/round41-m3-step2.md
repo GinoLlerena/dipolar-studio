@@ -63,3 +63,36 @@ Mutation checks: the revision cancellation in `CameraCommits.observe`, the dolly
 server-limit guard, the own-property mapping and the distinguishing loop in `comparable` each
 make a test fail when broken. The re-check in `CameraCommits.fire` is a backstop behind
 `observe` (only reachable if a revision were never observed); breaking it alone fails no test.
+
+## Round 42: NOT READY (two A, two B), on commit d43f3ec
+
+The reviewer confirmed that "fit to view" supersedes pending commits, that StrictMode does not
+duplicate commits, that a drag after a remote camera update rebases and commits once, that
+prototype-like labels map correctly, that normal moves respect the bounds and that a 1 001-row
+CSV keeps every row at full precision. Content staleness, replay and the fallback showed no
+further defect. All checks passed (779 Python tests, 34 web tests, mypy, Ruff, codegen, type
+check, build, parity).
+
+| # | Class | Finding | Resolution |
+|---|---|---|---|
+| 1 | A | **A delayed camera commit could still overwrite a newer camera:** the pane watched only the scene's workspace revision, and the view and scene reads answer independently; `view.set_camera` had no precondition. | `view.set_camera` takes an optional **`expected_workspace_revision`** and refuses a stale camera with `REVISION_CONFLICT` (atomic, in the commit plan). Every gesture commit names the revision of the camera it was moved from; "fit to view" stays unconditional. `CameraCommits` also observes the newest revision from either read and never schedules or sends a camera moved from an older view; a refused commit is quiet and re-reads the view. Tests: `a camera from an older view is refused when the caller says so` (Python), `a camera moved from a view older than any response has shown is never sent` (web). Replayed in the browser. |
+| 2 | A | **The CSV formula guard missed labels starting with LF or a space.** | Every text cell that does not start with a letter or a digit is prefixed with an apostrophe. Test: LF, CR, tab, leading space, quotes and formula characters. |
+| 3 | B → partly fixed | `comparable` hid a change in σ alone, a change in a value near 1e-100, and mangled values ≥ 1e21. | It now separates differing uncertainties as well as values, down to a double's range; `fixed` writes values ≥ 1e21 in scientific notation. The full-precision CSV remains the complete record. |
+| 4 | B | Zoom resets deliberately set clipping planes to the molecule's extent. | Documented policy: the minimal Structure view frames depth automatically when zooming (it is what made the round-41 near-plane fix exact). A client that needs custom clipping sets the camera through `view.set_camera` and should not zoom in the browser afterwards. |
+
+Mutation checks: the server precondition, the two old-view guards in `CameraCommits`, the CSV
+text-cell rule and the σ comparison each make a test fail when broken. Under the cap, the round-42
+fixes were not reviewed again.
+
+## Known limits (B, documented)
+
+- **The default view of the template looks down the inter-ring axis**, so the biphenyl example
+  first appears small; one rotation gives the side view. A better automatic view direction
+  changes the server's camera and the parity fixtures; it is left for the Structure view's
+  later work.
+- **Zoom reframes the depth planes** (round 42, item 4).
+- **The diff table shows 200 rows per kind**; the CSV download has every pair.
+- **Content staleness falls back to the science hash** for a job whose content hash cannot be
+  derived (the recorded hash does not match the state it was applied to); then an undo across an
+  ID-allocating import leaves the run stale, as before this step.
+- The `CameraCommits.fire` re-check is a backstop behind `observe` and has no test of its own.

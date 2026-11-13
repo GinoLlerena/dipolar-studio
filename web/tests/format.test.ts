@@ -108,3 +108,13 @@ test("values compared side by side share a decimal place fine enough to show the
   assert.notEqual(a, b);
   assert.deepEqual(comparable([null, { value: 5, sigma: 0.5 }]), ["—", "5.0 ± 0.5"]);
 });
+
+test("a change in the uncertainty alone, or in a tiny value, still shows; huge values stay readable (round 42)", () => {
+  const [a, b] = comparable([{ value: 1, sigma: 0.101 }, { value: 1, sigma: 0.102 }]);
+  assert.notEqual(a, b);
+  const [c, d] = comparable([{ value: -1e-100, sigma: 1 }, { value: -1.01e-100, sigma: 1 }]);
+  assert.notEqual(c, d);
+  assert.equal(fixed(1e308, 2), "1.00 × 10³⁰⁸");
+  assert.ok(!comparable([{ value: 1e308, sigma: 1 }])[0]?.includes("e+"));
+  assert.deepEqual(comparable([{ value: 0, sigma: 0.5 }, { value: 0, sigma: 0.5 }]), ["0.0 ± 0.5", "0.0 ± 0.5"]);
+});

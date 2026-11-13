@@ -1,5 +1,5 @@
 // GENERATED FILE: do not edit. Regenerate with `uv run python tools/codegen/ts_contract.py`.
-// Source: packages/dipolar-app/registry.snapshot.json (sha256 633aebf7ffc67e1a94e0cc16dbc4f77a7cb4d1f0b3943ebd2c6d83dc2e4c1eb9).
+// Source: packages/dipolar-app/registry.snapshot.json (sha256 437169ae0d35eed85a62d6e607d46716e4272248076c786dbf0f3fe606f4de3e).
 // CI fails if this file is stale (tests/test_ts_contract.py).
 //
 // Value constraints that TypeScript cannot express (bounds, lengths, patterns) appear as doc
@@ -1090,6 +1090,8 @@ export type SelectOut = {
 /** `view.set_camera` input. */
 export type SetCameraIn = {
   camera: CameraIn | null;
+  /** default null */
+  expected_workspace_revision?: number | null;
   viewport: Viewport;
 };
 
@@ -1262,7 +1264,7 @@ export const OPERATIONS = {
   "run.list": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "view.highlight": { kind: "command", effect: "view", capability: "view_write", cost: "instant", idempotent: true, revision_check: "none: an absolute set of view state; never touches the science", max_request_bytes: 1048576, proposable: false },
   "view.select": { kind: "command", effect: "view", capability: "view_write", cost: "instant", idempotent: true, revision_check: "none: an absolute set; IDs are validated atomically and never reused", max_request_bytes: 1048576, proposable: false },
-  "view.set_camera": { kind: "command", effect: "view", capability: "view_write", cost: "instant", idempotent: true, revision_check: "none: an absolute set of view state; never touches the science", max_request_bytes: 1048576, proposable: false },
+  "view.set_camera": { kind: "command", effect: "view", capability: "view_write", cost: "instant", idempotent: true, revision_check: "optional expected_workspace_revision: a delayed gesture never overwrites a newer camera; otherwise an absolute set of view state", max_request_bytes: 1048576, proposable: false },
   "view.set_layers": { kind: "command", effect: "view", capability: "view_write", cost: "instant", idempotent: true, revision_check: "none: an absolute set of view state; never touches the science", max_request_bytes: 1048576, proposable: false },
 } as const satisfies Record<OperationName, unknown>;
 

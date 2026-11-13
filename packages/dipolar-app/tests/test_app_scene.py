@@ -144,6 +144,20 @@ def test_an_undo_across_a_couplings_import_also_makes_the_run_current_again(tmp_
     assert replayed.jobs[0].content_hash == replayed.content_hash
 
 
+def test_a_camera_from_an_older_view_is_refused_when_the_caller_says_so() -> None:
+    """Round 42: a gesture's delayed commit names the workspace revision it started from, so it
+    never overwrites a newer camera; without the precondition the set stays absolute."""
+    _, c = opened()
+    first = camera_args([20.0, 0.0, 0.0], [0.0, 0.0, 1.0])
+    assert ok(c.call("view.set_camera", {**first, "expected_workspace_revision": 0}))["workspace_revision"] == 1
+    late = camera_args([0.0, 20.0, 0.0], [0.0, 0.0, 1.0])
+    refused = error(c.call("view.set_camera", {**late, "expected_workspace_revision": 0}), "REVISION_CONFLICT")
+    assert refused["details"] == {"current_workspace_revision": 1}
+    scene = ok(c.call("render.scene"))
+    assert scene["workspace_revision"] == 1 and scene["camera"]["position"]["xyz"] == [20.0, 0.0, 0.0]
+    assert ok(c.call("view.set_camera", late))["workspace_revision"] == 2  # absolute without it
+
+
 def test_imported_geometry_has_bonds_and_atom_ids() -> None:
     c = client(new_session())
     ok(

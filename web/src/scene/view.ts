@@ -186,41 +186,47 @@ export function cameraOf(camera: SceneCamera): Camera {
 
 type Timers = { set: (fn: () => void, ms: number) => unknown; clear: (handle: unknown) => void };
 
-/** When a camera moved here is committed (round 41). A gesture's camera is sent once, after
- * `delay` ms of quiet or at once; it belongs to the workspace revision it started from, and is
- * dropped — never sent — when a newer revision arrives first (another client's move wins) or a
- * newer action supersedes it (another gesture, "fit to view"). */
+/** When a camera moved here is committed (rounds 41–42). A gesture's camera is sent once, after
+ * `delay` ms of quiet or at once, together with the workspace revision of the camera it started
+ * from; the server refuses it if the shared view has moved on (`expected_workspace_revision`).
+ * The page also drops it early, never sending it, when it learns of a newer revision from any
+ * response (the view and the scene are read separately) or a newer action supersedes it. */
 export class CameraCommits {
   private pending: { camera: Camera; revision: number; handle: unknown } | null = null;
-  private revision: number;
-  private readonly send: (camera: Camera | null) => void;
+  private newest: number;
+  private readonly send: (camera: Camera | null, revision: number | null) => void;
   private readonly timers: Timers;
 
   // No parameter properties: Node's type stripping (tests/view.test.ts) does not support them.
-  constructor(revision: number, send: (camera: Camera | null) => void, timers: Timers) {
-    this.revision = revision;
+  constructor(revision: number, send: (camera: Camera | null, revision: number | null) => void, timers: Timers) {
+    this.newest = revision;
     this.send = send;
     this.timers = timers;
   }
 
-  /** The shared view reached `revision`: a pending camera from an older one is dropped. */
+  /** A response showed the shared view at `revision`: a pending camera from an older one is
+   * dropped. Revisions only grow, so an older report changes nothing. */
   observe(revision: number): void {
-    if (revision === this.revision) return;
-    this.revision = revision;
-    if (this.pending && this.pending.revision !== revision) this.cancel();
+    if (revision <= this.newest) return;
+    this.newest = revision;
+    if (this.pending && this.pending.revision < revision) this.cancel();
   }
 
-  /** Commits `camera` after `delay` ms without another move. */
-  later(camera: Camera, delay: number): void {
+  /** Commits `camera`, moved from the camera shown at `revision`, after `delay` ms of quiet. A
+   * camera moved from an already superseded view is not even scheduled. */
+  later(camera: Camera, revision: number, delay: number): void {
     this.cancel();
+    if (revision < this.newest) return;
     const handle = this.timers.set(() => this.fire(), delay);
-    this.pending = { camera, revision: this.revision, handle };
+    this.pending = { camera, revision, handle };
   }
 
-  /** Commits `camera` (null: fit automatically) now, superseding anything pending. */
-  now(camera: Camera | null): void {
+  /** Commits now, superseding anything pending. `revision` null: unconditionally ("fit to view"
+   * moves from no earlier camera). */
+  now(camera: Camera | null, revision: number | null): void {
     this.cancel();
-    this.send(camera);
+    if (revision !== null && revision < this.newest) return;
+    this.send(camera, revision);
   }
 
   cancel(): void {
@@ -235,6 +241,6 @@ export class CameraCommits {
   private fire(): void {
     const pending = this.pending;
     this.pending = null;
-    if (pending && pending.revision === this.revision) this.send(pending.camera);
+    if (pending && pending.revision >= this.newest) this.send(pending.camera, pending.revision);
   }
 }

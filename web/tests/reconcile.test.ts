@@ -86,3 +86,21 @@ test("the full diff downloads as CSV, every pair at full precision, formulas def
       'added,"\'=cmd|""x""",spn_000003,spn_000004,,,-5,0.5\n',
   );
 });
+
+test("every label that does not start with a letter or digit is exported as text (round 42)", () => {
+  const v = { value: { value: 1 }, sigma: { value: 0.5 } };
+  const labels = ["\n=1+1&\"a–b\"", " =1+1", "\r=1", "\t=1", "+1", "-1", "@x", '"q"', "'x", "H2–H3", "1H–2H"];
+  const csv = diffCsv({
+    changed: [],
+    added: labels.map((label, k) => ({ label, spin_a: `spn_${String(k + 1).padStart(6, "0")}`, spin_b: "spn_000099", before: null, after: v })),
+    removed: [],
+    unchanged: [],
+  });
+  const cells = labels.map((label) => {
+    const safe = /^[\p{L}\p{N}]/u.test(label) ? label : `'${label}`;
+    return `"${safe.replaceAll('"', '""')}"`;
+  });
+  for (const [k, label] of labels.entries()) assert.ok(csv.includes(`added,${cells[k]},`), JSON.stringify(label));
+  assert.ok(csv.includes('added,"\'\n=1+1&""a–b""",'));
+  assert.ok(csv.includes('added,"H2–H3",') && csv.includes('added,"1H–2H",'));
+});
