@@ -1,5 +1,5 @@
 {
-  "contract_version": "0.6.0",
+  "contract_version": "0.7.0",
   "envelopes": {
     "error": {
       "$defs": {
@@ -834,9 +834,49 @@
       "name": "couplings.reconcile",
       "output_schema": {
         "$defs": {
+          "Hertz": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Hz",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Hertz",
+            "type": "object"
+          },
           "PairOut": {
             "additionalProperties": false,
             "properties": {
+              "after": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/PairValues"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "before": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/PairValues"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "label": {
                 "title": "Label",
                 "type": "string"
@@ -855,9 +895,28 @@
             "required": [
               "spin_a",
               "spin_b",
-              "label"
+              "label",
+              "before",
+              "after"
             ],
             "title": "PairOut",
+            "type": "object"
+          },
+          "PairValues": {
+            "additionalProperties": false,
+            "properties": {
+              "sigma": {
+                "$ref": "#/$defs/Hertz"
+              },
+              "value": {
+                "$ref": "#/$defs/Hertz"
+              }
+            },
+            "required": [
+              "value",
+              "sigma"
+            ],
+            "title": "PairValues",
             "type": "object"
           }
         },
@@ -6958,6 +7017,20 @@
               }
             ]
           },
+          "expected_workspace_revision": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expected Workspace Revision"
+          },
           "viewport": {
             "$ref": "#/$defs/Viewport"
           }
@@ -6992,7 +7065,7 @@
         "type": "object"
       },
       "proposable": false,
-      "revision_check": "none: an absolute set of view state; never touches the science",
+      "revision_check": "optional expected_workspace_revision: a delayed gesture never overwrites a newer camera; otherwise an absolute set of view state",
       "summary": "Set the shared camera (a perspective camera in Å) and viewport; camera null fits the molecule automatically."
     },
     {

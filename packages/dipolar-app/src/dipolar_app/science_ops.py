@@ -36,6 +36,7 @@ from pydantic import Field
 from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.formats import (
     FormatError,
+    ImportDiff,
     apply_import,
     dumps_project,
     loads_project,
@@ -802,10 +803,19 @@ def set_torsion(ctx: Context, p: SetTorsionIn) -> SetTorsionOut:
 
 
 # --------------------------------------------------------------------------- couplings.reconcile / couplings.import
+class PairValues(Wire):
+    value: Hertz
+    sigma: Hertz
+
+
 class PairOut(Wire):
     spin_a: SpinId
     spin_b: SpinId
     label: str
+    # What the project has for this pair (null when it is new) and what the import would set
+    # (null when the import removes it), so a wrong mapping shows as a wrong value (M3 step 2).
+    before: PairValues | None
+    after: PairValues | None
 
 
 class ReconcileIn(Wire):
@@ -825,12 +835,25 @@ class ReconcileOut(Science):
     ignored_columns: tuple[str, ...]
 
 
-def _pairs(project: Project, keys: tuple[tuple[str, str], ...]) -> tuple[PairOut, ...]:
+def _pairs(project: Project, keys: tuple[tuple[str, str], ...], diff: ImportDiff) -> tuple[PairOut, ...]:
     def label(i: str) -> str:
         s = project.spin(i)
         return short(s.label) if s else i
 
-    return tuple(PairOut(spin_a=a, spin_b=b, label=f"{label(a)}–{label(b)}") for a, b in keys)
+    current = {(min(c.spin_a, c.spin_b), max(c.spin_a, c.spin_b)): c for c in project.couplings}
+
+    def before(key: tuple[str, str]) -> PairValues | None:
+        c = current.get((min(key), max(key)))
+        return None if c is None else PairValues(value=c.value, sigma=c.sigma)
+
+    def after(key: tuple[str, str]) -> PairValues | None:
+        row = diff.incoming.get(key)
+        return None if row is None else PairValues(value=hz(row.value_hz), sigma=hz(row.sigma_hz))
+
+    return tuple(
+        PairOut(spin_a=a, spin_b=b, label=f"{label(a)}–{label(b)}", before=before((a, b)), after=after((a, b)))
+        for a, b in keys
+    )
 
 
 def couplings_reconcile(ctx: Context, p: ReconcileIn) -> ReconcileOut:
@@ -848,10 +871,10 @@ def couplings_reconcile(ctx: Context, p: ReconcileIn) -> ReconcileOut:
         unmatched_labels=diff.unmatched_labels,
         unresolved_pairs=diff.unresolved_pairs,
         complete=not diff.unmatched_labels and not diff.unresolved_pairs,
-        added=_pairs(project, diff.added),
-        removed=_pairs(project, diff.removed),
-        changed=_pairs(project, diff.changed),
-        unchanged=_pairs(project, diff.unchanged),
+        added=_pairs(project, diff.added, diff),
+        removed=_pairs(project, diff.removed, diff),
+        changed=_pairs(project, diff.changed, diff),
+        unchanged=_pairs(project, diff.unchanged, diff),
         ignored_columns=table.ignored_columns,
     )
 

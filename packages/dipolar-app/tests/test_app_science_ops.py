@@ -312,6 +312,13 @@ def test_reconcile_changes_nothing_and_import_keeps_ids() -> None:
     diff = ok(c.call("couplings.reconcile", {"csv": csv}))
     assert diff["complete"] and [p["label"] for p in diff["added"]] == ["H5–H6"]
     assert len(diff["removed"]) == 13 and len(diff["changed"]) == 1
+    # Each pair shows what the project has and what the import would set (M3 step 2).
+    old_h2h3 = next(x for x in d["couplings"] if x["label"] == "H2–H3")
+    changed = diff["changed"][0]
+    assert changed["label"] == "H2–H3" and changed["before"] == {"value": old_h2h3["value"], "sigma": old_h2h3["sigma"]}
+    assert changed["after"] == {"value": {"value": -1124.6, "unit": "Hz"}, "sigma": {"value": 0.5, "unit": "Hz"}}
+    assert diff["added"][0]["before"] is None and diff["added"][0]["after"]["value"]["value"] == -1124.6
+    assert all(x["after"] is None and x["before"] is not None for x in diff["removed"])
     assert ok(c.call("project.describe")) == d  # a query
     h2h3 = next(x["id"] for x in d["couplings"] if x["label"] == "H2–H3")
     r = ok(

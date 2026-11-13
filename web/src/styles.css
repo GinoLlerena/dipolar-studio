@@ -776,6 +776,188 @@ tr.selected:hover {
   pointer-events: none;
 }
 
+/* ------------------------------------------------------------------ structure view */
+.scene-box {
+  width: 100%;
+  height: clamp(320px, 56vh, 760px);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.scene {
+  display: block;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.scene:active {
+  cursor: grabbing;
+}
+
+.scene:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.scene-bond {
+  stroke: var(--ink-3);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.arc {
+  fill: none;
+  stroke-linecap: round;
+  cursor: pointer;
+}
+
+.arc.m0 {
+  stroke: var(--m0);
+}
+.arc.m1 {
+  stroke: var(--m1);
+}
+.arc.m2 {
+  stroke: var(--m2);
+}
+.arc.m3 {
+  stroke: var(--m3);
+}
+.arc.m4 {
+  stroke: var(--m4);
+}
+.arc.m5 {
+  stroke: var(--m5);
+}
+
+.arc-none {
+  stroke: var(--line-2);
+  stroke-dasharray: 4 3;
+}
+
+.arc.is-selected {
+  stroke: var(--ink);
+}
+
+.arc.is-highlighted {
+  stroke-dasharray: 1 3;
+}
+
+.atom {
+  stroke: var(--ink-2);
+  stroke-width: 1;
+  cursor: pointer;
+}
+
+.atom-h {
+  fill: var(--surface);
+}
+
+.atom-heavy {
+  fill: var(--ink-3);
+  cursor: default;
+}
+
+.atom.is-selected {
+  stroke: var(--ink);
+  stroke-width: 3;
+}
+
+.atom.is-highlighted {
+  fill: var(--sel-bg);
+  stroke-dasharray: 2 2;
+}
+
+.atom-label {
+  fill: var(--ink-2);
+  font-size: var(--t-xs);
+  pointer-events: none;
+}
+
+.legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.misfit-chip {
+  display: inline-block;
+  min-width: 2.5em;
+  padding: 0 var(--s1);
+  border-radius: var(--r-sm);
+  border-left: 6px solid var(--line-2);
+}
+
+.misfit-chip.m0 {
+  border-left-color: var(--m0);
+}
+.misfit-chip.m1 {
+  border-left-color: var(--m1);
+}
+.misfit-chip.m2 {
+  border-left-color: var(--m2);
+}
+.misfit-chip.m3 {
+  border-left-color: var(--m3);
+}
+.misfit-chip.m4 {
+  border-left-color: var(--m4);
+}
+.misfit-chip.m5 {
+  border-left-color: var(--m5);
+}
+
+.selection-list {
+  list-style: none;
+  margin: 0 0 var(--s2);
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.layers {
+  display: flex;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+
+/* ------------------------------------------------------------------ couplings import */
+.warn-text {
+  color: var(--warn-ink);
+}
+
+.scroll.short {
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.pane-body h3 {
+  font-size: var(--t-md);
+  margin: var(--s3) 0 var(--s1);
+}
+
+.pane-body details {
+  margin: var(--s2) 0;
+}
+
+.pane-body summary {
+  cursor: pointer;
+  color: var(--ink-2);
+}
+
 /* ------------------------------------------------------------------ launch page */
 .launch {
   max-width: 44rem;
@@ -796,6 +978,15 @@ tr.selected:hover {
   .resbar-bar,
   .plot-point {
     fill: CanvasText;
+  }
+  .arc {
+    stroke: CanvasText;
+  }
+  .arc-none {
+    stroke: GrayText;
+  }
+  .misfit-chip {
+    border-left-color: CanvasText;
   }
   .chip-icon {
     forced-color-adjust: none;

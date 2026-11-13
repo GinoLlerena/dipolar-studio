@@ -163,6 +163,18 @@ def science_hash(project: Project | None) -> str:
     return payload_hash(None if project is None else project.model_dump(mode="json"))
 
 
+def content_hash(project: Project | None) -> str:
+    """The science content alone, for staleness: ``science_hash`` without the coupling-ID
+    allocator. The allocator is bookkeeping that never reaches a fit, and undo deliberately keeps
+    it advanced (a coupling ID is never handed out twice), so an undo that restores a run's exact
+    input restores this hash, though not ``science_hash`` (M3 step 2, the owner's decision)."""
+    if project is None:
+        return payload_hash(None)
+    payload = project.model_dump(mode="json")
+    payload.pop("next_coupling_id", None)
+    return payload_hash(payload)
+
+
 def payload_hash(project_payload: dict[str, Any] | None) -> str:
     """``science_hash`` of a stored project payload as it was written, at any schema version."""
     payload = {"numerical_context": numerical_context(), "project": project_payload}

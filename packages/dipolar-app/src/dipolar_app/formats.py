@@ -50,6 +50,11 @@ REQUIRED_COLUMNS: Final = ("spin_a", "spin_b", "D_obs_Hz", "sigma_Hz")
 OPTIONAL_COLUMNS: Final = ("sigma_source", "multiplicity", "equivalent_pairs", "observable", "unit")
 ELEMENTS: Final = frozenset({"H", "D", "C", "N", "O", "F", "P", "S", "Cl", "Br", "I"})
 
+# A plain decimal number in ASCII (M3 step 2): float() alone also accepts "1_000", Unicode digits,
+# "inf" and "nan". A decimal comma ("1,5") is never guessed: in this comma-separated format it
+# splits the field, and the row is refused.
+_DECIMAL = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
+
 
 class FormatError(ValueError):
     """A file that does not follow its format; the message names the line or row."""
@@ -69,10 +74,10 @@ def parse_xyz(text: str) -> XyzMolecule:
         lines.pop()
     if len(lines) < 2:
         raise FormatError("line 1: an XYZ file needs an atom count and a comment line")
-    try:
-        n = int(lines[0].strip())
-    except ValueError:
-        raise FormatError(f"line 1: the atom count must be an integer, got {lines[0].strip()!r}") from None
+    count = lines[0].strip()
+    if not re.fullmatch(r"[0-9]{1,9}", count):
+        raise FormatError(f"line 1: the atom count must be an integer, got {count!r}")
+    n = int(count)
     if not 1 <= n <= MAX_ATOMS:
         raise FormatError(f"line 1: the atom count must be between 1 and {MAX_ATOMS}, got {n}")
     if len(lines) != n + 2:
@@ -85,10 +90,9 @@ def parse_xyz(text: str) -> XyzMolecule:
         element = fields[0]
         if element not in ELEMENTS:
             raise FormatError(f"line {number}: unsupported element {element!r}; supported: {sorted(ELEMENTS)}")
-        try:
-            xyz = tuple(float(v) for v in fields[1:])
-        except ValueError:
-            raise FormatError(f"line {number}: coordinates must be numbers, got {fields[1:]}") from None
+        if not all(_DECIMAL.fullmatch(v) for v in fields[1:]):
+            raise FormatError(f"line {number}: coordinates must be plain decimal numbers, got {fields[1:]}")
+        xyz = tuple(float(v) for v in fields[1:])
         if not all(math.isfinite(v) for v in xyz):
             raise FormatError(f"line {number}: coordinates must be finite")
         elements.append(element)
@@ -116,10 +120,10 @@ class CouplingTable:
 
 
 def _number(text: str, what: str, row: int) -> float:
-    try:
-        value = float(text)
-    except ValueError:
-        raise FormatError(f"row {row}: {what} must be a number, got {text!r}") from None
+    stripped = text.strip(" \t")
+    if not _DECIMAL.fullmatch(stripped):
+        raise FormatError(f"row {row}: {what} must be a plain decimal number (digits and a point), got {text!r}")
+    value = float(stripped)
     if not math.isfinite(value):
         raise FormatError(f"row {row}: {what} must be finite")
     return value
@@ -204,6 +208,9 @@ class ImportDiff:
     removed: tuple[tuple[str, str], ...] = ()  # pairs present now and absent from the import
     changed: tuple[tuple[str, str], ...] = ()  # pairs whose value, σ or source differs
     unchanged: tuple[tuple[str, str], ...] = ()
+    # The imported row of each incoming pair (added, changed and unchanged), so a preview can show
+    # what the import would set next to what the project has (M3 step 2).
+    incoming: Mapping[tuple[str, str], CouplingRow] = field(default_factory=dict, repr=False)
     table: CouplingTable | None = field(default=None, repr=False)
 
 
@@ -314,6 +321,7 @@ def reconcile(table: CouplingTable, project: Project, mapping: Mapping[str, str]
         changed=tuple(changed),
         unchanged=tuple(unchanged),
         table=table,
+        incoming=incoming,
     )
 
 

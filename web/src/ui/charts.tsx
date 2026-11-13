@@ -1,16 +1,10 @@
 import type { FittedCoupling } from "../api";
 import { extent, fixed } from "../format";
+import { misfitStep } from "../scene/view";
 import { strings } from "../strings";
 
 // Results charts (ui-design §4). Colour comes from CSS classes (the misfit ramp m0–m5), so both
 // themes and forced-colours mode style them; every chart has a table with the same numbers.
-
-/** The misfit step (0–5) for |residual|/σ: the same ramp as the arcs in the structure view. */
-export function misfitStep(normalized: number): number {
-  const z = Math.abs(normalized);
-  if (!Number.isFinite(z)) return 5;
-  return z < 0.5 ? 0 : z < 1 ? 1 : z < 1.5 ? 2 : z < 2 ? 3 : z < 3 ? 4 : 5;
-}
 
 const BAR_W = 96;
 const BAR_H = 12;

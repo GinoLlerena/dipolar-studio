@@ -31,9 +31,9 @@ test("what each feed line makes the page read again", () => {
   assert.deepEqual(refreshFor({ kind: "job", cursor: 7, job_id: "job_000001", status: "running" }), ["jobs"]);
   const commit = (domains: ("science" | "workspace" | "proposal" | "job")[]) =>
     refreshFor({ kind: "commit", cursor: 8, seq: 2, operation: "x", actor: "user", revisions, domains, jobs: [] });
-  assert.deepEqual(commit(["workspace"]), ["view"]);
-  assert.deepEqual(commit(["science", "workspace"]), ["view", "project", "history", "runs", "jobs"]);
-  assert.deepEqual(commit(["job"]), ["view", "runs", "jobs"]);
+  assert.deepEqual(commit(["workspace"]), ["view", "scene"]);
+  assert.deepEqual(commit(["science", "workspace"]), ["view", "project", "history", "runs", "jobs", "scene"]);
+  assert.deepEqual(commit(["job"]), ["view", "runs", "jobs", "scene"]);
   assert.deepEqual(commit(["proposal"]), []);
 });
 
