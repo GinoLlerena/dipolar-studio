@@ -380,7 +380,16 @@ def test_an_exact_optimum_with_a_large_misfit_is_converged() -> None:
     q = problem(lambda x: (a + x[0] * b)[:, None], list(a + 1000 * n), [-1.0], [1.0])
     result = fit(q)
     assert result.validity.converged and result.validity.regular and result.nu == 2
-    assert result.chi2 == pytest.approx(1e6, rel=1e-12) and abs(result.theta[0]) < 1e-9
+    # The position the convergence certificate guarantees (``_converged``): χ² resolved to
+    # DECREMENT_ATOL + ATTAINABLE_FACTOR·tolerance·χ², and χ² rises by |b⊥|²·x² from the optimum,
+    # where b⊥ is b's part orthogonal to a. A fixed 1e-9 held on one BLAS and not on Windows' (small
+    # batch); the certificate's bound holds on every platform.
+    from dipolar_core.fit import ATTAINABLE_FACTOR, DECREMENT_ATOL, Settings
+
+    b_perp = b - (a @ b) / (a @ a) * a
+    resolution = DECREMENT_ATOL + ATTAINABLE_FACTOR * Settings().tolerance * 1e6
+    assert result.chi2 == pytest.approx(1e6, rel=1e-12)
+    assert abs(result.theta[0]) <= np.sqrt(resolution / (b_perp @ b_perp))
     assert result.p_value is not None and result.p_value < 1e-100  # adequacy says "inadequate", separately
 
 
