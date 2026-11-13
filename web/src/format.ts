@@ -22,10 +22,17 @@ function nonFinite(value: number): string {
   return value > 0 ? "∞" : `${MINUS}∞`;
 }
 
-/** `value` to a fixed number of decimals; negative `decimals` round to tens, hundreds, … */
+/** Beyond this many decimals a value is written in scientific notation (round 40: σ ≈ 1e-102
+ * asked toFixed for 103 places, which throws). */
+export const MAX_FIXED = 12;
+/** Significant figures a double shows without noise in the last digit. */
+const MAX_FIGURES = 16;
+
+/** `value` to a fixed number of decimals; negative `decimals` round to tens, hundreds, …
+ * Never throws: decimals beyond what a double carries are capped at 20. */
 export function fixed(value: number, decimals: number): string {
   if (!Number.isFinite(value)) return nonFinite(value);
-  const places = Math.max(decimals, 0);
+  const places = Math.min(Math.max(decimals, 0), 20);
   const scaled = decimals < 0 ? Math.round(value / 10 ** -decimals) * 10 ** -decimals : value;
   const text = Math.abs(scaled).toFixed(places);
   const [whole = "0", fraction] = text.split(".");
@@ -60,10 +67,20 @@ export function decimalsFor(sigma: number): number | null {
   return digits[0] === "1" || digits[0] === "2" ? two : at(1)[0];
 }
 
-/** "39.60 ± 0.03"; without a usable uncertainty, the value at `fallbackDecimals`. */
+/** `value` rounded to the given decimal place: fixed notation up to MAX_FIXED decimals, then
+ * scientific with the significant figures that place implies (at most 16). */
+export function atPlace(value: number, decimals: number): string {
+  if (decimals <= MAX_FIXED || !Number.isFinite(value)) return fixed(value, decimals);
+  const exponent = value === 0 ? 0 : Math.floor(Math.log10(Math.abs(value)));
+  return scientific(value, Math.min(Math.max(exponent + decimals + 1, 1), MAX_FIGURES));
+}
+
+/** "39.60 ± 0.03"; without a usable uncertainty, the value at `fallbackDecimals`. A tiny
+ * uncertainty stays visible and nonzero: "36.98502906869832 ± 1.6 × 10⁻¹⁰²". */
 export function withUncertainty(value: number, sigma: number | null | undefined, fallbackDecimals: number): string {
   const decimals = sigma == null ? null : decimalsFor(sigma);
   if (decimals === null || sigma == null || !Number.isFinite(value)) return fixed(value, fallbackDecimals);
+  if (decimals > MAX_FIXED) return `${atPlace(value, decimals)} ± ${scientific(sigma, 2)}`;
   return `${fixed(value, decimals)} ± ${fixed(sigma, decimals)}`;
 }
 
@@ -71,7 +88,7 @@ export function withUncertainty(value: number, sigma: number | null | undefined,
  * uncertainty is quoted to tens or more (no decimal place to attach it to). */
 export function compact(value: number, sigma: number | null | undefined, fallbackDecimals: number): string {
   const decimals = sigma == null ? null : decimalsFor(sigma);
-  if (decimals === null || decimals <= 0 || sigma == null || !Number.isFinite(value)) {
+  if (decimals === null || decimals <= 0 || decimals > MAX_FIXED || sigma == null || !Number.isFinite(value)) {
     return withUncertainty(value, sigma, fallbackDecimals);
   }
   return `${fixed(value, decimals)}(${Math.round(sigma * 10 ** decimals)})`;

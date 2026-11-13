@@ -1,5 +1,20 @@
 # Status
 
+**M3 step 1 (the Data and Fit workspaces) is done: tag `m3-step1`.** The browser page is now a
+working client:
+- it follows the change feed (`GET /api/v1/events`) instead of polling, and re-reads through
+  registry operations;
+- the Data workspace opens, loads, imports and exports projects, edits the model and the torsion,
+  and lists couplings and spins with shared selection;
+- the Fit workspace runs fits as jobs (with cancel), lists jobs and runs with stale badges, and
+  shows each run's estimates, intervals, quality, validity and residuals;
+- the status bar keeps convergence, adequacy, identifiability and admissibility separate.
+
+Feed lines are part of the contract (0.6.0). Rounds 39 and 40 returned NOT READY (five and one
+class-(A) findings). All were fixed and mutation-checked, except two store fixes that need a
+browser test (M3 step 4); the round-40 fix was not reviewed again, under the cap. See "M3" below
+and [round39-m3-step1.md](validation/round39-m3-step1.md).
+
 **The M2 exit audit passed: tag `m2-exit-audit`.** Rounds 37 and 38 (three and two class-(A) findings, all about overstated evidence) were fixed; the round-38 fixes were not reviewed again, under the cap. Every M2 exit criterion and every 04 §7 and
 §8.6 check maps to a passing test, with the deviations recorded (SVG instead of PNG; the Python
 adapter's path stands in for the UI's until M3). The benchmark is published, and the robot now
@@ -186,32 +201,37 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: M3 (browser beta), or the owner's choice
+## Resume here: M3 step 2, or the owner's choice
 
-**Stopping point: tag `m2-complete`.** Earlier stopping points: `m1-complete`, `m2-step1`,
-`m2-step1b`, `m2-step2`, `m2-step3`, `m2-step4`. To resume:
+**Stopping point: tag `m3-step1`.** Earlier stopping points: `m2-complete`, `m2-exit-audit`, and
+one tag per step before them. To resume:
 
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 753 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 765 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
-   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity)
+   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)
    ```
 
 2. **The owner chooses** what comes next:
-   - **M3 step 1:** the Data and Fit workspaces in the browser, on the generated client and the
-     event stream.
+   - **M3 step 2:** the minimal Structure view (the scene in the browser, misfit arcs) and
+     reconciliation of a couplings CSV (`couplings.reconcile`, `couplings.import`).
    - **journal compaction:** snapshots that replay can verify, which bound the journal and the
      request table (the remaining storage limit).
    - **interval warm starts:** faster profile intervals; this needs a `FIT_VERSION` bump and a
      gate (c) rerun.
+   - **owner decision:** should a run stay stale after an undo that restores its exact input?
+     Today staleness is by revision; by science hash it would become current again.
 3. Work under the medium plan (below): at most two review rounds per step, a fresh session per
    step.
 4. **When the registry changes,** regenerate the snapshot, then run
    `uv run python tools/codegen/ts_contract.py`, and commit both.
 5. **When the registry changes and a command is proposable,** a proposal re-runs its handler up
    to the commit (`capture_plan`). Keep handlers free of side effects before `ctx.commit`.
+6. **To see the page,** build it (`cd web && pnpm run build`), run
+   `uv run dipolar serve --project-dir <dir> --static-dir web/dist`, then
+   `uv run dipolar open --project-dir <dir>`.
 
 The outline below was written before step 3.
 
@@ -817,6 +837,36 @@ fixed and mutation-checked; the round-36 fixes were not reviewed again, under th
 - the fit's adequacy, regularity and admissibility in `describe_view`.
 
 See [round35-m2-step4.md](validation/round35-m2-step4.md).
+
+## M3, the browser beta: in progress
+
+### Step 1: the Data and Fit workspaces
+
+- **Change feed in the browser.** `api.ts` streams `GET /api/v1/events` with the tab's bearer
+  token (an authenticated fetch, D10). `feed.ts` splits and parses the lines and maps each to the
+  reads it invalidates. Every (re)connection reads everything; a watchdog reopens a silent stream,
+  and reconnection backs off from 0.5 s to 10 s. The 2-second polling is gone.
+- **Feed lines are typed.** `FeedItem` (hello, commit, job, ping, resync) is in the registry
+  snapshot as `envelopes.event` and generated into `contract.ts`; contract 0.6.0. Tests validate
+  every line the feed and the HTTP stream send.
+- **The store** (`studio.ts`) reads only through registry operations. Reads are coalesced per
+  resource, and a response older than the newest revision seen is dropped and read again (D11).
+- **Data workspace:** open the example, load and export `*.dipolar.json`, import XYZ; readiness;
+  geometry, with the torsion form for imported geometry; the model inspector; couplings and
+  spins tables, whose rows select in the shared view (mouse or keyboard).
+- **Fit workspace:** run a fit as a job (optionally with intervals), cancel it; jobs and runs with
+  stale badges; per run, estimates ± standard error, profile intervals, quality, validity, other
+  minima and numerical context; residuals with diverging bars on a fixed ±3σ scale; the
+  observed-vs-calculated plot; a preview at a fixed torsion.
+- **Status bar:** convergence, adequacy, identifiability (a server verdict, new in the fit
+  summary) and admissibility are separate icon-and-label chips, with "Not a regular optimum" when
+  it applies. A stale run shows only its stale badge.
+- **Formatting** (`format.ts`, ui-design §5): uncertainty to 1–2 significant figures, the value
+  rounded to the same place, the true minus sign, thin-space thousands, scientific notation for
+  tiny uncertainties.
+- **Tests:** `pnpm test` (Node's test runner) covers the formatter and the feed helpers, in CI.
+  The page was driven by hand in Chromium against `dipolar serve`, including a second client's
+  changes appearing live. Automated browser tests are M3 step 4.
 
 ## The small batch (after M2)
 

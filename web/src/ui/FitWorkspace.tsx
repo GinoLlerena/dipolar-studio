@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { callOperation, type FitRunOut, type FittedCoupling, type NamedValue, type PreviewOut, type RunOut } from "../api";
-import { decimalsFor, fixed, hz, pValue, residualHz, scientific, signed, withUncertainty } from "../format";
+import { atPlace, decimalsFor, fixed, hz, pValue, residualHz, scientific, signed, withUncertainty } from "../format";
 import { strings } from "../strings";
 import type { Studio, StudioState } from "../studio";
 import { ObsCalcPlot, ResidualBar } from "./charts";
@@ -214,7 +214,7 @@ function RunDetail({ studio, state, run, result }: Props & { run: RunOut; result
           </td>
           <td className="num">
             {interval?.supported && interval.lower !== null && interval.upper !== null
-              ? `[${fixed(interval.lower, places + 1)}, ${fixed(interval.upper, places + 1)}]${unitOf(v.name)}`
+              ? `[${atPlace(interval.lower, places + 1)}, ${atPlace(interval.upper, places + 1)}]${unitOf(v.name)}`
               : interval
                 ? <span className="muted" title={interval.note}>{strings.intervalUnsupported}</span>
                 : "—"}

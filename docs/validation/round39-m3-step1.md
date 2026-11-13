@@ -36,6 +36,20 @@ Fixes 1, 2 and 5 were mutation-checked: breaking each makes its test fail. Fixes
 `studio.ts`, which needs a browser. Their automated coverage arrives with the Playwright suite in
 M3 step 4.
 
+## Round 40: NOT READY (one A), on commit 3624ce4
+
+The reviewer confirmed that all five round-39 fixes resolve their findings. Further store checks
+confirmed delayed-read rejection, bounded retries and recovery from a failed result read. The web
+type check, the 14 web tests, the production build, the boundary tests and the contract check
+passed.
+
+| # | Class | Finding | Resolution |
+|---|---|---|---|
+| 1 | A | **A valid fit could crash the Fit workspace.** With every σ set to 1e-100 Hz the fit is regular and φ has a standard error of 1.6e-102, so `decimalsFor` asked `toFixed` for 103 places, which throws. | Beyond 12 decimals, values are written in scientific notation, to the significant figures the uncertainty implies (at most 16, the digits a double shows without noise). The uncertainty stays nonzero (`36.98502906869832 ± 1.6 × 10⁻¹⁰²`). Interval endpoints use the same rule (`atPlace`). `fixed` caps its decimals and can no longer throw. Test: `a tiny but valid uncertainty never crashes and stays nonzero`. |
+
+The fix was mutation-checked: removing the scientific branch makes the test fail. Under the cap,
+the round-40 fix was not reviewed again.
+
 ## Known limits (B, documented)
 
 - **Staleness is by revision, not content.** A run stays stale after an undo that restores

@@ -1,7 +1,7 @@
 // The display formatter (ui-design §5). Run with `pnpm test` (Node's test runner, types stripped).
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { compact, decimalsFor, extent, fixed, MINUS, pValue, scientific, signed, withUncertainty } from "../src/format.ts";
+import { atPlace, compact, decimalsFor, extent, fixed, MINUS, pValue, scientific, signed, withUncertainty } from "../src/format.ts";
 
 const N = " "; // the thousands separator
 
@@ -78,4 +78,17 @@ test("extent copes with the 100 000-coupling limit and skips non-finite values (
   assert.deepEqual(extent(many), [-50_000, 149_999]);
   assert.deepEqual(extent([3, Number.NaN, -2, Number.POSITIVE_INFINITY]), [-2, 3]);
   assert.equal(extent([]), null);
+});
+
+test("a tiny but valid uncertainty never crashes and stays nonzero (round 40)", () => {
+  const sigma = 1.6395402920085017e-102; // σ = 1e-100 Hz on every coupling: a regular fit
+  assert.equal(decimalsFor(sigma), 103);
+  assert.equal(withUncertainty(36.98502906869832, sigma, 2), "36.98502906869832 ± 1.6 × 10⁻¹⁰²");
+  assert.equal(compact(36.98502906869832, sigma, 2), "36.98502906869832 ± 1.6 × 10⁻¹⁰²");
+  assert.equal(atPlace(36.98502906869832, 103), "36.98502906869832"); // an interval endpoint
+  assert.equal(atPlace(0.25, 103), "0.2500000000000000");
+  assert.equal(atPlace(1.5e-90, 103), "1.5000000000000 × 10⁻⁹⁰");
+  assert.equal(atPlace(39.6, 2), "39.60");
+  assert.doesNotThrow(() => fixed(1, 400));
+  assert.equal(withUncertainty(1, 1e-300, 2).endsWith("× 10⁻³⁰⁰"), true);
 });
