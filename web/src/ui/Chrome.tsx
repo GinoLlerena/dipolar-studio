@@ -130,7 +130,12 @@ export function StatusBar({ state }: { state: StudioState }) {
           <Chip tone={fit.adequate === null ? "neutral" : fit.adequate ? "good" : "warn"}>
             {adequacyLabel(fit.adequate, fit.p_value)}
           </Chip>
-          <Chip tone={fit.regular ? "good" : "warn"}>{strings.identifiability(fit.regular)}</Chip>
+          <Chip tone={fit.identifiable ? "good" : "warn"}>{strings.identifiability(fit.identifiable)}</Chip>
+          {!fit.regular && (
+            <Chip tone="warn" title={strings.notRegularHelp}>
+              {strings.flag.regular[1]}
+            </Chip>
+          )}
           <Chip tone={fit.physically_admissible === null ? "neutral" : fit.physically_admissible ? "good" : "crit"}>
             {strings.admissible(fit.physically_admissible)}
           </Chip>

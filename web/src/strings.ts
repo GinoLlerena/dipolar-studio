@@ -107,7 +107,8 @@ export const strings = {
   staleHelp: "The project changed after this fit; its numbers describe an earlier revision.",
   current: "Current",
   loadingRun: "Loading the run…",
-  runUnavailable: "This run's stored result is not available.",
+  runUnavailable: "This run's stored result could not be read.",
+  retry: "Retry",
   parameters: "Parameters",
   colParameter: "Parameter",
   colEstimate: "Estimate ± standard error",
@@ -165,7 +166,9 @@ export const strings = {
   convergence: { true: "Converged", false: "Not converged" },
   adequacy: (adequate: boolean | null, p: string) =>
     adequate === null ? "Adequacy not assessed" : adequate ? `Adequate (p ${p})` : `Inadequate (p ${p})`,
-  identifiability: (regular: boolean) => (regular ? "Identifiable" : "Not identifiable"),
+  identifiability: (identifiable: boolean) => (identifiable ? "Identifiable" : "Not identifiable"),
+  notRegularHelp:
+    "Not converged, unresolved, at a bound or rank-deficient: ν, standard errors and intervals are not reported.",
   admissible: (ok: boolean | null) =>
     ok === null ? "Admissibility n/a" : ok ? "Physically admissible" : "Not physically admissible",
   staleBadge: "Stale: the project changed after this fit",

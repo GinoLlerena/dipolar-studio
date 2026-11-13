@@ -73,3 +73,26 @@ export function refreshFor(item: FeedItem): Resource[] {
 export function backoffMs(failures: number): number {
   return Math.min(500 * 2 ** Math.max(failures - 1, 0), 10_000);
 }
+
+/** The newest revisions seen in any response or feed line (round 39). A response describing an
+ * older science revision — or, for the view, an older workspace revision — arrived late: the
+ * caller drops it and reads again, so a run list from before a commit never clears a stale badge
+ * that a newer view already shows. */
+export class RevisionMark {
+  science = 0;
+  workspace = 0;
+
+  /** Records revisions announced elsewhere (a feed line). */
+  observe(science: number, workspace?: number): void {
+    this.science = Math.max(this.science, science);
+    if (workspace !== undefined) this.workspace = Math.max(this.workspace, workspace);
+  }
+
+  /** True when a response is not older than what was seen; it then raises the mark. */
+  accept(science: number, workspace?: number): boolean {
+    if (science < this.science) return false;
+    if (workspace !== undefined && workspace < this.workspace) return false;
+    this.observe(science, workspace);
+    return true;
+  }
+}

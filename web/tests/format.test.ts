@@ -1,7 +1,7 @@
 // The display formatter (ui-design §5). Run with `pnpm test` (Node's test runner, types stripped).
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { compact, decimalsFor, fixed, MINUS, pValue, scientific, signed, withUncertainty } from "../src/format.ts";
+import { compact, decimalsFor, extent, fixed, MINUS, pValue, scientific, signed, withUncertainty } from "../src/format.ts";
 
 const N = " "; // the thousands separator
 
@@ -71,4 +71,11 @@ test("p-values", () => {
   assert.equal(pValue(0.3321762482554919), "0.332");
   assert.equal(pValue(0.0004), "< 0.001");
   assert.equal(pValue(null), "—");
+});
+
+test("extent copes with the 100 000-coupling limit and skips non-finite values (round 39)", () => {
+  const many = Array.from({ length: 200_000 }, (_, k) => k - 50_000);
+  assert.deepEqual(extent(many), [-50_000, 149_999]);
+  assert.deepEqual(extent([3, Number.NaN, -2, Number.POSITIVE_INFINITY]), [-2, 3]);
+  assert.equal(extent([]), null);
 });

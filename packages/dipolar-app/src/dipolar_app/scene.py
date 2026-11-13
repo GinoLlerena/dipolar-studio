@@ -225,6 +225,13 @@ def _fit_summary(result: dict[str, Any]) -> dict[str, Any]:
         "adequate": result["adequate"],
         "p_value": result["p_value"],
         "regular": v["regular"],
+        # Identifiable: full inner and joint rank and no unidentified direction. Distinct from
+        # regular, which also needs convergence and an interior optimum (round 39).
+        "identifiable": (
+            v["inner_rank"] == v["inner_parameters"]
+            and v["joint_rank"] == v["joint_parameters"]
+            and not result["unidentified"]
+        ),
         "converged": v["converged"],
         "at_bound": list(v["at_bound"]),
         "physically_admissible": v["physically_admissible"],

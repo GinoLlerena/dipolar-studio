@@ -4927,6 +4927,10 @@
                 "title": "Converged",
                 "type": "boolean"
               },
+              "identifiable": {
+                "title": "Identifiable",
+                "type": "boolean"
+              },
               "notes": {
                 "items": {
                   "type": "string"
@@ -4965,6 +4969,7 @@
               "adequate",
               "p_value",
               "regular",
+              "identifiable",
               "converged",
               "physically_admissible",
               "at_bound",
@@ -5293,6 +5298,10 @@
                 "title": "Converged",
                 "type": "boolean"
               },
+              "identifiable": {
+                "title": "Identifiable",
+                "type": "boolean"
+              },
               "notes": {
                 "items": {
                   "type": "string"
@@ -5331,6 +5340,7 @@
               "adequate",
               "p_value",
               "regular",
+              "identifiable",
               "converged",
               "physically_admissible",
               "at_bound",

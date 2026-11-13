@@ -23,7 +23,7 @@ import {
   streamEvents,
 } from "./api";
 import { OPERATIONS } from "./generated/contract";
-import { backoffMs, LineBuffer, parseFeedLine, type Resource, refreshFor } from "./feed";
+import { backoffMs, LineBuffer, parseFeedLine, type Resource, RevisionMark, refreshFor } from "./feed";
 
 export type Connection = "connecting" | "live" | "reconnecting" | "needs-launch";
 
@@ -37,6 +37,8 @@ export interface StudioState {
   jobs: JobOut[];
   /** Fit results by run ID. A run's result is immutable (stored by content hash). */
   results: Readonly<Record<string, FitRunOut>>;
+  /** Runs whose result could not be read; retried on every (re)connection or on request. */
+  failedResults: Readonly<Record<string, ErrorBody | null>>;
   error: ErrorBody | null;
   /** The operation a button started and that has not answered yet. */
   busy: OperationName | null;
@@ -44,6 +46,9 @@ export interface StudioState {
 
 /** Without a byte for this long (the server pings every 15 s), the stream is reopened. */
 const WATCHDOG_MS = 40_000;
+
+/** A read answered with an older revision is repeated at most this often in a row. */
+const MAX_LATE_RETRIES = 5;
 
 /** What a command's effect makes worth reading again, before its commit arrives on the feed. */
 function readsAfter(name: OperationName): Resource[] {
@@ -68,6 +73,7 @@ export class Studio {
     runs: [],
     jobs: [],
     results: {},
+    failedResults: {},
     error: null,
     busy: null,
   };
@@ -75,6 +81,8 @@ export class Studio {
   private readonly reads = new Map<Resource, { running: boolean; again: boolean }>();
   private readonly fetchingRuns = new Set<string>();
   private feed: AbortController | null = null;
+  /** Late responses are dropped and read again (feed.ts RevisionMark, round 39). */
+  private readonly seen = new RevisionMark();
 
   constructor(
     private readonly token: string,
@@ -176,21 +184,25 @@ export class Studio {
     }
     slot.running = true;
     try {
+      let late = 0;
       do {
         slot.again = false;
-        await this.readOnce(resource);
+        if (!(await this.readOnce(resource)) && late++ < MAX_LATE_RETRIES) slot.again = true;
       } while (slot.again && this.state.connection !== "needs-launch");
     } finally {
       slot.running = false;
     }
   }
 
-  private async readOnce(resource: Resource): Promise<void> {
+  /** One read. False when the response was late (older than state already seen) and dropped. */
+  private async readOnce(resource: Resource): Promise<boolean> {
     switch (resource) {
       case "view": {
         const view = await this.run((t) => callOperation("render.describe_view", {}, t));
-        if (view) this.set({ view });
-        return;
+        if (!view) return true;
+        if (!this.seen.accept(view.science_revision, view.workspace_revision)) return false;
+        this.set({ view });
+        return true;
       }
       case "project": {
         let noProject = false;
@@ -199,34 +211,50 @@ export class Studio {
           noProject = !envelope.ok && envelope.error.code === "NO_PROJECT";
           return envelope;
         }, ["NO_PROJECT"]);
+        if (project && !this.seen.accept(project.science_revision)) return false;
         if (project || noProject) this.set({ project }); // any other failure keeps what is shown
-        return;
+        return true;
       }
       case "history": {
         const history = await this.run((t) => callOperation("history.log", {}, t));
-        if (history) this.set({ history });
-        return;
+        if (!history) return true;
+        if (!this.seen.accept(history.science_revision)) return false;
+        this.set({ history });
+        return true;
       }
       case "runs": {
         const listed = await this.run((t) => callOperation("run.list", {}, t));
-        if (listed) this.set({ runs: listed.runs });
-        return;
+        if (!listed) return true;
+        if (!this.seen.accept(listed.science_revision)) return false;
+        this.set({ runs: listed.runs });
+        return true;
       }
       case "jobs": {
         const listed = await this.run((t) => callOperation("job.list", {}, t));
-        if (listed) this.set({ jobs: listed.jobs });
-        return;
+        if (!listed) return true;
+        if (!this.seen.accept(listed.science_revision)) return false;
+        this.set({ jobs: listed.jobs });
+        return true;
       }
     }
   }
 
-  /** Fetches a run's result once; it never changes, so it is kept. */
-  async loadResult(runId: string): Promise<void> {
+  /** Fetches a run's result once; it never changes, so it is kept. A failed read is recorded
+   * (the page says so instead of "loading" forever) and retried on reconnection or on request. */
+  async loadResult(runId: string, retry = false): Promise<void> {
     if (this.state.results[runId] || this.fetchingRuns.has(runId)) return;
+    if (runId in this.state.failedResults && !retry) return;
     this.fetchingRuns.add(runId);
+    let failure: ErrorBody | null = null;
     try {
-      const got = await this.run((t) => callOperation("run.get", { run_id: runId }, t));
-      if (got) this.set({ results: { ...this.state.results, [runId]: got.result } });
+      const got = await this.run(async (t) => {
+        const envelope = await callOperation("run.get", { run_id: runId }, t);
+        if (!envelope.ok) failure = envelope.error;
+        return envelope;
+      });
+      const { [runId]: _, ...failed } = this.state.failedResults;
+      if (got) this.set({ results: { ...this.state.results, [runId]: got.result }, failedResults: failed });
+      else this.set({ failedResults: { ...failed, [runId]: failure } });
     } finally {
       this.fetchingRuns.delete(runId);
     }
@@ -254,6 +282,10 @@ export class Studio {
             if (item.kind === "hello") {
               failures = 0;
               this.set({ connection: "live" });
+              for (const runId of Object.keys(this.state.failedResults)) void this.loadResult(runId, true);
+            }
+            if (item.kind === "hello" || item.kind === "commit") {
+              this.seen.observe(item.revisions.science, item.revisions.workspace);
             }
             cursor = item.cursor;
             this.refresh(refreshFor(item));
@@ -272,12 +304,16 @@ export class Studio {
       }
       failures += 1;
       this.set({ connection: "reconnecting" });
+      // Wait before reconnecting; the abort listener is removed either way (round 39: one
+      // listener per reconnection used to stay attached for the store's lifetime).
       await new Promise<void>((resolve) => {
-        const timer = window.setTimeout(resolve, backoffMs(failures));
-        signal.addEventListener("abort", () => {
+        const done = () => {
           window.clearTimeout(timer);
+          signal.removeEventListener("abort", done);
           resolve();
-        });
+        };
+        const timer = window.setTimeout(done, backoffMs(failures));
+        signal.addEventListener("abort", done, { once: true });
       });
     }
   }

@@ -1,5 +1,5 @@
 import type { FittedCoupling } from "../api";
-import { fixed } from "../format";
+import { extent, fixed } from "../format";
 import { strings } from "../strings";
 
 // Results charts (ui-design §4). Colour comes from CSS classes (the misfit ramp m0–m5), so both
@@ -67,9 +67,9 @@ export function ObsCalcPlot({
   onPick: (id: string) => void;
 }) {
   if (couplings.length === 0) return null;
-  const values = couplings.flatMap((c) => [c.observed.value, c.calculated.value]);
-  let lo = Math.min(...values);
-  let hi = Math.max(...values);
+  const range = extent(couplings.flatMap((c) => [c.observed.value, c.calculated.value]));
+  if (range === null) return null;
+  let [lo, hi] = range;
   const pad = (hi - lo || Math.abs(hi) || 1) * 0.06;
   lo -= pad;
   hi += pad;

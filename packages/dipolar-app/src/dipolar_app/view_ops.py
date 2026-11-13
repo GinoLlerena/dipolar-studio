@@ -227,7 +227,8 @@ class FitSummary(Wire):
 
     adequate: bool | None
     p_value: float | None
-    regular: bool
+    regular: bool  # converged, resolved, interior, full rank: the conditions for ν and intervals
+    identifiable: bool  # full inner and joint rank, no unidentified direction (round 39)
     converged: bool
     physically_admissible: bool | None  # None: the model has no admissibility test
     at_bound: tuple[str, ...]

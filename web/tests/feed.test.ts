@@ -1,7 +1,7 @@
 // The change-feed client helpers. Run with `pnpm test`.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { backoffMs, LineBuffer, MAX_LINE, parseFeedLine, RESOURCES, refreshFor } from "../src/feed.ts";
+import { backoffMs, LineBuffer, MAX_LINE, parseFeedLine, RESOURCES, RevisionMark, refreshFor } from "../src/feed.ts";
 
 test("lines split across chunks are joined; blank lines are skipped", () => {
   const buffer = new LineBuffer();
@@ -39,4 +39,16 @@ test("what each feed line makes the page read again", () => {
 
 test("reconnection backs off from 0.5 s to at most 10 s", () => {
   assert.deepEqual([1, 2, 3, 4, 5, 6, 7].map(backoffMs), [500, 1000, 2000, 4000, 8000, 10000, 10000]);
+});
+
+test("a response older than a seen revision is refused (round 39)", () => {
+  const mark = new RevisionMark();
+  assert.ok(mark.accept(1, 0)); // the view at science 1
+  mark.observe(2, 1); // a commit announces science 2
+  assert.equal(mark.accept(1), false, "a run list read before the commit is late");
+  assert.ok(mark.accept(2));
+  assert.equal(mark.accept(2, 0), false, "a view from before a selection change is late");
+  assert.ok(mark.accept(2, 1));
+  assert.ok(mark.accept(3), "newer is always accepted");
+  assert.equal(mark.science, 3);
 });

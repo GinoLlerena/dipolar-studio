@@ -179,6 +179,20 @@ function valueOf(list: readonly NamedValue[] | null, name: string): number | nul
 }
 
 function RunDetail({ studio, state, run, result }: Props & { run: RunOut; result: FitRunOut | undefined }) {
+  if (!result && run.id in state.failedResults) {
+    const failure = state.failedResults[run.id];
+    return (
+      <div className="empty" role="alert">
+        <p>
+          {strings.runUnavailable}
+          {failure && ` ${failure.code}: ${failure.message}`}
+        </p>
+        <button type="button" onClick={() => void studio.loadResult(run.id, true)}>
+          {strings.retry}
+        </button>
+      </div>
+    );
+  }
   if (!result) return <p className="muted">{strings.loadingRun}</p>;
   const selected = new Set(state.view?.selection.map((s) => s.id) ?? []);
   const flags = result.validity;

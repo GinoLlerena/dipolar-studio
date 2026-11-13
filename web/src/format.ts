@@ -98,6 +98,19 @@ export function pValue(value: number | null): string {
   return value < 0.001 ? "< 0.001" : value.toFixed(3);
 }
 
+/** The smallest and largest finite value, by a loop: spreading a long array into Math.min
+ * overflows the call stack (round 39: 2 × 100 000 couplings). Null when there is none. */
+export function extent(values: Iterable<number>): [number, number] | null {
+  let lo = Number.POSITIVE_INFINITY;
+  let hi = Number.NEGATIVE_INFINITY;
+  for (const v of values) {
+    if (!Number.isFinite(v)) continue;
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  return lo <= hi ? [lo, hi] : null;
+}
+
 // The precision each quantity is shown at (ui-design §5).
 export const hz = (value: number) => fixed(value, 1);
 export const residualHz = (value: number) => signed(value, 2);
