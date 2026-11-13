@@ -948,7 +948,7 @@ def _replay_choosing(
     from dipolar_app import snapshot as snap
 
     first = next(journal.records(), None)
-    loaded, action = snap.choose(journal.path, None if first is None else first["seq"])
+    loaded, action = snap.choose(journal.path, None if first is None else first["seq"], journal.created)
     if loaded is None:
         state, requests, applied = _replay_records(journal.records(), SessionState(), {}, None, 1)
     else:

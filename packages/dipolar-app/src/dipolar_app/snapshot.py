@@ -191,7 +191,9 @@ def next_path(journal_path: Path) -> Path:
 Loaded = tuple[SessionState, dict[tuple[str, str], StoredOutcome], dict[str, Any]]
 
 
-def choose(journal_path: Path, first_seq: int | None) -> tuple[Loaded | None, str | None]:
+def choose(
+    journal_path: Path, first_seq: int | None, journal_was_missing: bool = False
+) -> tuple[Loaded | None, str | None]:
     """The snapshot to replay from, given the journal's first sequence number (None: empty), and
     what opening must do to finish an interrupted compaction: "promote" the next snapshot,
     "discard" it, or nothing. Reads only; ``settle`` acts."""
@@ -199,6 +201,14 @@ def choose(journal_path: Path, first_seq: int | None) -> tuple[Loaded | None, st
     upcoming = load(next_path(journal_path))
     base = current[0].seq if current else 0
     if upcoming is None:
+        if journal_was_missing and current is not None:
+            # Only an interrupted rotation (a next snapshot present) explains a missing journal.
+            # Otherwise opening would silently return to the snapshot and lose every record
+            # after it (round 44). Archived segments may be deleted; the active journal may not.
+            raise JournalCorrupt(
+                f"{journal_path.name} is missing but {SNAPSHOT_NAME} exists: the records after the "
+                "snapshot would be lost; restore the journal (only archive/ segments may be deleted)"
+            )
         if first_seq is not None and first_seq != base + 1:
             raise JournalCorrupt(f"record seq {first_seq}: the journal does not continue the snapshot (seq {base})")
         return current, None
@@ -219,6 +229,13 @@ def settle(journal_path: Path, action: str | None) -> None:
     """Finish an interrupted compaction (under the project lock, when a project opens), and remove
     temporary files a failed or interrupted snapshot write left behind (round 43)."""
     if action == "promote":
+        # The rotation moved the covered journal into archive/; a crash may have come before that
+        # directory was fsynced. Make the archived segment durable before the snapshot that
+        # depends on it is published and new records are accepted (round 44).
+        archive = journal_path.parent / ARCHIVE_DIR
+        if archive.is_dir():
+            fsync_dir(archive)
+        fsync_dir(journal_path.parent)
         os.replace(next_path(journal_path), snapshot_path(journal_path))
         fsync_dir(journal_path.parent)
     elif action == "discard":

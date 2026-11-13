@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -329,3 +330,32 @@ def test_deduplication_expires_with_the_bounded_request_table(tmp_path: Path, mo
     again = client(reopened).call("fit.run", fit, request_id="fit-1")
     assert again["ok"] and not again["replayed"]
     assert again["result"]["job"]["id"] != first["job"]["id"]
+
+
+# --------------------------------------------------------------------------- round 44
+def test_promotion_makes_the_archive_durable_before_publishing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A crash right after the journal moved into archive/, before that directory was fsynced:
+    reopening fsyncs archive/ before it publishes the snapshot that depends on it."""
+    s, _ = busy_session(tmp_path)
+    s.compact()
+    select(s, 2)
+    before = s.state
+    next_snapshot_only(tmp_path, s)
+    archive = tmp_path / snap.ARCHIVE_DIR
+    (tmp_path / "project.events.jsonl").replace(archive / snap.archive_name(before.seq, before.seq))
+    order: list[str] = []
+    real_fsync, real_replace = snap.fsync_dir, os.replace
+    monkeypatch.setattr(snap, "fsync_dir", lambda path: (order.append(f"fsync {Path(path).name}"), real_fsync(path)))
+    monkeypatch.setattr(os, "replace", lambda a, b: (order.append(f"replace {Path(a).name}"), real_replace(a, b)))
+    reopened = new_session(tmp_path)
+    assert reopened.state == before
+    assert order.index(f"fsync {snap.ARCHIVE_DIR}") < order.index(f"replace {snap.NEXT_NAME}")
+
+
+def test_a_deleted_journal_is_refused_rather_than_rolled_back(tmp_path: Path) -> None:
+    s, _ = busy_session(tmp_path)
+    s.compact()
+    select(s, 2)  # acknowledged after the snapshot
+    (tmp_path / "project.events.jsonl").unlink()
+    with pytest.raises(JournalCorrupt, match="only archive/ segments may be deleted"):
+        new_session(tmp_path)

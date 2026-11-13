@@ -92,7 +92,10 @@ def _verify_line(number: int, raw: bytes) -> dict[str, Any]:
 class Journal:
     def __init__(self, path: Path) -> None:
         self.path = path
-        if not path.exists():
+        #: The file did not exist and was created empty here. With a snapshot present and no
+        #: interrupted compaction to explain it, that is a deleted journal (round 44).
+        self.created = not path.exists()
+        if self.created:
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             os.fsync(fd)
             os.close(fd)
