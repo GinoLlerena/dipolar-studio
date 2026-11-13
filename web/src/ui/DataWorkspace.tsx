@@ -4,6 +4,7 @@ import { angstrom, hz } from "../format";
 import { strings } from "../strings";
 import type { Studio, StudioState } from "../studio";
 import { download, FileButton, Panel, selectableRow } from "./common";
+import { ImportCouplings } from "./ImportCouplings";
 
 type Props = { studio: Studio; state: StudioState };
 
@@ -25,6 +26,7 @@ export function DataWorkspace({ studio, state }: Props) {
         {project && view?.project_open ? (
           <>
             <CouplingsPane studio={studio} state={state} project={project} />
+            <ImportCouplings studio={studio} state={state} project={project} />
             <SpinsPane studio={studio} state={state} project={project} />
           </>
         ) : (

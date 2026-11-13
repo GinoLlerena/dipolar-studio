@@ -218,7 +218,7 @@ class SceneViewport(Wire):
 
 class SceneRun(Wire):
     run_id: RunIdStr
-    stale: bool  # computed before the latest science change
+    stale: bool  # computed from different science than the current state (by science hash)
     available: bool  # false: its stored result cannot be read (round 35)
 
 
@@ -369,7 +369,7 @@ def describe_view(ctx: Context, _: DescribeViewIn) -> DescribeViewOut:
     if scene.run is None:
         warnings.append("no fit has run: the torsion shown is not a result")
     elif scene.run.stale:
-        warnings.append(f"{scene.run.run_id} was computed before the latest science change: it is stale")
+        warnings.append(f"{scene.run.run_id} was computed from a different science state: it is stale")
     elif not scene.run.available:
         warnings.append(f"the stored result of {scene.run.run_id} cannot be read: it is not shown")
     fit = scene.fit

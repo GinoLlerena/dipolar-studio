@@ -32,7 +32,7 @@ export const strings = {
   nothingToUndo: "Nothing to undo",
   nothingToRedo: "Nothing to redo",
   workspaces: "Workspaces",
-  workspace: { data: "Data", fit: "Fit" },
+  workspace: { structure: "Structure", data: "Data", fit: "Fit" },
 
   // Data workspace
   project: "Project",
@@ -82,6 +82,64 @@ export const strings = {
   equivalences: "Equivalent solutions",
   selectHint: "Click a row, or press Enter on it, to select it in the shared view.",
   xyzName: (file: string) => file.replace(/\.xyz$/i, "") || "Imported geometry",
+
+  // Structure workspace
+  structure: "Structure",
+  structureLabel: (atoms: number, couplings: number, phi: string, source: string) =>
+    `Molecule, ${atoms} atoms and ${couplings} couplings, at φ = ${phi}° (${source}). Drag or use the arrow keys to rotate, + and − to zoom, 0 to fit.`,
+  phiSource: { run: "from the current fit", imported: "the imported geometry", default: "the default torsion" },
+  layers: "Layers",
+  layer: { labels: "Labels", bonds: "Bonds", couplings: "Couplings" },
+  fitView: "Fit to view",
+  viewHelp: "Drag or use the arrow keys to rotate; + and − zoom; 0 fits the molecule. The camera is shared with every client.",
+  misfitLegend: "Misfit |residual| / σ",
+  misfitSteps: ["< 0.5", "0.5–1", "1–1.5", "1.5–2", "2–3", "≥ 3"],
+  noResiduals: "No current fit: couplings are drawn without residuals.",
+  arcTitle: (label: string, residual: string | null, normalized: string | null) =>
+    residual === null ? label : `${label}: residual ${residual} Hz (${normalized} σ)`,
+  selection: "Selection",
+  nothingSelected: "Nothing selected. Click an atom or a coupling, or a row in a table.",
+  clearSelection: "Clear",
+  selectedCoupling: (label: string) => `Coupling ${label}`,
+  selectedSpin: (label: string) => `Spin ${label}`,
+  shiftHint: "Shift-click adds to the selection.",
+
+  // Couplings CSV import (reconciliation, D5)
+  importCouplings: "Import couplings (CSV)",
+  chooseCsv: "Choose a CSV file…",
+  csvHelp:
+    "Columns spin_a, spin_b, D_obs_Hz, sigma_Hz; optional sigma_source, multiplicity, equivalent_pairs. Numbers use a decimal point. Nothing changes until you import.",
+  csvFile: (name: string, rows: number) => `${name}: ${rows} rows`,
+  ignoredColumns: (columns: string) => `Ignored columns (not used): ${columns}`,
+  mapping: "Labels to spins",
+  mappingHelp: "Exact label matches are proposed. Check every row; a label without a spin must be chosen.",
+  colFileLabel: "Label in the file",
+  colSpin: "Spin",
+  chooseSpin: "Choose a spin…",
+  proposed: "exact match",
+  needsChoice: "needs a choice",
+  collision: (labels: string) => `Same spin as ${labels}`,
+  unresolvedPairs: (pairs: string) => `Equivalent pairs that name unknown labels (fix the file): ${pairs}`,
+  diff: "What the import changes",
+  diffCounts: (added: number, changed: number, removed: number, unchanged: number) =>
+    `${added} added · ${changed} changed · ${removed} removed · ${unchanged} unchanged`,
+  diffKind: { added: "Added", changed: "Changed", removed: "Removed" },
+  colBefore: "Now (Hz)",
+  colAfter: "After import (Hz)",
+  removesWarning: (n: number) => `The import removes ${n} couplings that are not in the file. Undo brings them back.`,
+  checking: "Checking…",
+  importNow: (n: number) => `Import ${n} couplings`,
+  importCouplingsShort: "Import",
+  provenanceOnly: "Same value and σ; the labels, σ source, multiplicity or equivalent pairs change",
+  cancelImport: "Cancel",
+  moreRows: (n: number) => `and ${n} more`,
+  blocked: {
+    "no-file": "Choose a CSV file first.",
+    unmapped: "Choose a spin for every label.",
+    collision: "Each spin can take only one label.",
+    unresolved: "The file names equivalent pairs that cannot be resolved.",
+    outdated: "Checking the mapping…",
+  },
 
   // Fit workspace
   viewWarnings: "Shared view warnings",
@@ -171,7 +229,7 @@ export const strings = {
     "Not converged, unresolved, at a bound or rank-deficient: ν, standard errors and intervals are not reported.",
   admissible: (ok: boolean | null) =>
     ok === null ? "Admissibility n/a" : ok ? "Physically admissible" : "Not physically admissible",
-  staleBadge: "Stale: the project changed after this fit",
+  staleBadge: "Stale: the project differs from this fit's input",
   unavailable: "Result unavailable",
   yes: "yes",
   no: "no",

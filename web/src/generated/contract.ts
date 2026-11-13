@@ -1,12 +1,12 @@
 // GENERATED FILE: do not edit. Regenerate with `uv run python tools/codegen/ts_contract.py`.
-// Source: packages/dipolar-app/registry.snapshot.json (sha256 b020a5c55cb0a98828ee84177536bffcb7254787f385b8c615b6e72beacf58f0).
+// Source: packages/dipolar-app/registry.snapshot.json (sha256 633aebf7ffc67e1a94e0cc16dbc4f77a7cb4d1f0b3943ebd2c6d83dc2e4c1eb9).
 // CI fails if this file is stale (tests/test_ts_contract.py).
 //
 // Value constraints that TypeScript cannot express (bounds, lengths, patterns) appear as doc
 // comments; the server enforces them.
 /* eslint-disable */
 
-export const CONTRACT_VERSION = "0.6.0";
+export const CONTRACT_VERSION = "0.7.0";
 
 /** Any JSON value. */
 export type JsonValue =
@@ -294,11 +294,18 @@ export type NamedValue = {
 };
 
 export type PairOut = {
+  after: PairValues | null;
+  before: PairValues | null;
   label: string;
   /** pattern "^spn_[0-9]{6}$" */
   spin_a: string;
   /** pattern "^spn_[0-9]{6}$" */
   spin_b: string;
+};
+
+export type PairValues = {
+  sigma: Hertz;
+  value: Hertz;
 };
 
 export type PreviewValidity = {

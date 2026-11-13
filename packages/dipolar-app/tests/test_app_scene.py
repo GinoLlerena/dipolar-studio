@@ -106,6 +106,44 @@ def test_the_scene_shows_the_current_run_and_marks_it_stale_after_an_edit() -> N
     assert stale["top_residuals"] == [] and any("stale" in w for w in stale["warnings"])
 
 
+def test_an_undo_that_restores_a_runs_exact_input_makes_it_current_again() -> None:
+    """Staleness is by content (the owner's decision after M3 step 1): the science hash, not the
+    revision, which an undo advances."""
+    _, c = opened()
+    ok(run_fit(c))
+    kinds = {"kind": "jump4", "order": "bisector-diagonal", "frame": "bisector", "phi_domain": [deg(0), deg(90)]}
+    ok(c.call("model.set", {**kinds, "expected_science_revision": 1}))
+    assert ok(c.call("run.list"))["runs"][0]["stale"] is True
+    ok(c.call("history.undo", {"expected_science_revision": 2}))
+    view = ok(c.call("render.describe_view"))
+    assert view["science_revision"] == 3 and view["run"] == {"run_id": "run_000001", "stale": False, "available": True}
+    assert view["phi_source"] == "run" and view["fit"] is not None and view["top_residuals"]
+    assert ok(c.call("run.list"))["runs"][0]["stale"] is False
+    assert ok(c.call("job.list"))["jobs"][0]["stale"] is False
+    got = ok(c.call("run.get", {"run_id": "run_000001"}))
+    assert got["run"]["stale"] is False and got["run"]["science_revision"] == 1
+
+
+def test_an_undo_across_a_couplings_import_also_makes_the_run_current_again(tmp_path: Path) -> None:
+    """Undo keeps the coupling-ID allocator advanced (no ID is reused), so the project after the
+    undo differs from the run's input in that counter alone: staleness ignores it, also after a
+    restart (the content hash is derived on replay, never journaled)."""
+    _, c = opened(tmp_path)
+    ok(run_fit(c))
+    csv = "spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H3,-1960.0,0.6\nH2,Hx,-282.3,0.5\nH4,H5,-110.0,0.5\n"
+    mapping = {**ok(c.call("couplings.reconcile", {"csv": csv}))["proposed_mapping"], "Hx": "spn_000007"}
+    ok(c.call("couplings.import", {"csv": csv, "confirmed_mapping": mapping, "expected_science_revision": 1}))
+    assert ok(c.call("run.list"))["runs"][0]["stale"] is True
+    ok(c.call("history.undo", {"expected_science_revision": 2}))
+    listed = ok(c.call("run.list"))
+    assert listed["science_hash"] != listed["runs"][0]["science_hash"]  # the allocator moved on
+    assert listed["runs"][0]["stale"] is False and ok(c.call("job.list"))["jobs"][0]["stale"] is False
+    assert ok(c.call("render.describe_view"))["run"]["stale"] is False
+    replayed = replay(Journal(tmp_path / "project.events.jsonl"))
+    assert replayed.runs[0].content_hash == replayed.content_hash != replayed.science_hash
+    assert replayed.jobs[0].content_hash == replayed.content_hash
+
+
 def test_imported_geometry_has_bonds_and_atom_ids() -> None:
     c = client(new_session())
     ok(

@@ -20,6 +20,7 @@ import {
   type OperationName,
   type OperationOutput,
   type RunOut,
+  type SceneOut,
   streamEvents,
 } from "./api";
 import { OPERATIONS } from "./generated/contract";
@@ -32,6 +33,8 @@ export interface StudioState {
   view: DescribeViewOut | null;
   /** null while unknown or when no project is open (`view.project_open` tells which). */
   project: DescribeProjectOut | null;
+  /** The Structure view's scene (`render.scene`); null as `project`. */
+  scene: SceneOut | null;
   history: LogOut | null;
   runs: RunOut[];
   jobs: JobOut[];
@@ -54,11 +57,11 @@ const MAX_LATE_RETRIES = 5;
 function readsAfter(name: OperationName): Resource[] {
   switch (OPERATIONS[name].effect) {
     case "model":
-      return ["project", "history", "view", "runs", "jobs"];
+      return ["project", "history", "view", "runs", "jobs", "scene"];
     case "view":
-      return ["view"];
+      return ["view", "scene"];
     case "compute":
-      return ["jobs", "runs", "view"];
+      return ["jobs", "runs", "view", "scene"];
     default:
       return [];
   }
@@ -69,6 +72,7 @@ export class Studio {
     connection: "connecting",
     view: null,
     project: null,
+    scene: null,
     history: null,
     runs: [],
     jobs: [],
@@ -213,6 +217,17 @@ export class Studio {
         }, ["NO_PROJECT"]);
         if (project && !this.seen.accept(project.science_revision)) return false;
         if (project || noProject) this.set({ project }); // any other failure keeps what is shown
+        return true;
+      }
+      case "scene": {
+        let noProject = false;
+        const scene = await this.run(async (t) => {
+          const envelope = await callOperation("render.scene", {}, t);
+          noProject = !envelope.ok && envelope.error.code === "NO_PROJECT";
+          return envelope;
+        }, ["NO_PROJECT"]);
+        if (scene && !this.seen.accept(scene.science_revision, scene.workspace_revision)) return false;
+        if (scene || noProject) this.set({ scene });
         return true;
       }
       case "history": {

@@ -56,6 +56,7 @@ from dipolar_app.project import (
     PROJECT_SCHEMA_VERSION,
     Project,
     canonical_json,
+    content_hash,
     migrate_project,
     payload_hash,
     science_hash,
@@ -196,6 +197,9 @@ class Job:
     run_id: str | None = None
     error_code: str | None = None
     error_message: str | None = None
+    # The input's content hash (project.content_hash), derived when the submission is applied (not
+    # journaled); None if it could not be derived, and staleness then compares science_hash.
+    content_hash: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +215,35 @@ class Run:
     science_hash: str
     input_hash: str
     result_sha256: str
+    content_hash: str | None = None  # the job's (see Job.content_hash)
+
+
+class CurrentScience:
+    """The current state's identities, each hashed at most once (listing many jobs or runs)."""
+
+    def __init__(self, state: SessionState) -> None:
+        self._state = state
+        self._science: str | None = None
+        self._content: str | None = None
+
+    @property
+    def science(self) -> str:
+        if self._science is None:
+            self._science = self._state.science_hash
+        return self._science
+
+    @property
+    def content(self) -> str:
+        if self._content is None:
+            self._content = self._state.content_hash
+        return self._content
+
+    def is_stale(self, item: Job | Run) -> bool:
+        """Whether the science differs from a job's or run's input, by content (the owner's
+        decision after M3 step 1): an undo that restores the exact input makes it current again."""
+        if item.content_hash is not None:
+            return item.content_hash != self.content
+        return item.science_hash != self.science
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +265,10 @@ class SessionState:
     @property
     def science_hash(self) -> str:
         return science_hash(self.project)
+
+    @property
+    def content_hash(self) -> str:
+        return content_hash(self.project)
 
     def proposal(self, proposal_id: str) -> Proposal | None:
         return next((p for p in self.proposals if p.id == proposal_id), None)
@@ -337,6 +374,9 @@ def apply_event(state: SessionState, event: Event) -> SessionState:
             science_hash=data["science_hash"],
             input_hash=data["input_hash"],
             options_json=canonical_json(data["options"]),
+            # The submission is applied to the state the job computes from, so its content can be
+            # derived here, also on replay; checked against the recorded hash to be sure.
+            content_hash=state.content_hash if state.science_hash == data["science_hash"] else None,
         )
         return replace(state, jobs=(*state.jobs, job), next_job=state.next_job + 1)
     if kind == "job.finished":
@@ -369,6 +409,7 @@ def _finish_job(state: SessionState, event: Event) -> SessionState:
             science_hash=target.science_hash,
             input_hash=target.input_hash,
             result_sha256=run_data["result_sha256"],
+            content_hash=target.content_hash,
         )
         runs, next_run, run_id = (*state.runs, run)[-MAX_RUNS:], next_run + 1, run.id
     finished = replace(

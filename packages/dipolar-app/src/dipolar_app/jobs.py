@@ -13,7 +13,9 @@ first to commit wins; the later one finds the job finished and changes nothing (
 late result is dropped, and its blob is an orphan; cleanup is out of scope for the beta).
 
 **Stale results.** A job that finishes after the science changed still publishes its run, against
-its own input identity; the run is reported ``stale``. It never overwrites newer state.
+its own input identity; the run is reported ``stale`` while the science differs from that input
+(compared by science hash, so an undo that restores the exact input makes it current again). It
+never overwrites newer state.
 
 **Workers.**
 - ``process`` (``dipolar serve``): each job runs in a fresh spawned process. A cancel or a timeout

@@ -1,5 +1,5 @@
 {
-  "contract_version": "0.6.0",
+  "contract_version": "0.7.0",
   "envelopes": {
     "error": {
       "$defs": {
@@ -834,9 +834,49 @@
       "name": "couplings.reconcile",
       "output_schema": {
         "$defs": {
+          "Hertz": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Hz",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Hertz",
+            "type": "object"
+          },
           "PairOut": {
             "additionalProperties": false,
             "properties": {
+              "after": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/PairValues"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "before": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/PairValues"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "label": {
                 "title": "Label",
                 "type": "string"
@@ -855,9 +895,28 @@
             "required": [
               "spin_a",
               "spin_b",
-              "label"
+              "label",
+              "before",
+              "after"
             ],
             "title": "PairOut",
+            "type": "object"
+          },
+          "PairValues": {
+            "additionalProperties": false,
+            "properties": {
+              "sigma": {
+                "$ref": "#/$defs/Hertz"
+              },
+              "value": {
+                "$ref": "#/$defs/Hertz"
+              }
+            },
+            "required": [
+              "value",
+              "sigma"
+            ],
+            "title": "PairValues",
             "type": "object"
           }
         },

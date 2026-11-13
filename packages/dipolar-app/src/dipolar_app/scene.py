@@ -36,7 +36,7 @@ from typing import Any, Literal
 from xml.sax.saxutils import escape, quoteattr
 
 from dipolar_app.project import BiphenylTemplate, ImportedGeometry, Project, short
-from dipolar_app.session import Camera, SessionState, Vec3
+from dipolar_app.session import Camera, CurrentScience, SessionState, Vec3
 
 DEFAULT_PHI_DEG = 45.0
 DEFAULT_FOV_DEG = 45.0
@@ -244,7 +244,8 @@ def build_scene(state: SessionState, blobs: Any) -> dict[str, Any]:
     prj = state.project
     assert prj is not None
     run, result = _active_run(state, blobs)
-    current = run is not None and run.science_revision == state.science_revision
+    # Current by content: an undo that restores the run's exact input makes it current again.
+    current = run is not None and not CurrentScience(state).is_stale(run)
     # A current run whose result cannot be read is reported as unavailable, never shown as the
     # fit (round 35).
     usable = current and result is not None

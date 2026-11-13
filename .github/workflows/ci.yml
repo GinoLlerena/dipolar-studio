@@ -66,7 +66,7 @@ jobs:
       - run: pnpm run build
       - name: Projection parity with the Python renderer (04 §8.4)
         run: pnpm run parity
-      - name: Client unit tests (formatter, change feed)
+      - name: Client unit tests (formatter, change feed, structure view, reconciliation)
         run: pnpm test
 
   packaged:

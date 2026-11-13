@@ -5,8 +5,8 @@ import { strings } from "../strings";
 import type { Studio, StudioState } from "../studio";
 import { adequacyLabel, Chip } from "./common";
 
-export type Workspace = "data" | "fit";
-export const WORKSPACES: readonly Workspace[] = ["data", "fit"];
+export type Workspace = "structure" | "data" | "fit";
+export const WORKSPACES: readonly Workspace[] = ["structure", "data", "fit"];
 
 /** The title bar: project, revisions, undo/redo, the feed's state and the workspace tabs. */
 export function TitleBar({

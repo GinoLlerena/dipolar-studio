@@ -33,7 +33,7 @@ from dipolar_app.project import canonical_json
 from dipolar_app.registry import Context
 from dipolar_app.schemas import Revision, Wire
 from dipolar_app.science_ops import FitRunOut, Science, check_revision, readiness, require_project
-from dipolar_app.session import JOB, TERMINAL, Event, Job, Run, SessionState
+from dipolar_app.session import JOB, TERMINAL, CurrentScience, Event, Job, Run, SessionState
 
 #: Unfinished jobs allowed per actor, and in total (D17 budgets).
 MAX_JOBS_PER_ACTOR = 2
@@ -67,10 +67,12 @@ class JobOut(Wire):
     options: dict[str, bool]
     run_id: RunId | None
     error: JobError | None
-    stale: bool  # the science changed since the job's input
+    stale: bool  # the science differs from the job's input (by content: an undo can restore it)
 
 
-def job_out(job: Job, state: SessionState, live: str | None) -> JobOut:
+def job_out(job: Job, state: SessionState, live: str | None, current: CurrentScience | None = None) -> JobOut:
+    """``current`` is passed in when listing many jobs, so the project is hashed once."""
+    current = current or CurrentScience(state)
     status: PublicJobStatus = job.status if job.status in TERMINAL or live != "running" else "running"
     return JobOut(
         id=job.id,
@@ -86,7 +88,7 @@ def job_out(job: Job, state: SessionState, live: str | None) -> JobOut:
         options=json.loads(job.options_json),
         run_id=job.run_id,
         error=JobError(code=job.error_code, message=job.error_message or "") if job.error_code else None,
-        stale=job.science_revision != state.science_revision,
+        stale=current.is_stale(job),
     )
 
 
@@ -178,6 +180,7 @@ def fit_run(ctx: Context, p: FitRunIn) -> FitRunSubmitted:
             science_hash=state.science_hash,
             input_hash=digest,
             options_json=canonical_json(options),
+            content_hash=state.content_hash,
         )
         return [event], FitRunSubmitted(
             science_revision=state.science_revision,
@@ -257,10 +260,11 @@ class JobListOut(Science):
 def job_list(ctx: Context, p: JobListIn) -> JobListOut:
     state = ctx.read()
     jobs = [j for j in state.jobs if p.status is None or (j.status in TERMINAL) == (p.status == "finished")]
+    current = CurrentScience(state)
     return JobListOut(
         science_revision=state.science_revision,
-        science_hash=state.science_hash,
-        jobs=tuple(job_out(j, state, ctx.session.live_status(j.id)) for j in jobs),
+        science_hash=current.science,
+        jobs=tuple(job_out(j, state, ctx.session.live_status(j.id), current) for j in jobs),
     )
 
 
@@ -327,10 +331,12 @@ class RunOut(Wire):
     science_hash: str
     input_hash: str
     result_sha256: str
-    stale: bool  # the science changed since the run's input: it describes an earlier state
+    stale: bool  # the science differs from the run's input (by science hash, so an undo that
+    # restores the exact input makes the run current again)
 
 
-def run_out(run: Run, state: SessionState) -> RunOut:
+def run_out(run: Run, state: SessionState, current: CurrentScience | None = None) -> RunOut:
+    current = current or CurrentScience(state)
     return RunOut(
         id=run.id,
         job_id=run.job_id,
@@ -341,7 +347,7 @@ def run_out(run: Run, state: SessionState) -> RunOut:
         science_hash=run.science_hash,
         input_hash=run.input_hash,
         result_sha256=run.result_sha256,
-        stale=run.science_revision != state.science_revision,
+        stale=current.is_stale(run),
     )
 
 
@@ -385,8 +391,9 @@ class RunListOut(Science):
 
 def run_list(ctx: Context, _: RunListIn) -> RunListOut:
     state = ctx.read()
+    current = CurrentScience(state)
     return RunListOut(
         science_revision=state.science_revision,
-        science_hash=state.science_hash,
-        runs=tuple(run_out(r, state) for r in reversed(state.runs)),
+        science_hash=current.science,
+        runs=tuple(run_out(r, state, current) for r in reversed(state.runs)),
     )
