@@ -2,7 +2,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { autoCamera, type Camera, project, type Vec3 } from "../src/scene/projection.ts";
-import { arcPath, arcWidth, cameraIn, dolly, keyMove, MIN_DISTANCE, misfitStep, orbit } from "../src/scene/view.ts";
+import {
+  arcPath,
+  arcWidth,
+  CameraCommits,
+  cameraIn,
+  dolly,
+  guarded,
+  keyMove,
+  MIN_DISTANCE,
+  misfitStep,
+  orbit,
+  radiusAbout,
+  withinLimits,
+} from "../src/scene/view.ts";
 
 const dist = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -46,28 +59,105 @@ test("an orbit keeps every point in view: the depths stay within the planes", ()
   }
 });
 
-test("a dolly moves the planes with the camera, so nothing is clipped", () => {
+const radius = radiusAbout(points, start.target);
+
+test("a dolly keeps every point inside the planes, and zooming in and back out restores them (round 41)", () => {
   for (const factor of [0.5, 0.8, 1.2, 3]) {
-    const c = dolly(start, factor);
+    const c = dolly(start, factor, radius);
     const d0 = dist(start.position, start.target);
     near(dist(c.position, c.target), d0 * factor);
-    // The near plane follows the camera, but never below the contract's 1e-3 Å.
-    near(c.near, Math.max(start.near + d0 * factor - d0, 1e-3));
-    near(c.far - start.far, d0 * factor - d0);
-    const before = project(start, 640, 480, points).map((p) => p.depth);
-    const after = project(c, 640, 480, points).map((p) => p.depth);
-    after.forEach((depth, k) => near(depth - (before[k] ?? 0), d0 * factor - d0, 1e-9));
+    assert.ok(project(c, 640, 480, points).every((p) => p.depth >= c.near && p.depth <= c.far), `${factor}`);
   }
-  const closest = dolly(start, 1e-9);
+  // Far enough in that the near plane clamps, then back out: the planes come back exactly as
+  // autoCamera set them, and every atom is visible again.
+  let c: Camera = start;
+  for (let k = 0; k < 12; k++) c = dolly(c, 1 / 1.2, radius);
+  assert.equal(c.near, 1e-3);
+  for (let k = 0; k < 12; k++) c = dolly(c, 1.2, radius);
+  near(c.near, start.near, 1e-9);
+  near(c.far, start.far, 1e-9);
+  assert.ok(project(c, 640, 480, points).every((p) => p.visible));
+  const closest = dolly(start, 1e-9, radius);
   near(dist(closest.position, closest.target), MIN_DISTANCE);
   assert.ok(closest.near >= 1e-3 && closest.far > closest.near);
 });
 
+test("a move the server would refuse leaves the camera unchanged (round 41)", () => {
+  const huge: Camera = { ...start, far: 1_000_000 };
+  assert.ok(withinLimits(huge));
+  const out = keyMove(huge, "-", 999_999);
+  assert.deepEqual(out, huge); // zooming out would push far past 1e6 Å
+  assert.ok(!withinLimits({ ...start, near: 0 }));
+  assert.ok(!withinLimits({ ...start, fov_deg: 175 }));
+  assert.ok(!withinLimits({ ...start, up: [0, 0, -1] })); // parallel to the view
+  assert.deepEqual(guarded(start, { ...start, near: Number.NaN }), start);
+});
+
+/** Timers driven by hand. */
+function fakeTimers() {
+  let next = 0;
+  const due = new Map<number, () => void>();
+  return {
+    timers: {
+      set: (fn: () => void) => {
+        next += 1;
+        due.set(next, fn);
+        return next;
+      },
+      clear: (handle: unknown) => {
+        due.delete(handle as number);
+      },
+    },
+    runAll: () => {
+      for (const [k, fn] of [...due]) {
+        due.delete(k);
+        fn();
+      }
+    },
+    pending: () => due.size,
+  };
+}
+
+test("a delayed camera commit is dropped when a newer revision arrives first (round 41)", () => {
+  const clock = fakeTimers();
+  const sent: (Camera | null)[] = [];
+  const commits = new CameraCommits(3, (c) => sent.push(c), clock.timers);
+  const moved = orbit(start, 15, 0);
+  commits.later(moved, 400);
+  commits.observe(4); // another client moved the camera meanwhile: theirs wins
+  assert.equal(clock.pending(), 0); // the timer is cancelled at once
+  assert.ok(!commits.waiting);
+  clock.runAll();
+  assert.deepEqual(sent, []);
+  // At the same revision the commit goes out once, after the delay.
+  commits.later(moved, 400);
+  commits.observe(4);
+  clock.runAll();
+  assert.deepEqual(sent, [moved]);
+});
+
+test("fit to view supersedes a pending key commit, and a later key restarts the delay (round 41)", () => {
+  const clock = fakeTimers();
+  const sent: (Camera | null)[] = [];
+  const commits = new CameraCommits(1, (c) => sent.push(c), clock.timers);
+  commits.later(orbit(start, 15, 0), 400);
+  commits.now(null);
+  clock.runAll();
+  assert.deepEqual(sent, [null]);
+  const a = orbit(start, 15, 0);
+  const b = orbit(a, 15, 0);
+  commits.later(a, 400);
+  commits.later(b, 400);
+  assert.equal(clock.pending(), 1);
+  clock.runAll();
+  assert.deepEqual(sent, [null, b]);
+});
+
 test("keys orbit and zoom; other keys do nothing", () => {
-  assert.notDeepEqual(keyMove(start, "ArrowLeft"), start);
-  assert.notDeepEqual(keyMove(start, "+"), start);
-  assert.equal(keyMove(start, "a"), null);
-  const zoomed = keyMove(start, "+");
+  assert.notDeepEqual(keyMove(start, "ArrowLeft", radius), start);
+  assert.notDeepEqual(keyMove(start, "+", radius), start);
+  assert.equal(keyMove(start, "a", radius), null);
+  const zoomed = keyMove(start, "+", radius);
   assert.ok(zoomed && dist(zoomed.position, zoomed.target) < dist(start.position, start.target));
 });
 

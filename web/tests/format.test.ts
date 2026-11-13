@@ -1,7 +1,7 @@
 // The display formatter (ui-design §5). Run with `pnpm test` (Node's test runner, types stripped).
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { atPlace, compact, decimalsFor, extent, fixed, MINUS, pValue, scientific, signed, withUncertainty } from "../src/format.ts";
+import { atPlace, compact, comparable, decimalsFor, extent, fixed, MINUS, pValue, scientific, signed, withUncertainty } from "../src/format.ts";
 
 const N = " "; // the thousands separator
 
@@ -91,4 +91,20 @@ test("a tiny but valid uncertainty never crashes and stays nonzero (round 40)", 
   assert.equal(atPlace(39.6, 2), "39.60");
   assert.doesNotThrow(() => fixed(1, 400));
   assert.equal(withUncertainty(1, 1e-300, 2).endsWith("× 10⁻³⁰⁰"), true);
+});
+
+test("values compared side by side share a decimal place fine enough to show the change (round 41)", () => {
+  assert.deepEqual(comparable([{ value: 0.123, sigma: 0.001 }, { value: 0.124, sigma: 0.001 }]), [
+    "0.1230 ± 0.0010",
+    "0.1240 ± 0.0010",
+  ]);
+  // The coarser uncertainty does not hide the finer one's digits.
+  assert.deepEqual(comparable([{ value: -1966.7, sigma: 0.5 }, { value: -1960, sigma: 0.06 }]), [
+    "−1\u202f966.70 ± 0.50",
+    "−1\u202f960.00 ± 0.06",
+  ]);
+  // Different values never read the same, even below the uncertainty's place.
+  const [a, b] = comparable([{ value: 21.2, sigma: 0.5 }, { value: 21.23, sigma: 0.5 }]);
+  assert.notEqual(a, b);
+  assert.deepEqual(comparable([null, { value: 5, sigma: 0.5 }]), ["—", "5.0 ± 0.5"]);
 });

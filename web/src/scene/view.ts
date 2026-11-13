@@ -54,20 +54,51 @@ export function orbit(camera: Camera, yaw: number, pitch: number): Camera {
 export const MIN_DISTANCE = 0.5;
 export const MAX_DISTANCE = 5000;
 
-/** Moves the camera towards (`factor` < 1) or away from its target. Every point's depth changes by
- * the same amount, so the depth planes move by it too and nothing is clipped that was not. */
-export function dolly(camera: Camera, factor: number): Camera {
+/** The molecule's extent around a camera target: the largest distance of a point from it (at
+ * least 1 Å, as autoCamera). */
+export function radiusAbout(points: readonly Vec3[], target: Vec3): number {
+  let r = 0;
+  for (const p of points) r = Math.max(r, norm(sub(p, target)));
+  return Math.max(r, 1);
+}
+
+/** The server's camera limits (dipolar_app.scene.check_camera), so a move never produces a
+ * camera that view.set_camera refuses (round 41). */
+const MIN_FOV_DEG = 1;
+const MAX_FOV_DEG = 170;
+const MIN_NEAR = 1e-3;
+const MAX_EXTENT = 1e6;
+
+export function withinLimits(c: Camera): boolean {
+  const values = [...c.position, ...c.target, ...c.up, c.fov_deg, c.near, c.far];
+  if (!values.every(Number.isFinite)) return false;
+  if (Math.max(...[...c.position, ...c.target, c.far].map(Math.abs)) > MAX_EXTENT) return false;
+  if (!(MIN_FOV_DEG <= c.fov_deg && c.fov_deg <= MAX_FOV_DEG) || !(MIN_NEAR <= c.near && c.near < c.far)) return false;
+  const forward = sub(c.target, c.position);
+  const side = cross(forward, c.up);
+  return dot(forward, forward) > 1e-12 && dot(side, side) > 1e-12 * dot(forward, forward) * dot(c.up, c.up);
+}
+
+/** Moves the camera towards (`factor` < 1) or away from its target. The depth planes are set
+ * from the camera's distance and the molecule's extent `radius` alone (as autoCamera: distance ∓
+ * 2·radius), never from the previous planes, so zooming in and back out restores them exactly
+ * (round 41: carrying a clamped near plane forward clipped atoms). */
+export function dolly(camera: Camera, factor: number, radius: number): Camera {
   const offset = sub(camera.position, camera.target);
   const distance = norm(offset);
   const next = Math.min(Math.max(distance * factor, MIN_DISTANCE), MAX_DISTANCE);
-  const shift = next - distance;
-  const nearPlane = Math.max(camera.near + shift, 1e-3); // the contract's smallest near plane
+  const near = Math.max(next - 2 * radius, MIN_NEAR);
   return {
     ...camera,
     position: add(camera.target, scale(offset, next / distance)),
-    near: nearPlane,
-    far: Math.max(camera.far + shift, nearPlane + 1e-3),
+    near,
+    far: Math.max(next + 2 * radius, near * 2),
   };
+}
+
+/** `move`'s camera when the server would accept it, otherwise the camera unchanged. */
+export function guarded(camera: Camera, moved: Camera): Camera {
+  return withinLimits(moved) ? moved : camera;
 }
 
 /** Degrees of orbit per pixel dragged, and per arrow key. */
@@ -77,7 +108,12 @@ export const DEGREES_PER_KEY = 15;
 export const ZOOM_STEP = 1.2;
 
 /** The camera move for a key, or null when the key does not move the camera. */
-export function keyMove(camera: Camera, key: string): Camera | null {
+export function keyMove(camera: Camera, key: string, radius: number): Camera | null {
+  const moved = move(camera, key, radius);
+  return moved === null ? null : guarded(camera, moved);
+}
+
+function move(camera: Camera, key: string, radius: number): Camera | null {
   switch (key) {
     case "ArrowLeft":
       return orbit(camera, -DEGREES_PER_KEY, 0);
@@ -89,10 +125,10 @@ export function keyMove(camera: Camera, key: string): Camera | null {
       return orbit(camera, 0, DEGREES_PER_KEY);
     case "+":
     case "=":
-      return dolly(camera, 1 / ZOOM_STEP);
+      return dolly(camera, 1 / ZOOM_STEP, radius);
     case "-":
     case "_":
-      return dolly(camera, ZOOM_STEP);
+      return dolly(camera, ZOOM_STEP, radius);
     default:
       return null;
   }
@@ -146,4 +182,59 @@ export function cameraOf(camera: SceneCamera): Camera {
     near: camera.near.value,
     far: camera.far.value,
   };
+}
+
+type Timers = { set: (fn: () => void, ms: number) => unknown; clear: (handle: unknown) => void };
+
+/** When a camera moved here is committed (round 41). A gesture's camera is sent once, after
+ * `delay` ms of quiet or at once; it belongs to the workspace revision it started from, and is
+ * dropped — never sent — when a newer revision arrives first (another client's move wins) or a
+ * newer action supersedes it (another gesture, "fit to view"). */
+export class CameraCommits {
+  private pending: { camera: Camera; revision: number; handle: unknown } | null = null;
+  private revision: number;
+  private readonly send: (camera: Camera | null) => void;
+  private readonly timers: Timers;
+
+  // No parameter properties: Node's type stripping (tests/view.test.ts) does not support them.
+  constructor(revision: number, send: (camera: Camera | null) => void, timers: Timers) {
+    this.revision = revision;
+    this.send = send;
+    this.timers = timers;
+  }
+
+  /** The shared view reached `revision`: a pending camera from an older one is dropped. */
+  observe(revision: number): void {
+    if (revision === this.revision) return;
+    this.revision = revision;
+    if (this.pending && this.pending.revision !== revision) this.cancel();
+  }
+
+  /** Commits `camera` after `delay` ms without another move. */
+  later(camera: Camera, delay: number): void {
+    this.cancel();
+    const handle = this.timers.set(() => this.fire(), delay);
+    this.pending = { camera, revision: this.revision, handle };
+  }
+
+  /** Commits `camera` (null: fit automatically) now, superseding anything pending. */
+  now(camera: Camera | null): void {
+    this.cancel();
+    this.send(camera);
+  }
+
+  cancel(): void {
+    if (this.pending) this.timers.clear(this.pending.handle);
+    this.pending = null;
+  }
+
+  get waiting(): boolean {
+    return this.pending !== null;
+  }
+
+  private fire(): void {
+    const pending = this.pending;
+    this.pending = null;
+    if (pending && pending.revision === this.revision) this.send(pending.camera);
+  }
 }

@@ -18,9 +18,16 @@ export function effectiveMapping(
   proposed: Readonly<Record<string, string>>,
   choices: Readonly<Record<string, string>>,
 ): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [label, spin] of Object.entries({ ...proposed, ...choices })) if (spin !== "") out[label] = spin;
-  return out;
+  // Built with a Map and Object.fromEntries, which define own properties: assigning to a plain
+  // object would turn a label like "__proto__" into a prototype change (round 41).
+  const merged = new Map(Object.entries(proposed));
+  for (const [label, spin] of Object.entries(choices)) merged.set(label, spin);
+  return Object.fromEntries([...merged].filter(([, spin]) => spin !== ""));
+}
+
+/** The spin chosen for `label`, or "" (own properties only: labels are arbitrary text). */
+export function spinOf(mapping: Readonly<Record<string, string>>, label: string): string {
+  return Object.hasOwn(mapping, label) ? (mapping[label] ?? "") : "";
 }
 
 /** The spins chosen for more than one label, each with its labels: the mapping must be
@@ -42,7 +49,7 @@ export function blocker(
   scienceRevision: number,
 ): "no-file" | "unmapped" | "collision" | "unresolved" | "outdated" | null {
   if (diff === null || checkedMapping === null) return "no-file";
-  if (labels.some((label) => !(label in mapping))) return "unmapped";
+  if (labels.some((label) => !Object.hasOwn(mapping, label))) return "unmapped";
   if (collisions(mapping).size > 0) return "collision";
   if (diff.unresolved_pairs.length > 0) return "unresolved";
   if (!sameMapping(checkedMapping, mapping) || diff.science_revision !== scienceRevision || !diff.complete) {
@@ -54,4 +61,36 @@ export function blocker(
 export function sameMapping(a: Readonly<Record<string, string>>, b: Readonly<Record<string, string>>): boolean {
   const ka = Object.keys(a);
   return ka.length === Object.keys(b).length && ka.every((k) => Object.hasOwn(b, k) && a[k] === b[k]);
+}
+
+type Values = { value: { value: number }; sigma: { value: number } } | null;
+type Pair = { label: string; spin_a: string; spin_b: string; before: Values; after: Values };
+
+/** The whole diff as CSV, for inspection outside the page: every pair, the values at full
+ * precision (round 41: the page shows the first rows of each kind). Text cells are quoted, and
+ * a cell that a spreadsheet would read as a formula is prefixed with an apostrophe. */
+export function diffCsv(diff: Record<"added" | "changed" | "removed" | "unchanged", readonly Pair[]>): string {
+  const cell = (text: string) => {
+    const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+    return `"${safe.replaceAll('"', '""')}"`;
+  };
+  const num = (v: number | undefined) => (v === undefined ? "" : String(v));
+  const rows = ["kind,pair,spin_a,spin_b,D_now_Hz,sigma_now_Hz,D_after_Hz,sigma_after_Hz"];
+  for (const kind of ["changed", "added", "removed", "unchanged"] as const) {
+    for (const p of diff[kind]) {
+      rows.push(
+        [
+          kind,
+          cell(p.label),
+          p.spin_a,
+          p.spin_b,
+          num(p.before?.value.value),
+          num(p.before?.sigma.value),
+          num(p.after?.value.value),
+          num(p.after?.sigma.value),
+        ].join(","),
+      );
+    }
+  }
+  return `${rows.join("\n")}\n`;
 }

@@ -132,7 +132,8 @@ export const strings = {
   importCouplingsShort: "Import",
   provenanceOnly: "Same value and σ; the labels, σ source, multiplicity or equivalent pairs change",
   cancelImport: "Cancel",
-  moreRows: (n: number) => `and ${n} more`,
+  moreRows: (n: number) => `and ${n} more (download the full diff to see every pair)`,
+  downloadDiff: "Download the full diff (CSV)",
   blocked: {
     "no-file": "Choose a CSV file first.",
     unmapped: "Choose a spin for every label.",

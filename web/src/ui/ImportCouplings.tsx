@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { callOperation, type DescribeProjectOut, type PairOut, type ReconcileOut } from "../api";
-import { fixed } from "../format";
-import { blocker, collisions, effectiveMapping, labelsOf, sameMapping } from "../reconcile";
+import { comparable } from "../format";
+import { blocker, collisions, diffCsv, effectiveMapping, labelsOf, sameMapping, spinOf } from "../reconcile";
 import { strings } from "../strings";
 import type { Studio, StudioState } from "../studio";
-import { FileButton, Panel } from "./common";
+import { download, FileButton, Panel } from "./common";
 
 // Importing a couplings CSV (D5; M3 step 2). Nothing changes until the user imports:
 // couplings.reconcile is a query that proposes exact label matches and reports the diff, and the
@@ -57,7 +57,7 @@ export function ImportCouplings({ studio, state, project }: Props) {
         return;
       }
       const labels = labelsOf(base);
-      if (labels.some((l) => !(l in mapping)) || collisions(mapping).size > 0) {
+      if (labels.some((l) => !Object.hasOwn(mapping, l)) || collisions(mapping).size > 0) {
         setChecked(null); // the page says what is missing; nothing to ask the server yet
         return;
       }
@@ -134,9 +134,9 @@ export function ImportCouplings({ studio, state, project }: Props) {
               </thead>
               <tbody>
                 {labels.map((label) => {
-                  const spin = mapping[label] ?? "";
+                  const spin = spinOf(mapping, label);
                   const others = (clash.get(spin) ?? []).filter((l) => l !== label);
-                  const isProposed = proposal.proposed_mapping[label] === spin && spin !== "";
+                  const isProposed = spin !== "" && spinOf(proposal.proposed_mapping, label) === spin;
                   const id = `map-${label}`;
                   return (
                     <tr key={label}>
@@ -179,6 +179,13 @@ export function ImportCouplings({ studio, state, project }: Props) {
             diff[kind].length === 0 ? null : <DiffTable key={kind} kind={kind} pairs={diff[kind]} />,
           )}
           {diff.removed.length > 0 && <p className="warn-text">{strings.removesWarning(diff.removed.length)}</p>}
+          <button
+            type="button"
+            className="quiet"
+            onClick={() => download(`${file?.name ?? "couplings"}.diff.csv`, diffCsv(diff), "text/csv")}
+          >
+            {strings.downloadDiff}
+          </button>
         </>
       )}
 
@@ -227,7 +234,7 @@ function sameValues(p: PairOut): boolean {
 }
 
 function DiffTable({ kind, pairs }: { kind: "added" | "changed" | "removed"; pairs: readonly PairOut[] }) {
-  const values = (v: PairOut["before"]) => (v ? `${fixed(v.value.value, 1)} ± ${fixed(v.sigma.value, 1)}` : "—");
+  const pair = (v: PairOut["before"]) => (v ? { value: v.value.value, sigma: v.sigma.value } : null);
   return (
     <details open={kind === "changed"}>
       <summary>
@@ -242,16 +249,19 @@ function DiffTable({ kind, pairs }: { kind: "added" | "changed" | "removed"; pai
           </tr>
         </thead>
         <tbody>
-          {pairs.slice(0, SHOWN_ROWS).map((p) => (
+          {pairs.slice(0, SHOWN_ROWS).map((p) => {
+            const [now, after] = comparable([pair(p.before), pair(p.after)]);
+            return (
             <tr key={`${p.spin_a}-${p.spin_b}`}>
               <td>{p.label}</td>
-              <td className="num">{values(p.before)}</td>
+              <td className="num">{now}</td>
               <td className="num">
-                {values(p.after)}
+                {after}
                 {kind === "changed" && sameValues(p) && <div className="help">{strings.provenanceOnly}</div>}
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
       {pairs.length > SHOWN_ROWS && <p className="muted">{strings.moreRows(pairs.length - SHOWN_ROWS)}</p>}

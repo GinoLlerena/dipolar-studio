@@ -128,6 +128,19 @@ export function extent(values: Iterable<number>): [number, number] | null {
   return lo <= hi ? [lo, hi] : null;
 }
 
+/** Values with uncertainties shown side by side (a reconciliation's "now" and "after"): all at
+ * one decimal place, the finest any of their uncertainties needs, and finer still when two
+ * different values would otherwise read the same (round 41: one decimal hid 0.123 → 0.124). */
+export function comparable(items: readonly ({ value: number; sigma: number } | null)[]): string[] {
+  const present = items.filter((x): x is { value: number; sigma: number } => x !== null);
+  let decimals = Math.max(0, ...present.map((x) => decimalsFor(x.sigma) ?? 0));
+  const show = (d: number) =>
+    items.map((x) => (x === null ? "—" : `${atPlace(x.value, d)} ± ${atPlace(x.sigma, d)}`));
+  const distinct = new Set(present.map((x) => x.value)).size;
+  while (decimals < 17 && new Set(present.map((x) => atPlace(x.value, decimals))).size < distinct) decimals += 1;
+  return show(decimals);
+}
+
 // The precision each quantity is shown at (ui-design §5).
 export const hz = (value: number) => fixed(value, 1);
 export const residualHz = (value: number) => signed(value, 2);

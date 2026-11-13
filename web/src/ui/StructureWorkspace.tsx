@@ -2,7 +2,21 @@ import { type KeyboardEvent, type PointerEvent, type RefObject, useEffect, useMe
 import { callOperation, type DescribeProjectOut, type SceneOut } from "../api";
 import { fixed, residualHz } from "../format";
 import { autoCamera, type Camera, drawOrder, project, type Vec3 } from "../scene/projection";
-import { arcPath, arcWidth, cameraIn, cameraOf, DEGREES_PER_PIXEL, dolly, keyMove, misfitStep, orbit, ZOOM_STEP } from "../scene/view";
+import {
+  arcPath,
+  arcWidth,
+  CameraCommits,
+  cameraIn,
+  cameraOf,
+  DEGREES_PER_PIXEL,
+  dolly,
+  guarded,
+  keyMove,
+  misfitStep,
+  orbit,
+  radiusAbout,
+  ZOOM_STEP,
+} from "../scene/view";
 import { strings } from "../strings";
 import type { Studio, StudioState } from "../studio";
 import { Panel, selectableRow } from "./common";
@@ -70,12 +84,12 @@ function useSize(): [RefObject<HTMLDivElement | null>, { width: number; height: 
 function ScenePane({ studio, scene, project: prj }: { studio: Studio; scene: SceneOut; project: DescribeProjectOut }) {
   const [box, { width, height }] = useSize();
   const svg = useRef<SVGSVGElement | null>(null);
-  // A camera moved here and not yet echoed back by the server. It is dropped when a newer
-  // workspace revision arrives (ours, or another client's move, which wins).
+  // A camera moved here and not yet echoed back by the server. It is shown only while the shared
+  // view is at the revision it was moved from: a newer revision (ours, or another client's move,
+  // which wins) replaces it.
   const [local, setLocal] = useState<{ camera: Camera; revision: number } | null>(null);
   const drag = useRef<{ x: number; y: number; moved: boolean; id: number } | null>(null);
   const suppressClick = useRef(false);
-  const timer = useRef<number | undefined>(undefined);
 
   const points = useMemo(() => scene.atoms.map((a) => a.position.xyz as Vec3), [scene]);
   const shared = useMemo(
@@ -83,24 +97,43 @@ function ScenePane({ studio, scene, project: prj }: { studio: Studio; scene: Sce
     [scene, points, width, height],
   );
   const camera = local !== null && local.revision === scene.workspace_revision ? local.camera : shared;
-  const latest = useRef({ camera, width, height, revision: scene.workspace_revision });
-  latest.current = { camera, width, height, revision: scene.workspace_revision };
+  const latest = useRef({ camera, width, height, revision: scene.workspace_revision, points });
+  latest.current = { camera, width, height, revision: scene.workspace_revision, points };
 
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  // One committer per pane: it drops a delayed commit that a newer revision or action supersedes
+  // (round 41: a key's delayed commit used to overwrite another client's camera, or "fit to view").
+  const [commits] = useState(
+    () =>
+      new CameraCommits(
+        scene.workspace_revision,
+        (next) => {
+          const { width: w, height: h } = latest.current;
+          void studio
+            .command("view.set_camera", (t) =>
+              callOperation(
+                "view.set_camera",
+                { camera: next === null ? null : cameraIn(next), viewport: { width: w, height: h } },
+                t,
+              ),
+            )
+            .then((done) => {
+              if (done === null) setLocal(null); // refused: show the shared camera again
+            });
+        },
+        { set: (fn, ms) => window.setTimeout(fn, ms), clear: (handle) => window.clearTimeout(handle as number) },
+      ),
+  );
+  commits.observe(scene.workspace_revision);
+  useEffect(() => () => commits.cancel(), [commits]);
 
-  const commit = (next: Camera | null) => {
-    window.clearTimeout(timer.current);
-    const { width: w, height: h } = latest.current;
-    void studio.command("view.set_camera", (t) =>
-      callOperation("view.set_camera", { camera: next === null ? null : cameraIn(next), viewport: { width: w, height: h } }, t),
-    );
-  };
   const move = (next: Camera, later: boolean) => {
     setLocal({ camera: next, revision: latest.current.revision });
-    if (later) {
-      window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => commit(next), COMMIT_DELAY_MS);
-    }
+    if (later) commits.later(next, COMMIT_DELAY_MS);
+  };
+  const radius = () => radiusAbout(latest.current.points, latest.current.camera.target);
+  const fitToView = () => {
+    setLocal(null);
+    commits.now(null);
   };
 
   // The wheel needs a non-passive listener to keep the page from scrolling.
@@ -109,7 +142,8 @@ function ScenePane({ studio, scene, project: prj }: { studio: Studio; scene: Sce
     if (!element) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      move(dolly(latest.current.camera, e.deltaY > 0 ? ZOOM_STEP : 1 / ZOOM_STEP), true);
+      const current = latest.current.camera;
+      move(guarded(current, dolly(current, e.deltaY > 0 ? ZOOM_STEP : 1 / ZOOM_STEP, radius())), true);
     };
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
@@ -132,7 +166,9 @@ function ScenePane({ studio, scene, project: prj }: { studio: Studio; scene: Sce
     }
     d.x = e.clientX;
     d.y = e.clientY;
-    move(orbit(latest.current.camera, -dx * DEGREES_PER_PIXEL, -dy * DEGREES_PER_PIXEL), false);
+    commits.cancel(); // a drag supersedes a key's or the wheel's pending commit
+    const current = latest.current.camera;
+    move(guarded(current, orbit(current, -dx * DEGREES_PER_PIXEL, -dy * DEGREES_PER_PIXEL)), false);
   };
   const onPointerUp = (e: PointerEvent<SVGSVGElement>) => {
     const d = drag.current;
@@ -140,17 +176,16 @@ function ScenePane({ studio, scene, project: prj }: { studio: Studio; scene: Sce
     if (d?.moved) {
       suppressClick.current = true; // the click that ends a drag is not a pick
       if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
-      commit(latest.current.camera);
+      commits.now(latest.current.camera);
     }
   };
   const onKeyDown = (e: KeyboardEvent<SVGSVGElement>) => {
     if (e.key === "0" || e.key === "Home") {
       e.preventDefault();
-      setLocal(null);
-      commit(null);
+      fitToView();
       return;
     }
-    const next = keyMove(latest.current.camera, e.key);
+    const next = keyMove(latest.current.camera, e.key, radius());
     if (next) {
       e.preventDefault();
       move(next, true);
@@ -181,7 +216,15 @@ function ScenePane({ studio, scene, project: prj }: { studio: Studio; scene: Sce
   const labelOf = new Map(prj.couplings.map((c) => [c.id, c.label]));
 
   return (
-    <Panel title={strings.structure} id="pane-structure">
+    <Panel
+      title={strings.structure}
+      id="pane-structure"
+      actions={
+        <button type="button" className="quiet" onClick={fitToView}>
+          {strings.fitView}
+        </button>
+      }
+    >
       <div className="scene-box" ref={box}>
         <svg
           ref={svg}
@@ -283,24 +326,7 @@ function LayersPane({ studio, scene, busy }: { studio: Studio; scene: SceneOut; 
   const set = (key: keyof SceneOut["layers"], value: boolean) =>
     void studio.command("view.set_layers", (t) => callOperation("view.set_layers", { ...scene.layers, [key]: value }, t));
   return (
-    <Panel
-      title={strings.layers}
-      id="pane-layers"
-      actions={
-        <button
-          type="button"
-          className="quiet"
-          disabled={busy}
-          onClick={() =>
-            void studio.command("view.set_camera", (t) =>
-              callOperation("view.set_camera", { camera: null, viewport: scene.viewport }, t),
-            )
-          }
-        >
-          {strings.fitView}
-        </button>
-      }
-    >
+    <Panel title={strings.layers} id="pane-layers">
       <fieldset className="layers">
         <legend className="visually-hidden">{strings.layers}</legend>
         {(["couplings", "bonds", "labels"] as const).map((key) => (
