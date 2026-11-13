@@ -41,7 +41,7 @@ FORBIDDEN_IN_CORE = {
 
 
 def imported_roots(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     roots: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -52,7 +52,7 @@ def imported_roots(path: Path) -> set[str]:
 
 
 def calls_open(path: Path) -> bool:
-    tree = ast.parse(path.read_text(), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     return any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "open" for n in ast.walk(tree))
 
 
@@ -84,7 +84,7 @@ WEB_FILES = sorted(p for p in WEB_SRC.rglob("*") if p.suffix in {".ts", ".tsx"})
 @pytest.mark.parametrize("path", WEB_FILES, ids=[str(p.relative_to(WEB_SRC)) for p in WEB_FILES])
 def test_frontend_has_no_private_api(path: Path) -> None:
     """Only web/src/api.ts may touch the network, and only registry operation URLs (D13)."""
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     used = [api for api in NETWORK_APIS if api in text]
     if path.name != "api.ts":
         assert not used, f"{path.name} uses {used}; all backend access goes through api.ts"
@@ -98,7 +98,7 @@ def test_frontend_has_no_private_api(path: Path) -> None:
 def test_frontend_imports_no_domain_logic() -> None:
     """The frontend may not reimplement fitting, reconciliation or selection logic (04 §8.5)."""
     for path in WEB_FILES:
-        for spec in re.findall(r"from\s+[\"']([^\"']+)[\"']", path.read_text()):
+        for spec in re.findall(r"from\s+[\"']([^\"']+)[\"']", path.read_text(encoding="utf-8")):
             assert spec.startswith(".") or spec.split("/")[0] in {"react", "react-dom"}, (path.name, spec)
 
 
@@ -141,6 +141,65 @@ def test_shipped_code_never_depends_on_third_party_data() -> None:
     shipped = [*root.glob("packages/*/src/**/*.py"), *root.glob("web/src/**/*.ts*"), root / "tools/package/build.sh"]
     assert shipped
     for path in shipped:
-        text = path.read_text().lower()
+        text = path.read_text(encoding="utf-8").lower()
         for name in THIRD_PARTY_DATA:
             assert name.lower() not in text, f"{path.relative_to(root)} refers to third-party data {name!r}"
+
+
+def test_each_package_ships_the_repository_licence() -> None:
+    """The wheels carry the licence (D9 checklist, spike 3): each package's LICENSE, declared in
+    its license-files, is the repository LICENSE byte for byte."""
+    import tomllib
+
+    licence = (ROOT / "LICENSE").read_bytes()
+    for package in ("dipolar-core", "dipolar-app"):
+        directory = ROOT / "packages" / package
+        assert (directory / "LICENSE").read_bytes() == licence, package
+        project = tomllib.loads((directory / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+        assert project["license"] == "BSD-3-Clause" and project["license-files"] == ["LICENSE"], package
+
+
+#: Owners whose ``open`` is not file text I/O.
+_NOT_TEXT_IO = {"os", "webbrowser", "urllib", "request", "tarfile", "zipfile", "gzip", "io", "codecs", "subprocess"}
+
+
+def _unencoded_text_io(source: str) -> list[int]:
+    """Lines with a text-mode read_text/write_text/open call that names no encoding."""
+    lines = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call) or any(k.arg == "encoding" for k in node.keywords):
+            continue
+        f = node.func
+        if isinstance(f, ast.Attribute) and f.attr in ("read_text", "write_text"):
+            if f.attr == "read_text" and node.args:  # read_text("utf-8"): the encoding, positionally
+                continue
+            lines.append(node.lineno)
+        elif (isinstance(f, ast.Attribute) and f.attr == "open") or (isinstance(f, ast.Name) and f.id == "open"):
+            owner = f.value if isinstance(f, ast.Attribute) else None
+            if isinstance(owner, ast.Name) and owner.id in _NOT_TEXT_IO:
+                continue
+            if isinstance(owner, ast.Attribute) and owner.attr in _NOT_TEXT_IO:
+                continue
+            position = 0 if isinstance(f, ast.Attribute) else 1
+            mode = node.args[position] if len(node.args) > position else None
+            mode = next((k.value for k in node.keywords if k.arg == "mode"), mode)
+            if mode is not None and not (isinstance(mode, ast.Constant) and isinstance(mode.value, str)):
+                continue
+            if isinstance(mode, ast.Constant) and "b" in mode.value:
+                continue
+            lines.append(node.lineno)
+    return lines
+
+
+def test_text_io_always_names_its_encoding() -> None:
+    """Every text read or write names UTF-8. Without it Python uses the locale's encoding
+    (cp1252 on Windows), which corrupts "Å" and the non-ASCII sources (small batch, Windows CI)."""
+    import subprocess
+
+    tracked = subprocess.run(["git", "ls-files", "*.py"], cwd=ROOT, capture_output=True, text=True, check=True)
+    found = {}
+    for name in tracked.stdout.split():
+        lines = _unencoded_text_io((ROOT / name).read_text(encoding="utf-8"))
+        if lines:
+            found[name] = lines
+    assert not found, found

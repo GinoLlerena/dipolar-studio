@@ -19,6 +19,12 @@ rm -rf "$static"  # the source tree stays free of build products
 
 python3 - <<'PY'
 import pathlib, zipfile
+licence = pathlib.Path("LICENSE").read_bytes()
+for wheel in sorted(pathlib.Path("dist/packages").glob("*.whl")):
+    archive = zipfile.ZipFile(wheel)
+    shipped = [n for n in archive.namelist() if n.endswith(".dist-info/licenses/LICENSE")]
+    assert len(shipped) == 1 and archive.read(shipped[0]) == licence, f"{wheel.name}: the licence is not shipped"
+    print(f"{wheel.name}: licence shipped ({shipped[0]})")
 wheel = next(pathlib.Path("dist/packages").glob("dipolar_app-*.whl"))
 names = zipfile.ZipFile(wheel).namelist()
 assert "dipolar_app/static/index.html" in names, "the page is not bundled"

@@ -54,7 +54,7 @@ def fit(pairs, y):
 
 def main():
     out = {}
-    with open(HERE / "couplings.csv") as f:
+    with open(HERE / "couplings.csv", encoding="utf-8") as f:
         data = list(csv.DictReader(f))
     for t, ref in (("0.930", {"phi_max_deg": 35.37, "Saa": 0.425, "Sbb_minus_Scc": 0.182}),
                    ("0.980", {"phi_max_deg": 35.51, "Saa": 0.321, "Sbb_minus_Scc": 0.152})):
@@ -65,7 +65,7 @@ def main():
         out[t] = {"phi_deg": round(phi, 2), "Szz": round(float(s[0]), 4), "Delta": round(float(s[1]), 4),
                   "rms_Hz": round(rms, 2), "thesis_AP_DPD": ref}
     print(json.dumps(out, indent=2))
-    (HERE / "check_fit.out.json").write_text(json.dumps(out, indent=2) + "\n")
+    (HERE / "check_fit.out.json").write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

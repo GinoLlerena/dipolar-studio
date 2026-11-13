@@ -4,6 +4,7 @@ version = "0.0.1.dev0"
 description = "Headless application layer of Dipolar Studio: operation registry, session, event log, view state"
 readme = "README.md"
 license = "BSD-3-Clause"
+license-files = ["LICENSE"]  # a copy of the repository LICENSE (tests/test_boundaries.py keeps it equal)
 authors = [{ name = "Gino Llerena" }]
 requires-python = ">=3.12"
 dependencies = [

@@ -37,7 +37,7 @@ from scipy.optimize import brentq, least_squares, minimize_scalar
 Array = NDArray[np.float64]
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED = ROOT / "datasets" / "biphenyl-synthetic" / "expected"
-SPEC = json.loads((EXPECTED / "spec.json").read_text())
+SPEC = json.loads((EXPECTED / "spec.json").read_text(encoding="utf-8"))
 TOL = SPEC["tolerances"]["regression"]
 K_HH = dipolar_constant_hz_a3("1H", "1H")
 GRID = np.arange(0.0, 90.0 + 0.25, 0.5)  # 0:0.5:90, the frozen optimum convention
@@ -52,7 +52,7 @@ class Problem:
 
     @classmethod
     def from_fixture(cls, name: str, y_key: str, sigma_key: str) -> Problem:
-        data = json.loads((EXPECTED / name).read_text())
+        data = json.loads((EXPECTED / name).read_text(encoding="utf-8"))
         index = {label: i for i, label in enumerate(PROTON_LABELS)}
         pairs = tuple((index[a], index[b]) for a, b in data["pairs"])
         return cls(pairs, np.array(data[y_key], dtype=float), np.array(data[sigma_key], dtype=float))
@@ -225,7 +225,7 @@ def test_two_parameter_rigid_model_is_regular_on_its_domain() -> None:
 @pytest.fixture(scope="module")
 def noisy() -> tuple[Problem, dict[str, Any], dict[str, Any]]:
     problem = Problem.from_fixture("noisy_fixture.json", "y_Hz", "sigma_Hz")
-    expected = json.loads((EXPECTED / "noisy_fixture.json").read_text())["expected"]
+    expected = json.loads((EXPECTED / "noisy_fixture.json").read_text(encoding="utf-8"))["expected"]
     return problem, fit(problem), expected
 
 
@@ -332,7 +332,7 @@ def test_profile_intervals_match_the_fixture(noisy: tuple[Problem, dict[str, Any
 def test_noiseless_recovery() -> None:
     """Gate (a): noiseless couplings computed in code recover the truth to 1e-8."""
     problem = Problem.from_fixture("noiseless.json", "D_Hz", "sigma_Hz")
-    exp = json.loads((EXPECTED / "noiseless.json").read_text())["expected"]
+    exp = json.loads((EXPECTED / "noiseless.json").read_text(encoding="utf-8"))["expected"]
     atol = SPEC["tolerances"]["noiseless_recovery_atol"]
     result = fit(problem)
     assert abs(result["phi"] - exp["phi_deg"]) < atol["phi_deg"]
@@ -374,8 +374,8 @@ def test_residual_vector_refinement_meets_absolute_accuracy() -> None:
     M1 uses the residual-vector refinement, held to absolute requirements rather than to a
     comparison between refiners."""
     noiseless = Problem.from_fixture("noiseless.json", "D_Hz", "sigma_Hz")
-    truth = json.loads((EXPECTED / "noiseless.json").read_text())["expected"]["phi_deg"]
+    truth = json.loads((EXPECTED / "noiseless.json").read_text(encoding="utf-8"))["expected"]["phi_deg"]
     assert abs(reduced_residual_refine(noiseless, fit(noiseless)["grid_best"]) - truth) < 1e-12
     noisy = Problem.from_fixture("noisy_fixture.json", "y_Hz", "sigma_Hz")
-    frozen = json.loads((EXPECTED / "noisy_fixture.json").read_text())["expected"]["phi_deg"]
+    frozen = json.loads((EXPECTED / "noisy_fixture.json").read_text(encoding="utf-8"))["expected"]["phi_deg"]
     assert abs(reduced_residual_refine(noisy, fit(noisy)["grid_best"]) - frozen) < 1e-8

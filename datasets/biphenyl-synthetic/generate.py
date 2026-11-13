@@ -99,11 +99,11 @@ def main() -> None:
             "sigma_Hz": t["sigma_Hz"],
             "observable": "D", "unit": "Hz",
         })
-    with open(HERE / "couplings.csv", "w", newline="") as f:
+    with open(HERE / "couplings.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0]))
         w.writeheader()
         w.writerows(rows)
-    (HERE / "truth.json").write_text(json.dumps(t, indent=2) + "\n")
+    (HERE / "truth.json").write_text(json.dumps(t, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {len(rows)} unique couplings (from {sum(r['multiplicity'] for r in rows)} pairs); K_HH = {K_HH:.3f} Hz A^3")
 
 

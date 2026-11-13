@@ -29,7 +29,7 @@ AGENT = Principal(actor="agent:test", tier=Tier.PROPOSE, human=False)
 
 
 def expected(name: str) -> dict[str, Any]:
-    data: dict[str, Any] = json.loads((EXPECTED / name).read_text())
+    data: dict[str, Any] = json.loads((EXPECTED / name).read_text(encoding="utf-8"))
     return data
 
 
@@ -124,6 +124,9 @@ def start_server(tmp: Path, static_dir: Path | None = None) -> Server:
     stdout_path = tmp / "server.out"
     cmd = [sys.executable, "-m", "dipolar_app.cli", "serve", "--project-dir", str(project_dir)]
     cmd += ["--ready-file", str(ready)]
+    # A server stopped by a hard kill (terminate() on Windows) leaves its ready file behind; wait for
+    # this server's, never an earlier one's.
+    ready.unlink(missing_ok=True)
     if static_dir is not None:
         cmd += ["--static-dir", str(static_dir)]
     with stdout_path.open("wb") as out:
@@ -132,9 +135,9 @@ def start_server(tmp: Path, static_dir: Path | None = None) -> Server:
     while not ready.exists():
         if process.poll() is not None or time.monotonic() > deadline:
             process.kill()
-            raise RuntimeError(f"server did not start: {stdout_path.read_text()}")
+            raise RuntimeError(f"server did not start: {stdout_path.read_text(encoding='utf-8')}")
         time.sleep(0.05)
-    info = json.loads(ready.read_text())
+    info = json.loads(ready.read_text(encoding="utf-8"))
     port = int(info["base_url"].rsplit(":", 1)[1])
     return Server(info["base_url"], port, info["tokens"], ready, project_dir, stdout_path, process)
 

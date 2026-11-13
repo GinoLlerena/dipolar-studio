@@ -202,12 +202,10 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 2. **The owner chooses** what comes next:
    - **M3 step 1:** the Data and Fit workspaces in the browser, on the generated client and the
      event stream.
-   - **the small batch:**
-     - GitHub Actions off Node 20;
-     - a licence file in the wheels;
-     - a Windows CI job;
-     - caching interval evaluations;
-     - blob and journal compaction.
+   - **journal compaction:** snapshots that replay can verify, which bound the journal and the
+     request table (the remaining storage limit).
+   - **interval warm starts:** faster profile intervals; this needs a `FIT_VERSION` bump and a
+     gate (c) rerun.
 3. Work under the medium plan (below): at most two review rounds per step, a fresh session per
    step.
 4. **When the registry changes,** regenerate the snapshot, then run
@@ -820,6 +818,36 @@ fixed and mutation-checked; the round-36 fixes were not reviewed again, under th
 
 See [round35-m2-step4.md](validation/round35-m2-step4.md).
 
+## The small batch (after M2)
+
+Housekeeping chosen by the owner after the M2 exit audit. It went through pull request #1, so that
+the new Windows job could be brought to green before merging.
+
+- **CI off Node 20:** actions/checkout, setup-node and setup-python are at v7.
+- **The licence in the wheels:** each package ships the repository `LICENSE` (`license-files`).
+  `tools/package/build.sh` checks it in both wheels, and a boundary test keeps the copies equal to
+  the repository file.
+- **Caching interval evaluations:** profile intervals memoize the excess at each value.
+  - **The measured gain is small:** about 4% fewer re-minimizations on the fixture (4 to 6 of
+    about 120 evaluations repeat). The cost is each constrained re-fit, 0.06–0.1 s for Szz and Δ.
+  - **A bigger cut would need warm starts:** each re-fit would start from its neighbour's solution.
+    That changes the numerics, so it needs a `FIT_VERSION` bump and a rerun of the 40-minute gate (c).
+    It is left as its own item.
+  - **Measuring this exposed run-to-run variation** in the last bits of interval endpoints
+    (about 1e-17, apparently BLAS threading). The unmemoized code already showed it; it is far
+    below every tolerance, and consistent with D11 (byte identity only in a pinned environment).
+- **Blob collection:** when a session opens, it removes the result blobs that no run in the state
+  references: pruned runs, dropped late results and leftover temporary files. This closes the M2
+  step 3 (B) item on blob growth. **Journal compaction** (the request table and the journal itself)
+  remains open: it needs snapshots that replay can verify.
+- **A Windows CI job** (spike 3: the msvcrt lock, paths and line endings):
+  - `fsync_dir` is a no-op on Windows, where a directory cannot be opened for fsync and NTFS
+    journals its metadata;
+  - text files keep LF line endings everywhere (`.gitattributes`), so the SHA-256 fixture checks
+    hold;
+  - POSIX-only tests are skipped on Windows: mode bits, symlinks, SIGKILL, `select` on pipes, and
+    the launch directory's ownership checks (ADR-0010).
+
 ## Open items for the owner
 
 - Log your hours per M1 step in the table above. The re-baseline needs them for a first date
@@ -840,5 +868,4 @@ See [round35-m2-step4.md](validation/round35-m2-step4.md).
 
 ## Known minor issue
 
-- GitHub Actions warns that `actions/checkout@v4` and the setup actions run on the deprecated
-  Node 20. Bump them in a small CI commit.
+- None open (the Node 20 warning is fixed in the small batch).

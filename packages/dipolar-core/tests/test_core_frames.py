@@ -117,7 +117,7 @@ def test_position_derivative_matches_finite_differences() -> None:
 
 
 def test_fits_with_analytic_and_differenced_derivatives_agree() -> None:
-    data = json.loads((EXPECTED / "noisy_fixture.json").read_text())
+    data = json.loads((EXPECTED / "noisy_fixture.json").read_text(encoding="utf-8"))
     index = {label: i for i, label in enumerate(PROTON_LABELS)}
     pairs = tuple((index[a], index[b]) for a, b in data["pairs"])
     analytic = rigid_problem(pairs, np.array(data["y_Hz"]), np.array(data["sigma_Hz"]))
@@ -319,7 +319,7 @@ def test_bisector_diagonal_and_c1_agree_on_d2_data() -> None:
 
 
 def test_fixture_fit_has_no_notes() -> None:
-    data = json.loads((EXPECTED / "noisy_fixture.json").read_text())
+    data = json.loads((EXPECTED / "noisy_fixture.json").read_text(encoding="utf-8"))
     index = {label: i for i, label in enumerate(PROTON_LABELS)}
     pairs = tuple((index[a], index[b]) for a, b in data["pairs"])
     assert fit(rigid_problem(pairs, np.array(data["y_Hz"]), np.array(data["sigma_Hz"]))).notes == ()

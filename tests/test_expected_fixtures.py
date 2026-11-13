@@ -27,7 +27,7 @@ needs_8cb = pytest.mark.skipif(not HAS_8CB, reason="the third-party 8CB dataset 
 
 
 def load(path: Path) -> dict:  # type: ignore[type-arg]
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 TOL = load(SYN / "spec.json")["tolerances"]["regression"]
@@ -35,7 +35,7 @@ TOL = load(SYN / "spec.json")["tolerances"]["regression"]
 
 @pytest.mark.parametrize("directory", [SYN, pytest.param(DIP, marks=needs_8cb)], ids=["synthetic", "8CB"])
 def test_manifest_matches(directory: Path) -> None:
-    lines = (directory / "MANIFEST.sha256").read_text().split("\n")
+    lines = (directory / "MANIFEST.sha256").read_text(encoding="utf-8").split("\n")
     listed = dict(reversed(line.split("  ")) for line in lines if line)
     on_disk = {f.name for f in directory.glob("*.json")}
     assert set(listed) == on_disk, "expected/ contains files that are not in MANIFEST.sha256"
@@ -87,7 +87,7 @@ def test_synthetic_noisy_fixture_reproduces() -> None:
 
 def test_synthetic_fixture_inputs_match_csv() -> None:
     fx = load(SYN / "noisy_fixture.json")
-    with (R.SYNTHETIC_DIR / "couplings.csv").open() as f:
+    with (R.SYNTHETIC_DIR / "couplings.csv").open(encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     assert [[r["spin_a"], r["spin_b"]] for r in rows] == fx["pairs"]
     assert [float(r["D_obs_Hz"]) for r in rows] == fx["y_Hz"]
@@ -158,7 +158,7 @@ def test_8cb_reproduces(t: str) -> None:
 @pytest.mark.parametrize("t", ["0.930", "0.980"])
 def test_8cb_inputs_match_csv(t: str) -> None:
     fx = load(DIP / f"T{t}.json")
-    with (R.DIPIETRO_DIR / "couplings.csv").open() as f:
+    with (R.DIPIETRO_DIR / "couplings.csv").open(encoding="utf-8") as f:
         rows = [r for r in csv.DictReader(f) if r["T_red"] == t]
     assert [[r["spin_a"], r["spin_b"]] for r in rows] == fx["pairs"]
     assert [float(r["D_obs_Hz"]) for r in rows] == fx["y_Hz"]

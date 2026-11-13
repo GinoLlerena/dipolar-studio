@@ -125,7 +125,7 @@ def test_every_unidentified_direction_is_named_when_n_is_below_p() -> None:
 
 # --------------------------------------------------------------------------- finding 6: full Σ
 def biphenyl_pairs() -> tuple[tuple[int, int], ...]:
-    data = json.loads((EXPECTED / "noisy_fixture.json").read_text())
+    data = json.loads((EXPECTED / "noisy_fixture.json").read_text(encoding="utf-8"))
     index = {label: i for i, label in enumerate(PROTON_LABELS)}
     return tuple((index[a], index[b]) for a, b in data["pairs"])
 
@@ -152,7 +152,7 @@ def rigid(pairs: tuple[tuple[int, int], ...], y: Array, cov: Array | None) -> Pr
 
 def test_a_diagonal_covariance_matrix_equals_the_sigma_vector() -> None:
     pairs = biphenyl_pairs()
-    y = np.array(json.loads((EXPECTED / "noisy_fixture.json").read_text())["y_Hz"])
+    y = np.array(json.loads((EXPECTED / "noisy_fixture.json").read_text(encoding="utf-8"))["y_Hz"])
     plain, full = fit(rigid(pairs, y, None)), fit(rigid(pairs, y, np.diag(np.full(len(y), 0.25))))
     np.testing.assert_allclose(full.theta, plain.theta, rtol=0, atol=1e-10)
     np.testing.assert_allclose(full.order, plain.order, rtol=0, atol=1e-12)
@@ -216,7 +216,7 @@ def test_scan_points_carry_their_own_diagnostics() -> None:
     """The full five-component tensor loses rank at the planar point φ = 0 (M0 spike 1)."""
     pairs = biphenyl_pairs()
     k = dipolar_constant_hz_a3("1H", "1H")
-    y = np.array(json.loads((EXPECTED / "noisy_fixture.json").read_text())["y_Hz"])
+    y = np.array(json.loads((EXPECTED / "noisy_fixture.json").read_text(encoding="utf-8"))["y_Hz"])
     q = Problem(
         design=lambda theta: design_rows(proton_positions(float(theta[0])), pairs, k),
         y=y,
@@ -307,7 +307,7 @@ def test_a_nonlinear_fit_with_a_huge_misfit_is_finished() -> None:
     reduction left (about 1e-4) exceeds DECREMENT_ATOL but lies below what TRF can resolve
     (tolerance·χ²), so the fit is finished, not unconverged."""
     pairs = biphenyl_pairs()
-    y = np.array(json.loads((EXPECTED / "noisy_fixture.json").read_text())["y_Hz"])
+    y = np.array(json.loads((EXPECTED / "noisy_fixture.json").read_text(encoding="utf-8"))["y_Hz"])
     noisy = y + 1e6 * np.random.default_rng(6).normal(size=len(y))
     result = fit(rigid(pairs, noisy, None))
     assert result.chi2 > 1e13 and result.validity.at_bound == () and result.validity.converged
@@ -319,7 +319,7 @@ def test_the_varpro_jacobian_is_exact_golub_pereyra() -> None:
     from dipolar_core.fit import _varpro_jacobian, _whole
 
     pairs = biphenyl_pairs()
-    y = np.array(json.loads((EXPECTED / "noisy_fixture.json").read_text())["y_Hz"])
+    y = np.array(json.loads((EXPECTED / "noisy_fixture.json").read_text(encoding="utf-8"))["y_Hz"])
     q = rigid(pairs, y + 300.0 * np.random.default_rng(1).normal(size=len(y)), None)
     for phi in (20.0, 37.0, 60.0):
         x = np.array([phi])
@@ -380,7 +380,16 @@ def test_an_exact_optimum_with_a_large_misfit_is_converged() -> None:
     q = problem(lambda x: (a + x[0] * b)[:, None], list(a + 1000 * n), [-1.0], [1.0])
     result = fit(q)
     assert result.validity.converged and result.validity.regular and result.nu == 2
-    assert result.chi2 == pytest.approx(1e6, rel=1e-12) and abs(result.theta[0]) < 1e-9
+    # The position the convergence certificate guarantees (``_converged``): χ² resolved to
+    # DECREMENT_ATOL + ATTAINABLE_FACTOR·tolerance·χ², and χ² rises by |b⊥|²·x² from the optimum,
+    # where b⊥ is b's part orthogonal to a. A fixed 1e-9 held on one BLAS and not on Windows' (small
+    # batch); the certificate's bound holds on every platform.
+    from dipolar_core.fit import ATTAINABLE_FACTOR, DECREMENT_ATOL, Settings
+
+    b_perp = b - (a @ b) / (a @ a) * a
+    resolution = DECREMENT_ATOL + ATTAINABLE_FACTOR * Settings().tolerance * 1e6
+    assert result.chi2 == pytest.approx(1e6, rel=1e-12)
+    assert abs(result.theta[0]) <= np.sqrt(resolution / (b_perp @ b_perp))
     assert result.p_value is not None and result.p_value < 1e-100  # adequacy says "inadequate", separately
 
 

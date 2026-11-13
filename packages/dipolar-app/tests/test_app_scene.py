@@ -285,9 +285,9 @@ def test_the_parity_check_catches_a_difference(tmp_path: Path) -> None:
     work = tmp_path / "web"
     shutil.copytree(ROOT / "web" / "scripts", work / "scripts")
     shutil.copytree(ROOT / "web" / "src" / "scene", work / "src" / "scene")
-    data = json.loads((work / "src" / "scene" / "parity-fixtures.json").read_text())
+    data = json.loads((work / "src" / "scene" / "parity-fixtures.json").read_text(encoding="utf-8"))
     data["cases"][0]["expected"][0]["x"] += 1.0
-    (work / "src" / "scene" / "parity-fixtures.json").write_text(json.dumps(data))
+    (work / "src" / "scene" / "parity-fixtures.json").write_text(json.dumps(data), encoding="utf-8")
     out = subprocess.run(
         ["node", "--experimental-strip-types", "--no-warnings", "scripts/projection-parity.mjs"],
         cwd=work,

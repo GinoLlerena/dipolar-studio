@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 from pathlib import Path
 
 import pytest
 from dipolar_app import cli
+
+#: ADR-0010: the launch directory's owner and mode checks are validated on POSIX only.
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX ownership and mode checks (ADR-0010)")
 
 
 def test_a_concurrent_creator_is_tolerated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -32,7 +36,7 @@ def test_anything_but_a_plain_directory_is_refused(tmp_path: Path, kind: str) ->
         elsewhere.mkdir(mode=0o755)
         target.symlink_to(elsewhere, target_is_directory=True)
     else:
-        target.write_text("not a directory")
+        target.write_text("not a directory", encoding="utf-8")
     with pytest.raises(cli.UnsafeLaunchDir):
         cli.verified_launch_dir(tmp_path, create=True)
     if kind == "symlink":

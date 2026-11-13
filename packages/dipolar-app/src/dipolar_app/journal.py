@@ -52,6 +52,10 @@ class Recovery:
 
 
 def fsync_dir(path: Path) -> None:
+    """Make a directory's entries durable. On Windows a directory cannot be opened for fsync, and
+    NTFS journals its metadata itself, so this is a no-op there (small batch, Windows CI)."""
+    if os.name == "nt":
+        return
     dir_fd = os.open(path, os.O_RDONLY)
     try:
         os.fsync(dir_fd)

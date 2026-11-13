@@ -34,7 +34,7 @@ RECORD = ROOT / "docs" / "validation" / "data" / "m1-gate-c-engine-coverage.json
 sys.path.insert(0, str(ROOT / "tools" / "coverage"))
 import engine_coverage as C  # noqa: E402
 
-SPEC = json.loads((SYN / "spec.json").read_text())
+SPEC = json.loads((SYN / "spec.json").read_text(encoding="utf-8"))
 
 #: The engine test of each frozen gate, as "path::test_name".
 GATE_TESTS: dict[str, dict[str, list[str]]] = {
@@ -79,13 +79,13 @@ def _indices(pairs: list[list[str]]) -> tuple[tuple[int, int], ...]:
 def test_every_frozen_gate_names_an_existing_engine_test() -> None:
     assert set(GATE_TESTS["synthetic"]) == set(SPEC["gates"])
     if (DIP / "spec.json").exists():  # the 8CB gates apply only while the dataset is present
-        assert set(GATE_TESTS["8CB"]) == set(json.loads((DIP / "spec.json").read_text())["gates"])
+        assert set(GATE_TESTS["8CB"]) == set(json.loads((DIP / "spec.json").read_text(encoding="utf-8"))["gates"])
     for gates in GATE_TESTS.values():
         for tests in gates.values():
             assert tests
             for ref in tests:
                 path, name = ref.split("::")
-                source = (ROOT / path).read_text()
+                source = (ROOT / path).read_text(encoding="utf-8")
                 assert re.search(rf"^def {re.escape(name)}\(", source, re.MULTILINE), f"{ref} does not exist"
 
 
@@ -93,7 +93,7 @@ def test_every_frozen_gate_names_an_existing_engine_test() -> None:
 
 
 def test_gate_a_noiseless_recovery() -> None:
-    data = json.loads((SYN / "noiseless.json").read_text())
+    data = json.loads((SYN / "noiseless.json").read_text(encoding="utf-8"))
     atol = SPEC["tolerances"]["noiseless_recovery_atol"]
     result = fit(rigid_problem(_indices(data["pairs"]), np.array(data["D_Hz"]), np.array(data["sigma_Hz"])))
     truth = data["truth"]
@@ -108,7 +108,7 @@ def test_gate_a_noiseless_recovery() -> None:
 
 
 def _record() -> dict[str, Any]:
-    record: dict[str, Any] = json.loads(RECORD.read_text())
+    record: dict[str, Any] = json.loads(RECORD.read_text(encoding="utf-8"))
     return record
 
 
@@ -117,7 +117,7 @@ def test_gate_c_record_is_within_the_band() -> None:
     supported. Every summary field is recomputed from the per-seed intervals (round 25), and the
     record names the engine version and the inputs it was made from."""
     record, cov = _record(), SPEC["coverage"]
-    truth = json.loads((SYN / "noiseless.json").read_text())["truth"]
+    truth = json.loads((SYN / "noiseless.json").read_text(encoding="utf-8"))["truth"]
     assert record["provenance"] == C.provenance()
     n = cov["n_seeds"]
     assert record["n_seeds"] == n == len(record["seeds"])
@@ -174,7 +174,7 @@ def test_gate_d_reversed_pairs_and_classes() -> None:
     predicts one value, at 0°, 37° and the 90° endpoint."""
     from dipolar_core.biphenyl import rigid_design
 
-    fwd = json.loads((SYN / "forward.json").read_text())
+    fwd = json.loads((SYN / "forward.json").read_text(encoding="utf-8"))
     s = np.array([0.25, 0.03])
     pairs = _indices(fwd["pairs"])
     reversed_pairs = tuple((b, a) for a, b in pairs)

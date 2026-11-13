@@ -204,7 +204,7 @@ def migrate_project(data: dict[str, Any]) -> dict[str, Any]:
 
 def load_example(name: ExampleName) -> Project:
     """Build a project from a bundled example. IDs are assigned here, in file order."""
-    raw = json.loads(resources.files("dipolar_app.examples").joinpath(f"{name}.json").read_text("utf-8"))
+    raw = json.loads(resources.files("dipolar_app.examples").joinpath(f"{name}.json").read_text(encoding="utf-8"))
     labels = raw["spins"]
     spin_ids = {label: f"spn_{i + 1:06d}" for i, label in enumerate(labels)}
     geometry = raw["geometry_A"]

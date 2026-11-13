@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import multiprocessing
+import os
 import threading
 import time
 import urllib.request
@@ -103,7 +104,7 @@ def test_fit_run_returns_a_job_and_publishes_a_run(tmp_path: Path) -> None:
     direct = compute_fit(s.state.project, False, 1, s.state.science_hash)  # type: ignore[arg-type]
     assert got["result"] == direct.model_dump(mode="json")
     blob = tmp_path / "runs" / f"{got['run']['result_sha256']}.json"
-    assert blob.exists() and oct(blob.stat().st_mode & 0o777) == "0o600"
+    assert blob.exists() and (os.name != "posix" or oct(blob.stat().st_mode & 0o777) == "0o600")
     assert journal_ops(tmp_path)[-2:] == ["fit.run", "job.finish"]
     assert s.state.science_revision == 1 and s.state.workspace_revision == 0
     assert [r["id"] for r in ok(c.call("run.list"))["runs"]] == ["run_000001"]
@@ -266,7 +267,7 @@ def test_a_damaged_result_blob_is_refused(tmp_path: Path) -> None:
     _, c = opened(tmp_path)
     wait(c, submit(c))
     (blob,) = (tmp_path / "runs").glob("*.json")
-    blob.write_text(blob.read_text().replace("chi2", "chi3", 1))
+    blob.write_text(blob.read_text(encoding="utf-8").replace("chi2", "chi3", 1), encoding="utf-8")
     with pytest.raises(JournalCorrupt, match="blob"):
         Session(Journal(tmp_path / "project.events.jsonl"), contract_version=CONTRACT_VERSION)
 
@@ -433,7 +434,7 @@ def test_a_damaged_blob_is_rewritten_when_the_same_result_is_published(tmp_path:
     _, c = opened(tmp_path)
     first = wait(c, submit(c))
     (blob,) = (tmp_path / "runs").glob("*.json")
-    blob.write_text("damaged")
+    blob.write_text("damaged", encoding="utf-8")
     second = wait(c, submit(c))
     assert second["status"] == "succeeded"
     assert ok(c.call("run.get", {"run_id": second["run_id"]}))["result"]["chi2"] >= 0
@@ -616,7 +617,7 @@ def test_new_project_directories_are_made_durable(tmp_path: Path, monkeypatch: p
 def test_an_oversized_outcome_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(jobs_module, "MAX_OUTCOME_BYTES", 100)
     path = tmp_path / "outcome.json"
-    path.write_text(json.dumps(["ok", {"x": "y" * 200}]))
+    path.write_text(json.dumps(["ok", {"x": "y" * 200}]), encoding="utf-8")
     assert jobs_module._read_outcome(str(path), 0)[:2] == ("error", "INTERNAL")
 
 
@@ -654,3 +655,43 @@ def test_view_changes_during_a_running_fit_leave_science_and_run_untouched(
     assert held_result["result"] == baseline_result["result"]  # the same fit, number for number
     assert s.state.run(baseline["run_id"]) == before_run  # the published run is untouched
     assert s.blobs.text(before_run.result_sha256) == before_blob  # type: ignore[union-attr]
+
+
+# --------------------------------------------------------------------------- blob collection (small batch)
+def test_opening_a_session_collects_unreferenced_blobs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Blobs that no run in the state references are removed when the session opens: a pruned
+    run's, a dropped late result, a leftover temporary file. The others stay and verify (M2 step 3,
+    B limit: blob growth)."""
+    from dipolar_app import session as session_module
+
+    monkeypatch.setattr(session_module, "MAX_RUNS", 2)
+    s, c = opened(tmp_path)
+    first = wait(c, submit(c))  # the rigid model
+    ok(c.call("model.set", {**JUMP, "expected_science_revision": 1}))
+    wait(c, submit(c, revision=2))  # the jump model
+    wide = {**JUMP, "kind": "rigid", "phi_domain": [deg(0), deg(180)]}
+    ok(c.call("model.set", {**wide, "expected_science_revision": 2}))
+    wait(c, submit(c, revision=3))  # the rigid model on [0, 180]: run_000001 is pruned now
+    assert s.state.run(first["run_id"]) is None
+    pruned_blob = tmp_path / "runs" / f"{first_blob(s, tmp_path, first)}.json"
+    s.blobs.put({"dropped": "a late result after a cancel"})
+    leftover = tmp_path / "runs" / ".abc.123.tmp"
+    leftover.write_text("partial", encoding="utf-8")
+    kept = {r.result_sha256 for r in s.state.runs}
+    assert len(kept) == 2 and pruned_blob.exists()
+    reopened = Session(Journal(tmp_path / "project.events.jsonl"), contract_version=CONTRACT_VERSION)
+    assert reopened.collected == 3  # the pruned run's blob, the dropped result, the temporary file
+    assert {p.stem for p in (tmp_path / "runs").glob("*.json")} == kept and not leftover.exists()
+    for run in reopened.state.runs:
+        assert LocalClient(build_registry(), reopened, USER).call("run.get", {"run_id": run.id})["ok"]
+    assert Session(Journal(tmp_path / "project.events.jsonl"), contract_version=CONTRACT_VERSION).collected == 0
+
+
+def first_blob(s: Session, tmp_path: Path, job: dict[str, Any]) -> str:
+    """The blob of a finished job's run, read from the journal (its run may be pruned from the state)."""
+    for record in Journal(tmp_path / "project.events.jsonl").records():
+        for event in record["events"]:
+            if event["type"] == "job.finished" and event["id"] == job["id"] and event["run"]:
+                digest: str = event["run"]["result_sha256"]
+                return digest
+    raise AssertionError("no run for the job")

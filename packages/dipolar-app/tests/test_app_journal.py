@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 from pathlib import Path
 
@@ -25,7 +26,7 @@ def build(tmp_path: Path) -> tuple[Path, object]:
 
 def test_replay_reproduces_state(tmp_path: Path) -> None:
     path, live = build(tmp_path)
-    records = [json.loads(line) for line in path.read_text().splitlines()]
+    records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     assert [r["operation"] for r in records] == [
         "project.open_example",
         "view.select",
@@ -44,13 +45,14 @@ def test_replay_reproduces_state(tmp_path: Path) -> None:
 
     resumed = new_session(tmp_path)  # a new process resumes from the same journal
     assert resumed.state == rebuilt
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name == "posix":  # Windows has no POSIX mode bits
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
 def test_tampered_record_is_refused(tmp_path: Path) -> None:
     path, _ = build(tmp_path)
-    text = path.read_text()
-    path.write_text(text.replace('"cpl_000010"', '"cpl_000011"', 1))
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace('"cpl_000010"', '"cpl_000011"', 1), encoding="utf-8")
     with pytest.raises(JournalCorrupt, match="checksum"):
         replay(Journal(path))
 
@@ -76,7 +78,8 @@ def test_a_torn_tail_is_discarded_and_quarantined(tmp_path: Path, cut: int | str
     assert s.recovery is not None
     assert (s.recovery.discarded_bytes, s.recovery.kept_records) == (len(torn), 3)
     assert s.recovery.quarantine.read_bytes() == torn
-    assert stat.S_IMODE(s.recovery.quarantine.stat().st_mode) == 0o600
+    if os.name == "posix":
+        assert stat.S_IMODE(s.recovery.quarantine.stat().st_mode) == 0o600
     assert path.read_bytes() == prefix
     assert s.state.seq == 3  # the last command was never acknowledged, so it is gone
     assert client(s, ROBOT).call("view.select", {"ids": ["cpl_000010"]})["ok"]  # appends cleanly after the cut

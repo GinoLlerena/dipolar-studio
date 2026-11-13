@@ -507,6 +507,28 @@ class BlobStore:
         fsync_dir(self.directory)
         return digest
 
+    def collect(self, keep: set[str]) -> int:
+        """Delete every blob not in ``keep``, and any leftover temporary file. Returns how many
+        files were removed.
+
+        Called only when the session opens, under the project lock, after replay. No other writer
+        can be publishing then. ``keep`` is the set of blobs the state's runs reference; replay
+        and ``run.get`` need no others. That covers a pruned run's blob (``run.get`` cannot
+        reach it), and a late result dropped after a cancel or a journal failure (no run
+        references it)."""
+        if self.directory is None or not self.directory.is_dir():
+            return 0
+        removed = 0
+        for path in self.directory.iterdir():
+            stale_tmp = path.name.startswith(".") and path.name.endswith(".tmp")
+            orphan = path.suffix == ".json" and not path.name.startswith(".") and path.stem not in keep
+            if path.is_file() and (stale_tmp or orphan):
+                path.unlink()
+                removed += 1
+        if removed:
+            fsync_dir(self.directory)
+        return removed
+
     def text(self, digest: str) -> str | None:
         """The blob's text if it exists and matches its digest, else None."""
         if self.directory is None:
@@ -540,12 +562,15 @@ class Session:
         self.blobs = BlobStore(journal.path.parent / "runs" if journal is not None else None)
         #: What opening the journal repaired (an unacknowledged torn tail), if anything.
         self.recovery: Recovery | None = None
+        self.collected = 0
         if journal is not None:
             self.recovery = journal.recover_torn_tail()
             self._state, self._requests = replay_full(journal)
             for run in self._state.runs:  # fsynced before its record: a missing blob is damage
                 if self.blobs.text(run.result_sha256) is None:
                     raise JournalCorrupt(f"{run.id}: its result blob is missing or damaged")
+            #: Blobs removed when the session opened: those no run in the state references.
+            self.collected = self.blobs.collect({run.result_sha256 for run in self._state.runs})
 
     # ------------------------------------------------------------------ observation
     def add_listener(self, listener: Listener) -> None:

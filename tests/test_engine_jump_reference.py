@@ -33,8 +33,8 @@ def test_engine_jump_equals_the_reference_explicit_average(phi: float) -> None:
 @pytest.mark.parametrize("t", ["0.930", "0.980"])
 @pytest.mark.parametrize("configuration", ["unweighted", "weighted"])
 def test_engine_reproduces_the_frozen_8cb_jump_fits(t: str, configuration: str) -> None:
-    fx = json.loads((R.DIPIETRO_DIR / "expected" / f"T{t}.json").read_text())
-    spec = json.loads((R.DIPIETRO_DIR / "expected" / "spec.json").read_text())
+    fx = json.loads((R.DIPIETRO_DIR / "expected" / f"T{t}.json").read_text(encoding="utf-8"))
+    spec = json.loads((R.DIPIETRO_DIR / "expected" / "spec.json").read_text(encoding="utf-8"))
     tol = spec["tolerances"]["regression"]
     exp = fx["expected"][configuration]
     y = np.array(fx["y_Hz"])

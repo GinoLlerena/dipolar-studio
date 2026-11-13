@@ -19,7 +19,7 @@ def phi_args(value: object, unit: str = "deg") -> dict[str, object]:
 def test_bundled_example_equals_dataset_csv() -> None:
     project = load_example("biphenyl-synthetic")
     labels = {s.id: s.label for s in project.molecule.spins}
-    rows = list(csv.DictReader((ROOT / "datasets" / "biphenyl-synthetic" / "couplings.csv").open()))
+    rows = list(csv.DictReader((ROOT / "datasets" / "biphenyl-synthetic" / "couplings.csv").open(encoding="utf-8")))
     assert len(rows) == len(project.couplings) == 14
     for row, c in zip(rows, project.couplings, strict=True):
         assert (labels[c.spin_a], labels[c.spin_b]) == (row["spin_a"], row["spin_b"])
