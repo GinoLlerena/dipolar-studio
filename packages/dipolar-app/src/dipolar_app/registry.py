@@ -17,9 +17,9 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, TypeVar
+from typing import Annotated, Any, Literal, TypeVar
 
-from pydantic import BaseModel, Field, JsonValue, ValidationError
+from pydantic import BaseModel, Field, JsonValue, RootModel, ValidationError
 
 from dipolar_app.changes import DryRunReport, dry_run_report
 from dipolar_app.errors import ErrorCode, OperationError
@@ -30,7 +30,7 @@ from dipolar_app.session import Plan, Session, SessionState, StoredOutcome
 T = TypeVar("T")
 
 #: Semantic version of the tool contract (D20), independent of the package version.
-CONTRACT_VERSION = "0.5.0"
+CONTRACT_VERSION = "0.6.0"
 
 Kind = Literal["query", "command"]
 Effect = Literal["none", "model", "view", "proposal", "compute", "io", "destructive"]
@@ -125,6 +125,67 @@ class RequestEnvelope(Wire):
     dry_run: bool = False
 
 
+# ------------------------------------------------------------- the event stream (M3 step 1)
+# One line of GET /api/v1/events (http.stream_events). Part of the contract so that the browser's
+# types are generated like every other wire type; tests validate every line the stream sends.
+FeedCursor = Annotated[int, Field(ge=0, le=MAX_SAFE_INTEGER)]
+FeedJobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "interrupted"]
+FeedJobId = Annotated[str, Field(pattern=r"^job_[0-9]{6}$")]
+
+
+class FeedHello(Wire):
+    """First line: this server process's boot ID and the state's cursor, sequence and revisions."""
+
+    kind: Literal["hello"]
+    boot_id: str
+    cursor: FeedCursor
+    seq: FeedCursor
+    revisions: Revisions
+
+
+class FeedJob(Wire):
+    job_id: FeedJobId
+    status: FeedJobStatus
+
+
+class FeedCommit(Wire):
+    """One acknowledged transaction: no arguments or labels, only what changed."""
+
+    kind: Literal["commit"]
+    cursor: FeedCursor
+    seq: FeedCursor
+    operation: str
+    actor: str
+    revisions: Revisions
+    domains: list[Literal["science", "workspace", "proposal", "job"]]
+    jobs: list[FeedJob]
+
+
+class FeedJobProgress(Wire):
+    """A job's unjournaled progress (``running``)."""
+
+    kind: Literal["job"]
+    cursor: FeedCursor
+    job_id: FeedJobId
+    status: FeedJobStatus
+
+
+class FeedPing(Wire):
+    kind: Literal["ping"]
+    cursor: FeedCursor
+
+
+class FeedResync(Wire):
+    """Entries were dropped or belong to an earlier boot: read the state again, then continue."""
+
+    kind: Literal["resync"]
+    cursor: FeedCursor
+
+
+class FeedItem(RootModel[FeedHello | FeedCommit | FeedJobProgress | FeedPing | FeedResync]):
+    """One line of the event stream."""
+
+
 @dataclass(frozen=True, slots=True)
 class Operation:
     name: str
@@ -193,6 +254,7 @@ class Registry:
                 "request": RequestEnvelope.model_json_schema(),
                 "success": SuccessEnvelope.model_json_schema(mode="serialization"),
                 "error": ErrorEnvelope.model_json_schema(mode="serialization"),
+                "event": FeedItem.model_json_schema(mode="serialization"),
             },
             "operations": [self._ops[name].describe() for name in self.names],
         }

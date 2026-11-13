@@ -1,12 +1,12 @@
 // GENERATED FILE: do not edit. Regenerate with `uv run python tools/codegen/ts_contract.py`.
-// Source: packages/dipolar-app/registry.snapshot.json (sha256 cfee1f8b443d66c2e2fd8ff620f5aaae85fe10e5a31b568bb9f5eeaa78c1d4cf).
+// Source: packages/dipolar-app/registry.snapshot.json (sha256 ca5695d43f4e7a38158cbd9d039a719abfff349e09664a611a56454ba9d8d26e).
 // CI fails if this file is stale (tests/test_ts_contract.py).
 //
 // Value constraints that TypeScript cannot express (bounds, lengths, patterns) appear as doc
 // comments; the server enforces them.
 /* eslint-disable */
 
-export const CONTRACT_VERSION = "0.5.0";
+export const CONTRACT_VERSION = "0.6.0";
 
 /** Any JSON value. */
 export type JsonValue =
@@ -88,6 +88,56 @@ export type ErrorBody = {
 };
 
 export type ErrorCode = "INVALID_ARGUMENT" | "UNKNOWN_OPERATION" | "UNAUTHENTICATED" | "CAPABILITY_DENIED" | "PROPOSAL_REQUIRED" | "REVISION_CONFLICT" | "NO_PROJECT" | "ID_NOT_FOUND" | "OUT_OF_DOMAIN" | "PROJECT_NOT_READY" | "PAYLOAD_TOO_LARGE" | "IDEMPOTENCY_KEY_REUSED" | "PROPOSAL_STALE" | "PROPOSAL_CLOSED" | "NOTHING_TO_UNDO" | "QUOTA_EXCEEDED" | "JOURNAL_FAILED" | "INTERNAL";
+
+export type FeedCommit = {
+  actor: string;
+  /** integer, minimum 0, maximum 9007199254740991 */
+  cursor: number;
+  domains: ("science" | "workspace" | "proposal" | "job")[];
+  jobs: FeedJob[];
+  kind: "commit";
+  operation: string;
+  revisions: Revisions;
+  /** integer, minimum 0, maximum 9007199254740991 */
+  seq: number;
+};
+
+export type FeedHello = {
+  boot_id: string;
+  /** integer, minimum 0, maximum 9007199254740991 */
+  cursor: number;
+  kind: "hello";
+  revisions: Revisions;
+  /** integer, minimum 0, maximum 9007199254740991 */
+  seq: number;
+};
+
+export type FeedJob = {
+  /** pattern "^job_[0-9]{6}$" */
+  job_id: string;
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted";
+};
+
+export type FeedJobProgress = {
+  /** integer, minimum 0, maximum 9007199254740991 */
+  cursor: number;
+  /** pattern "^job_[0-9]{6}$" */
+  job_id: string;
+  kind: "job";
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted";
+};
+
+export type FeedPing = {
+  /** integer, minimum 0, maximum 9007199254740991 */
+  cursor: number;
+  kind: "ping";
+};
+
+export type FeedResync = {
+  /** integer, minimum 0, maximum 9007199254740991 */
+  cursor: number;
+  kind: "resync";
+};
 
 export type FitRunOut = {
   adequate: boolean | null;
@@ -467,6 +517,9 @@ export type RequestEnvelope = {
   /** default null */
   request_id?: string | null;
 };
+
+/** One line of the event stream (GET /api/v1/events, newline-delimited JSON). */
+export type FeedItem = (FeedHello & { actor?: never; domains?: never; job_id?: never; jobs?: never; operation?: never; status?: never }) | (FeedCommit & { boot_id?: never; job_id?: never; status?: never }) | (FeedJobProgress & { actor?: never; boot_id?: never; domains?: never; jobs?: never; operation?: never; revisions?: never; seq?: never }) | (FeedPing & { actor?: never; boot_id?: never; domains?: never; job_id?: never; jobs?: never; operation?: never; revisions?: never; seq?: never; status?: never }) | (FeedResync & { actor?: never; boot_id?: never; domains?: never; job_id?: never; jobs?: never; operation?: never; revisions?: never; seq?: never; status?: never });
 
 /** A successful call of operation `N`; `result` has that operation's output type. It
  * distributes over a union of names, so `operation` and `result` always belong together. */
