@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import socket
 import stat
 import subprocess
@@ -28,14 +29,16 @@ def post(server: Server, name: str, payload: Any, **kw: Any) -> Any:
 
 # --------------------------------------------------------------------------- launch
 def test_ready_file_is_private_and_secrets_stay_out_of_output(server: Server) -> None:
-    assert stat.S_IMODE(server.ready_file.stat().st_mode) == 0o600
+    if os.name == "posix":  # Windows has no POSIX mode bits
+        assert stat.S_IMODE(server.ready_file.stat().st_mode) == 0o600
     assert server.base_url.startswith("http://127.0.0.1:")
     output = server.stdout_path.read_text()
     assert "127.0.0.1" in output
     for token in server.tokens.values():
         assert token not in output
     stop_server(server)
-    assert not server.ready_file.exists()  # removed on shutdown
+    if os.name == "posix":  # terminate() is a hard kill on Windows: no graceful clean-up to observe
+        assert not server.ready_file.exists()  # removed on shutdown
 
 
 # --------------------------------------------------------------------------- request checks

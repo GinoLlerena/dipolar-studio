@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 from pathlib import Path
 
 import pytest
 from dipolar_app import cli
+
+#: ADR-0010: the launch directory's owner and mode checks are validated on POSIX only.
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX ownership and mode checks (ADR-0010)")
 
 
 def test_a_concurrent_creator_is_tolerated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

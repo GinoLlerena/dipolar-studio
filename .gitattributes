@@ -1,1 +1,3 @@
+# Text files keep LF line endings on every platform: fixtures are checked by SHA-256 (Windows CI).
+* text=auto eol=lf
 web/src/generated/** linguist-generated=true

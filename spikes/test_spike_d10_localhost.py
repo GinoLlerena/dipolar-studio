@@ -247,6 +247,9 @@ Path(sys.argv[1]).write_text(json.dumps(sys.argv[2:]))
 """
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX only: launch directory modes, symlinks or SIGKILL (ADR-0010)"
+)
 def test_the_browser_launcher_never_sees_the_code(inst: Instance, tmp_path: Path) -> None:
     """Round 10, finding 1. Browser launchers take the URL as an argument, and other local users
     can read process arguments (ps). ``dipolar open`` therefore gives the launcher only the path of
@@ -278,6 +281,9 @@ def recording_browser(tmp_path: Path) -> tuple[dict[str, str], Path]:
     return {**os.environ, "BROWSER": f"{sys.executable} {recorder} {record} %s"}, record
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX only: launch directory modes, symlinks or SIGKILL (ADR-0010)"
+)
 def test_a_symlinked_launch_directory_is_refused_and_never_touched(tmp_path: Path) -> None:
     """Round 11, finding 1: ``browser-launch`` as a symlink must never lead to chmod or deletion
     outside the project, neither when opening nor at shutdown (with or without --open)."""
@@ -318,6 +324,9 @@ def test_relative_paths_and_a_custom_ready_file_location(tmp_path: Path) -> None
     assert not page.exists()
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX only: launch directory modes, symlinks or SIGKILL (ADR-0010)"
+)
 @pytest.mark.skipif(not has_page(), reason="web/dist is not built (cd web && pnpm build)")
 def test_serve_open_with_a_relative_project(tmp_path: Path) -> None:
     env, record = recording_browser(tmp_path)
@@ -490,6 +499,9 @@ class Impostor(http.server.BaseHTTPRequestHandler):
         pass
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX only: launch directory modes, symlinks or SIGKILL (ADR-0010)"
+)
 def test_stale_ready_file_and_port_reuse_are_detected(tmp_path: Path, clean_robot_env: dict[str, str]) -> None:
     a = launch(tmp_path, "a")
     stale_copy = tmp_path / "stale.ready.json"

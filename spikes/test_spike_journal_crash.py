@@ -108,22 +108,24 @@ def run_until_killed(journal_dir: Path, mode: str, rng: random.Random) -> tuple[
         if line is not None:
             acks.append(int(line.split()[1]))
     time.sleep(rng.uniform(0.0, 0.05))
-    child.send_signal(signal.SIGKILL)
+    child.kill()  # SIGKILL on POSIX, TerminateProcess on Windows: no clean-up either way
     child.wait(timeout=10)
     acks += [int(line.split()[1]) for line in lines.drain() if line.startswith("ack ")]
     child.stdout.close()
-    assert child.returncode == -signal.SIGKILL
+    assert child.returncode == (-signal.SIGKILL if os.name == "posix" else 1)
     # Self-check of the harness: each command advances seq by one, so a run's acknowledgements are
     # contiguous and start right after the recovered state; a dropped line would show as a gap.
     assert acks == list(range(header["start_seq"] + 1, header["start_seq"] + 1 + len(acks))), (header, acks)
     return header, acks
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the harness reads pipes with select(), POSIX only")
 @pytest.mark.parametrize(("mode", "cycles"), [("slow", 15), ("normal", 10)])
 def test_kill_at_random_moments_loses_no_acknowledged_command(tmp_path: Path, mode: str, cycles: int) -> None:
     check_kill_loop(tmp_path, mode, cycles, seed=19980101)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the harness reads pipes with select(), POSIX only")
 @pytest.mark.slow
 def test_kill_loop_long(tmp_path: Path) -> None:
     check_kill_loop(tmp_path, "slow", 200, seed=42)
@@ -195,7 +197,7 @@ def test_a_killed_server_restarts_from_its_torn_journal(tmp_path: Path) -> None:
 
     first, _, _ = serve()
     assert robot(ready_file).returncode == 0
-    first.send_signal(signal.SIGKILL)
+    first.kill()
     first.wait()
     journal = project / "project.events.jsonl"
     kept = journal.read_bytes()

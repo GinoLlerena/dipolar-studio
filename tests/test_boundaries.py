@@ -144,3 +144,16 @@ def test_shipped_code_never_depends_on_third_party_data() -> None:
         text = path.read_text().lower()
         for name in THIRD_PARTY_DATA:
             assert name.lower() not in text, f"{path.relative_to(root)} refers to third-party data {name!r}"
+
+
+def test_each_package_ships_the_repository_licence() -> None:
+    """The wheels carry the licence (D9 checklist, spike 3): each package's LICENSE, declared in
+    its license-files, is the repository LICENSE byte for byte."""
+    import tomllib
+
+    licence = (ROOT / "LICENSE").read_bytes()
+    for package in ("dipolar-core", "dipolar-app"):
+        directory = ROOT / "packages" / package
+        assert (directory / "LICENSE").read_bytes() == licence, package
+        project = tomllib.loads((directory / "pyproject.toml").read_text())["project"]
+        assert project["license"] == "BSD-3-Clause" and project["license-files"] == ["LICENSE"], package
