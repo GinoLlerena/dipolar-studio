@@ -320,6 +320,7 @@ def test_a_symlinked_launch_directory_is_refused_and_never_touched(tmp_path: Pat
     assert sorted(victim.iterdir()) == sorted(precious)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the launch directory is validated on POSIX only (ADR-0010)")
 def test_relative_paths_and_a_custom_ready_file_location(tmp_path: Path) -> None:
     """Round 11, findings 2 and 3: relative paths give absolute file URIs, and pages live beside
     the ready file wherever it is, so shutdown removes them."""
@@ -457,14 +458,15 @@ def test_no_credential_leaks(inst: Instance) -> None:
         page = inst.raw("GET", "/")
         replies.append(page)
         replies += [inst.raw("GET", a.decode()) for a in re.findall(rb'(?:src|href)="(/assets/[^"]+)"', page.body)]
-    argv = subprocess.run(["ps", "-o", "command=", "-p", str(inst.process.pid)], capture_output=True, text=True)
     places = {
-        "process arguments": argv.stdout,
         "journal": (inst.project_dir / "project.events.jsonl").read_text(encoding="utf-8"),
         "server output (so far)": inst.output.read_text(encoding="utf-8"),
     }
     places.update({f"reply {i}": r.body.decode() + json.dumps(r.headers) for i, r in enumerate(replies)})
-    assert "dipolar" in argv.stdout or "dipolar_app" in argv.stdout
+    if os.name == "posix":  # the process's command line, read with ps (not available on Windows)
+        argv = subprocess.run(["ps", "-o", "command=", "-p", str(inst.process.pid)], capture_output=True, text=True)
+        assert "dipolar" in argv.stdout or "dipolar_app" in argv.stdout
+        places["process arguments"] = argv.stdout
     stop(inst)
     places["server output (after shutdown)"] = inst.output.read_text(encoding="utf-8")
     for where, text in places.items():
