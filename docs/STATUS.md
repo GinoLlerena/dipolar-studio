@@ -1,5 +1,13 @@
 # Status
 
+**Interval warm starts are done (pending review).** Profile intervals continue each
+re-minimization from where it ended at the nearest value already computed, instead of from its
+basin; a start that merges into another is sent back to its own basin, so every basin is still
+searched (`FIT_VERSION` varpro-trf.9). Gate (c) was rerun on all 1 000 seeds: the same hits
+(φ 701, Szz 691, Δ 684), every endpoint within 1.3e-12 of its interval's width of the previous
+record, in 1 353 s against about 40 minutes. See
+[round45-interval-warm-starts.md](validation/round45-interval-warm-starts.md).
+
 **Journal compaction is done: tag `journal-compaction`.** Verified snapshots of the whole session
 state bound the journal and the request table: every 5 000 records the state is written as a
 snapshot (kept until the next is complete), the covered journal moves to `archive/` (never
@@ -224,23 +232,22 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: interval warm starts
+## Resume here: M3 step 3 or step 4 (the owner chooses)
 
-**Stopping point: tag `journal-compaction`.** Earlier stopping points: `m3-step2`, `m3-step1`, `m2-complete`,
+**Stopping point: tag `interval-warm-starts`.** Earlier stopping points: `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
 `m2-exit-audit`, and one tag per step before them. To resume:
 
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 799 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 801 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
    (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 37 web tests
    ```
 
 2. **Next, as the owner chose (2026-11-13):**
    - ~~journal compaction~~: done (tag `journal-compaction`);
-   - **interval warm starts:** faster profile intervals; this needs a `FIT_VERSION` bump and a
-     gate (c) rerun;
+   - ~~interval warm starts~~: done (tag `interval-warm-starts`);
    - then M3 step 3 (the proposal inbox and live preview) and step 4 (Playwright, performance).
 3. Work under the medium plan (below): at most two review rounds per step, a fresh session per
    step.
@@ -919,7 +926,7 @@ the new Windows job could be brought to green before merging.
     about 120 evaluations repeat). The cost is each constrained re-fit, 0.06–0.1 s for Szz and Δ.
   - **A bigger cut would need warm starts:** each re-fit would start from its neighbour's solution.
     That changes the numerics, so it needs a `FIT_VERSION` bump and a rerun of the 40-minute gate (c).
-    It is left as its own item.
+    It was done afterwards (tag `interval-warm-starts`).
   - **Measuring this exposed run-to-run variation** in the last bits of interval endpoints
     (about 1e-17, apparently BLAS threading). The unmemoized code already showed it; it is far
     below every tolerance, and consistent with D11 (byte identity only in a pinned environment).

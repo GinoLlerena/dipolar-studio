@@ -98,7 +98,7 @@ def test_nuisance_profiles_search_every_basin() -> None:
     )
     result = fit(q)
     assert len(result.basins) == 2
-    chi2, ok = _profile_chi2(q, result, 0, 2.0, Settings())
+    chi2, ok, _ = _profile_chi2(q, result, 0, 2.0, Settings())
     assert ok and chi2 == pytest.approx(q.inner(np.array([2.0, 1.0])).chi2, abs=1e-5)
     assert not profile_interval(q, result, "x0").supported
 
@@ -489,9 +489,9 @@ def test_a_lower_failed_nuisance_trial_makes_the_profile_unresolved() -> None:
         [3.0, 2.0],
     )
     result = fit(q)
-    full, ok_full = _profile_chi2(q, result, 0, 0.75, Settings())
+    full, ok_full, _ = _profile_chi2(q, result, 0, 0.75, Settings())
     assert ok_full
-    starved, ok = _profile_chi2(q, result, 0, 0.75, Settings(max_nfev=10))
+    starved, ok, _ = _profile_chi2(q, result, 0, 0.75, Settings(max_nfev=10))
     assert (not ok) or starved <= full + 1e-6  # never a converged value that a failed run beats
 
 
@@ -657,3 +657,16 @@ def test_a_geometry_column_inside_the_order_span_adds_no_trusted_rank() -> None:
     j = np.array([[1.0, 1.0], [1e-9, 0.0], [0.0, 0.0]])  # geometry column, then an order column
     assert _rank_split(j, np.full((3, 2), 1e-9), 1, floor=1) == (1, 2)  # uncertain, not information
     assert _rank_split(j, np.zeros((3, 2)), 1, floor=1) == (2, 2)
+
+
+# --------------------------------------------------------------------------- interval warm starts
+def test_warm_starts_never_let_a_basin_track_collapse_into_another() -> None:
+    """A start slot that ended where an earlier slot ended restarts from its own basin, so every
+    basin is still searched; distinct slots continue from where they were."""
+    from dipolar_core.fit import _continued
+
+    origins = [np.array([0.0]), np.array([10.0]), np.array([20.0])]
+    previous = [np.array([1.0]), np.array([1.0 + 1e-9]), np.array([19.0])]
+    starts = _continued(previous, origins)
+    assert starts[0] is previous[0] and starts[2] is previous[2]
+    assert starts[1] is origins[1]  # merged into slot 0's valley: back to its basin

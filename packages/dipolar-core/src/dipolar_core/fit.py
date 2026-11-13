@@ -69,7 +69,7 @@ from dipolar_core.problem import Problem as Problem
 Array = NDArray[np.float64]
 
 #: Version of this stack's numerical choices (enters the numerical context when an operation uses it).
-FIT_VERSION: Final = "varpro-trf.8"
+FIT_VERSION: Final = "varpro-trf.9"
 #: Relative distance (in units of the bound range) under which two refined optima are one basin.
 BASIN_RTOL: Final = 1e-6
 #: A geometry parameter is at a bound if TRF reports the bound active, or if it lies within
@@ -108,6 +108,10 @@ SUBDIVISIONS: Final = 8
 #: spaced interior points (plus any known grid values inside). A sample above the threshold means
 #: the region has a gap, which the outward search stepped over (round 15).
 INTERVAL_SAMPLES: Final = 64
+#: Profile re-minimizations continue from the nearest computed value (interval warm starts).
+WARM_STARTS = True
+#: Two start slots that end within this (relative and absolute) of each other have merged.
+COLLAPSE_RTOL: Final = 1e-6
 #: Beyond each endpoint, the profile is probed at these multiples of the interval width.
 COMPONENT_PROBES: Final = (0.25, 0.5, 1.0, 2.0, 4.0)
 
@@ -783,13 +787,39 @@ def _reduced_model(problem: Problem, column: int, value: float) -> Model:
     return Model(design, derivative if problem.design_derivative is not None else None)
 
 
+def _profile_starts(result: FitResult) -> list[Array]:
+    """The re-minimizations' starting points without continuation: each known basin (at most
+    MAX_PROFILE_STARTS)."""
+    return [b.theta for b in result.basins[:MAX_PROFILE_STARTS]] or [result.theta]
+
+
+def _continued(previous: list[Array], origins: list[Array]) -> list[Array]:
+    """Warm starts from the points each start slot reached at a neighbouring value. A slot that
+    ended where an earlier slot ended has fallen into that slot's valley; following it would lose
+    its own basin's track for good, so it restarts from its basin instead. The slots therefore
+    never collapse: every basin is still searched from its own valley or from where it last was
+    distinct."""
+    starts: list[Array] = []
+    for slot, point in enumerate(previous):
+        merged = any(np.allclose(point, other, rtol=COLLAPSE_RTOL, atol=COLLAPSE_RTOL) for other in previous[:slot])
+        starts.append(origins[slot] if merged else point)
+    return starts
+
+
 def _profile_chi2(
-    problem: Problem, result: FitResult, index: int, value: float, settings: Settings
-) -> tuple[float, bool]:
-    """χ² with parameter ``index`` held at ``value``, every other parameter re-minimized from each
-    known basin (at most MAX_PROFILE_STARTS). Returns (χ², converged)."""
+    problem: Problem,
+    result: FitResult,
+    index: int,
+    value: float,
+    settings: Settings,
+    starts: list[Array] | None = None,
+) -> tuple[float, bool, list[Array]]:
+    """χ² with parameter ``index`` held at ``value``, every other parameter re-minimized once from
+    each start (by default each known basin, at most MAX_PROFILE_STARTS). Returns (χ², converged,
+    the full geometry each start reached, in start order, for continuation)."""
     k = problem.k
-    starts = [b.theta for b in result.basins[:MAX_PROFILE_STARTS]] or [result.theta]
+    starts = starts if starts is not None else _profile_starts(result)
+    reached: list[Array] = []
     best, ok = math.inf, False
     if index < k:
         free = [i for i in range(k) if i != index]
@@ -801,7 +831,7 @@ def _profile_chi2(
             return theta
 
         if not free:
-            return problem.inner(theta_of(np.empty(0))).chi2, True
+            return problem.inner(theta_of(np.empty(0))).chi2, True, [theta_of(np.empty(0)) for _ in starts]
 
         def free_residual(f: Array) -> Array:
             return problem.profile_residual(theta_of(f))
@@ -816,13 +846,14 @@ def _profile_chi2(
         failed = math.inf
         for start in starts:
             res = _least_squares(free_residual, start[free], lo, hi, settings, free_jac)
-            chi2 = problem.inner(theta_of(np.asarray(res.x))).chi2
+            reached.append(theta_of(np.asarray(res.x)))
+            chi2 = problem.inner(reached[-1]).chi2
             if _converged(problem, free_model, free_residual, res, lo, hi, settings.tolerance)[0]:
                 best, ok = min(best, chi2), True
             else:
                 failed = min(failed, chi2)
         # A failed run that went lower disproves the accepted minimum (round 15): unresolved.
-        return (failed, False) if failed < best else (best, ok)
+        return (failed, False, reached) if failed < best else (best, ok, reached)
 
     column = index - k
     others = [c for c in range(problem.p) if c != column]
@@ -842,13 +873,14 @@ def _profile_chi2(
     failed = math.inf
     for start in starts:
         res = _least_squares(reduced, start, problem.lower, problem.upper, settings, reduced_jac)
-        r = reduced(np.asarray(res.x))
+        reached.append(np.asarray(res.x, dtype=float).copy())
+        r = reduced(reached[-1])
         converged = _converged(problem, reduced_model, reduced, res, problem.lower, problem.upper, settings.tolerance)
         if converged[0]:
             best, ok = min(best, float(r @ r)), True
         else:
             failed = min(failed, float(r @ r))
-    return (failed, False) if failed < best else (best, ok)
+    return (failed, False, reached) if failed < best else (best, ok, reached)
 
 
 def _slice_chi2(problem: Problem, result: FitResult, index: int, value: float) -> tuple[float, bool]:
@@ -901,12 +933,22 @@ def _interval(
     # value is computed once: the interval is bit-for-bit the same, with about 4% fewer
     # re-minimizations on the fixture.
     computed: dict[float, float] = {}
+    # Continuation (warm starts): each start slot begins where it ended at the nearest value
+    # already computed, instead of at its basin; the profile is continuous there, so far fewer
+    # iterations are needed. The slots stay distinct, so every basin's track is still followed.
+    reached: dict[float, list[Array]] = {}
+    origins = _profile_starts(result)
 
     def excess(value: float) -> float:
         if value in computed:
             return computed[value]
         if kind == "profile":
-            chi2, ok = _profile_chi2(problem, result, index, value, settings)
+            starts = None
+            if WARM_STARTS and reached:
+                nearest = min(reached, key=lambda v: (abs(v - value), v))
+                starts = _continued(reached[nearest], origins)
+            chi2, ok, xs = _profile_chi2(problem, result, index, value, settings, starts)
+            reached[value] = xs
         else:
             chi2, ok = _slice_chi2(problem, result, index, value)
         if not ok:

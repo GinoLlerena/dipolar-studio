@@ -24,7 +24,10 @@ adversarial controls in `test_core_fit_adversarial.py`. M1 step 2 (`FIT_VERSION`
 analytic design derivatives (`Problem.design_derivative`). It also adds an error allowance for the
 inner solution's own error in every geometry column of the full Jacobian, on both derivative
 paths (round 19). Coverage,
-gate (c), comes in M1 step 5.
+gate (c), comes in M1 step 5. Interval warm starts (`FIT_VERSION` varpro-trf.9, rounds 45–46):
+profile re-minimizations continue from the nearest computed value, with merged starts sent back to
+their basins; gate (c) was rerun and its record regenerated (the same hits, endpoints within
+1.3e-12 of the interval width).
 
 ## M0 spike 1 (2026-11-08)
 
