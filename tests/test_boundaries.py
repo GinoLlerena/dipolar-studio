@@ -76,8 +76,9 @@ def test_packages_import() -> None:
 # --------------------------------------------------------------------------- frontend (04 §8.5)
 WEB_SRC = ROOT / "web" / "src"
 NETWORK_APIS = ("fetch(", "XMLHttpRequest", "WebSocket", "EventSource", "sendBeacon", "import(")
-# Registry operations, plus the one authentication exception (04 §8.5): the launch-code exchange.
-ALLOWED_PATHS = ("/api/v1/ops/", "/api/v1/auth/session")
+# Registry operations, the one authentication exception (04 §8.5: the launch-code exchange) and
+# the change feed (D14; M3 step 1), a read with no arguments that only announces revisions.
+ALLOWED_PATHS = ("/api/v1/ops/", "/api/v1/auth/session", "/api/v1/events")
 WEB_FILES = sorted(p for p in WEB_SRC.rglob("*") if p.suffix in {".ts", ".tsx"})
 
 
@@ -90,7 +91,7 @@ def test_frontend_has_no_private_api(path: Path) -> None:
         assert not used, f"{path.name} uses {used}; all backend access goes through api.ts"
         return
     assert used == ["fetch("], used
-    assert text.count("fetch(") == 2, "api.ts makes exactly two kinds of call: operations and the code exchange"
+    assert text.count("fetch(") == 3, "api.ts makes three kinds of call: operations, the code exchange, events"
     urls = re.findall(r"`(/[^`$]*)", text) + re.findall(r"[\"'](/api[^\"']*)", text)
     assert urls and all(u.startswith(ALLOWED_PATHS) for u in urls), urls
 

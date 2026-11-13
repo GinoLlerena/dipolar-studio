@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "parity": "node --experimental-strip-types --no-warnings scripts/projection-parity.mjs"
+    "parity": "node --experimental-strip-types --no-warnings scripts/projection-parity.mjs",
+    "test": "node --test --experimental-strip-types --no-warnings tests/*.test.ts"
   },
   "dependencies": {
     "react": "^19.3.1",

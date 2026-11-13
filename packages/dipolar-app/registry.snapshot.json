@@ -1,5 +1,5 @@
 {
-  "contract_version": "0.5.0",
+  "contract_version": "0.6.0",
   "envelopes": {
     "error": {
       "$defs": {
@@ -108,6 +108,272 @@
       ],
       "title": "ErrorEnvelope",
       "type": "object"
+    },
+    "event": {
+      "$defs": {
+        "FeedCommit": {
+          "additionalProperties": false,
+          "description": "One acknowledged transaction: no arguments or labels, only what changed.",
+          "properties": {
+            "actor": {
+              "title": "Actor",
+              "type": "string"
+            },
+            "cursor": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Cursor",
+              "type": "integer"
+            },
+            "domains": {
+              "items": {
+                "enum": [
+                  "science",
+                  "workspace",
+                  "proposal",
+                  "job"
+                ],
+                "type": "string"
+              },
+              "title": "Domains",
+              "type": "array"
+            },
+            "jobs": {
+              "items": {
+                "$ref": "#/$defs/FeedJob"
+              },
+              "title": "Jobs",
+              "type": "array"
+            },
+            "kind": {
+              "const": "commit",
+              "title": "Kind",
+              "type": "string"
+            },
+            "operation": {
+              "title": "Operation",
+              "type": "string"
+            },
+            "revisions": {
+              "$ref": "#/$defs/Revisions"
+            },
+            "seq": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Seq",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "cursor",
+            "seq",
+            "operation",
+            "actor",
+            "revisions",
+            "domains",
+            "jobs"
+          ],
+          "title": "FeedCommit",
+          "type": "object"
+        },
+        "FeedHello": {
+          "additionalProperties": false,
+          "description": "First line: this server process's boot ID and the state's cursor, sequence and revisions.",
+          "properties": {
+            "boot_id": {
+              "title": "Boot Id",
+              "type": "string"
+            },
+            "cursor": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Cursor",
+              "type": "integer"
+            },
+            "kind": {
+              "const": "hello",
+              "title": "Kind",
+              "type": "string"
+            },
+            "revisions": {
+              "$ref": "#/$defs/Revisions"
+            },
+            "seq": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Seq",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "boot_id",
+            "cursor",
+            "seq",
+            "revisions"
+          ],
+          "title": "FeedHello",
+          "type": "object"
+        },
+        "FeedJob": {
+          "additionalProperties": false,
+          "properties": {
+            "job_id": {
+              "pattern": "^job_[0-9]{6}$",
+              "title": "Job Id",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "queued",
+                "running",
+                "succeeded",
+                "failed",
+                "cancelled",
+                "interrupted"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          "required": [
+            "job_id",
+            "status"
+          ],
+          "title": "FeedJob",
+          "type": "object"
+        },
+        "FeedJobProgress": {
+          "additionalProperties": false,
+          "description": "A job's unjournaled progress (``running``).",
+          "properties": {
+            "cursor": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Cursor",
+              "type": "integer"
+            },
+            "job_id": {
+              "pattern": "^job_[0-9]{6}$",
+              "title": "Job Id",
+              "type": "string"
+            },
+            "kind": {
+              "const": "job",
+              "title": "Kind",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "queued",
+                "running",
+                "succeeded",
+                "failed",
+                "cancelled",
+                "interrupted"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "cursor",
+            "job_id",
+            "status"
+          ],
+          "title": "FeedJobProgress",
+          "type": "object"
+        },
+        "FeedPing": {
+          "additionalProperties": false,
+          "properties": {
+            "cursor": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Cursor",
+              "type": "integer"
+            },
+            "kind": {
+              "const": "ping",
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "cursor"
+          ],
+          "title": "FeedPing",
+          "type": "object"
+        },
+        "FeedResync": {
+          "additionalProperties": false,
+          "description": "Entries were dropped or belong to an earlier boot: read the state again, then continue.",
+          "properties": {
+            "cursor": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Cursor",
+              "type": "integer"
+            },
+            "kind": {
+              "const": "resync",
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "cursor"
+          ],
+          "title": "FeedResync",
+          "type": "object"
+        },
+        "Revisions": {
+          "additionalProperties": false,
+          "properties": {
+            "science": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Science",
+              "type": "integer"
+            },
+            "workspace": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "title": "Workspace",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "science",
+            "workspace"
+          ],
+          "title": "Revisions",
+          "type": "object"
+        }
+      },
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FeedHello"
+        },
+        {
+          "$ref": "#/$defs/FeedCommit"
+        },
+        {
+          "$ref": "#/$defs/FeedJobProgress"
+        },
+        {
+          "$ref": "#/$defs/FeedPing"
+        },
+        {
+          "$ref": "#/$defs/FeedResync"
+        }
+      ],
+      "description": "One line of the event stream.",
+      "title": "FeedItem"
     },
     "request": {
       "$defs": {
@@ -4661,6 +4927,10 @@
                 "title": "Converged",
                 "type": "boolean"
               },
+              "identifiable": {
+                "title": "Identifiable",
+                "type": "boolean"
+              },
               "notes": {
                 "items": {
                   "type": "string"
@@ -4699,6 +4969,7 @@
               "adequate",
               "p_value",
               "regular",
+              "identifiable",
               "converged",
               "physically_admissible",
               "at_bound",
@@ -5027,6 +5298,10 @@
                 "title": "Converged",
                 "type": "boolean"
               },
+              "identifiable": {
+                "title": "Identifiable",
+                "type": "boolean"
+              },
               "notes": {
                 "items": {
                   "type": "string"
@@ -5065,6 +5340,7 @@
               "adequate",
               "p_value",
               "regular",
+              "identifiable",
               "converged",
               "physically_admissible",
               "at_bound",

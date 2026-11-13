@@ -506,8 +506,8 @@ def generate(snapshot: Mapping[str, Any], *, source: str = "packages/dipolar-app
         raise Unsupported("contract_version must be a string")
     envelopes = snapshot.get("envelopes", {})
     operations = snapshot.get("operations", [])
-    if set(envelopes) != {"request", "success", "error"} or not isinstance(operations, list):
-        raise Unsupported("the snapshot needs envelopes.request, .success, .error and an operations list")
+    if set(envelopes) != {"request", "success", "error", "event"} or not isinstance(operations, list):
+        raise Unsupported("the snapshot needs envelopes.request, .success, .error, .event and an operations list")
 
     defs = _Definitions()
     tops: list[tuple[str, dict[str, Any], str]] = []  # (name, schema, where)
@@ -520,6 +520,9 @@ def generate(snapshot: Mapping[str, Any], *, source: str = "packages/dipolar-app
     tops.append((error_name, error_schema, "envelopes.error"))
     request_name, request_schema = _top_level(envelopes["request"], "envelopes.request")
     tops.append((request_name, request_schema, "envelopes.request"))
+    defs.collect(envelopes["event"], "envelopes.event")
+    event_name, event_schema = _top_level(envelopes["event"], "envelopes.event")
+    tops.append((event_name, event_schema, "envelopes.event"))
 
     names: list[str] = []
     for op in operations:
@@ -572,6 +575,8 @@ def generate(snapshot: Mapping[str, Any], *, source: str = "packages/dipolar-app
     out.append(f"export type {error_name} = {renderer.render(error_schema, 'envelopes.error')};\n\n")
     out.append("/** The body of every call: `args` plus the request options. */\n")
     out.append(f"export type {request_name} = {renderer.render(request_schema, 'envelopes.request')};\n\n")
+    out.append("/** One line of the event stream (GET /api/v1/events, newline-delimited JSON). */\n")
+    out.append(f"export type {event_name} = {renderer.render(event_schema, 'envelopes.event')};\n\n")
     out.append(
         "/** A successful call of operation `N`; `result` has that operation's output type. It\n"
         " * distributes over a union of names, so `operation` and `result` always belong together. */\n"

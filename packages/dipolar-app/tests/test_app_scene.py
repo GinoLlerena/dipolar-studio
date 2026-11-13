@@ -374,6 +374,7 @@ def test_describe_view_reports_an_inadequate_fit() -> None:
     ok(run_fit(c))
     view = ok(c.call("render.describe_view"))
     assert view["fit"]["adequate"] is False and view["fit"]["p_value"] < 1e-3 and view["fit"]["regular"]
+    assert view["fit"]["identifiable"] is True
     assert any("inadequate" in w for w in view["warnings"])
     good = ok(run_fit(opened()[1]))
     assert good["adequate"] is True
@@ -459,3 +460,23 @@ def test_the_project_name_is_cut_in_the_view_summary() -> None:
     doc["project"]["name"] = "n" * 100_000
     ok(c.call("project.load", {"text": json.dumps(doc), "expected_science_revision": 1}))
     assert len(ok(c.call("render.describe_view"))["project_name"]) == MAX_LABEL_OUT
+
+
+def test_identifiability_is_not_regularity() -> None:
+    """Round 39: an optimum at a bound is not regular but can be fully identified; a rank
+    deficiency or an unidentified direction is what makes a fit not identifiable."""
+    from dipolar_app.scene import _fit_summary
+
+    def result(**validity: Any) -> dict[str, Any]:
+        base = {"inner_rank": 2, "inner_parameters": 2, "joint_rank": 3, "joint_parameters": 3}
+        base |= {"regular": True, "converged": True, "at_bound": [], "physically_admissible": True}
+        base |= validity
+        return {"validity": base, "adequate": True, "p_value": 0.3, "notes": [], "unidentified": []}
+
+    at_bound = _fit_summary(result(regular=False, at_bound=["phi_deg"]))
+    assert at_bound["regular"] is False and at_bound["identifiable"] is True
+    assert _fit_summary(result(regular=False, joint_rank=2))["identifiable"] is False
+    assert _fit_summary(result(regular=False, inner_rank=1))["identifiable"] is False
+    direction = result(regular=False)
+    direction["unidentified"] = [[{"name": "phi_deg", "value": 1.0}]]
+    assert _fit_summary(direction)["identifiable"] is False

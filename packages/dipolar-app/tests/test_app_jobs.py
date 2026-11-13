@@ -20,7 +20,7 @@ from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.jobs import JobRunner
 from dipolar_app.journal import Journal, JournalCorrupt
 from dipolar_app.operations import build_registry
-from dipolar_app.registry import CONTRACT_VERSION
+from dipolar_app.registry import CONTRACT_VERSION, FeedItem
 from dipolar_app.science_ops import compute_fit
 from dipolar_app.session import Session, replay
 
@@ -313,6 +313,8 @@ def test_the_feed_reports_commits_and_job_progress(gate: threading.Event) -> Non
     assert ("job", None, ()) in [(k, o, ()) for k, o, _ in kinds]
     assert kinds[-1] == ("commit", "job.finish", ((job_id, "succeeded"),))
     assert s.feed_after(latest + 5, 0)[2] is True  # a cursor from the future (another boot): resync
+    for cursor, item in items:  # every line matches the contract's event type (M3 step 1)
+        FeedItem.model_validate({**item, "cursor": cursor}, strict=True)
 
 
 def read_lines(resp: Any, n: int) -> list[dict[str, Any]]:
@@ -336,6 +338,15 @@ def test_http_event_stream(server: Server) -> None:
         assert commit["kind"] == "commit" and commit["operation"] == "project.open_example"
         assert commit["actor"] == "user" and commit["revisions"]["science"] == 1 and "args" not in commit
         assert commit["cursor"] > hello["cursor"]
+        for line in (hello, commit):
+            FeedItem.model_validate(line, strict=True)
+    future = urllib.request.Request(server.base_url + "/api/v1/events?after=999999")
+    future.add_header("Authorization", f"Bearer {server.tokens['viewer']}")
+    with urllib.request.urlopen(future, timeout=30) as resp:
+        hello, resync = read_lines(resp, 2)  # a cursor from another boot: read again, then continue
+        assert resync["kind"] == "resync" and resync["cursor"] == hello["cursor"]
+        for line in (hello, resync):
+            FeedItem.model_validate(line, strict=True)
     assert server.request("GET", "/api/v1/events", token=None).status == 401
     assert server.request("GET", "/api/v1/events?after=abc").status == 400
 
