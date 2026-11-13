@@ -1,5 +1,13 @@
 # Status
 
+**Journal compaction is done: tag `journal-compaction`.** Verified snapshots of the whole session
+state bound the journal and the request table: every 5 000 records the state is written as a
+snapshot (kept until the next is complete), the covered journal moves to `archive/` (never
+deleted), and opening replays only what follows. Crashes at every step are recovered; a deleted
+active journal is refused. Rounds 43 and 44 returned NOT READY (one class-(A) finding each); both
+were fixed and mutation-checked, the round-44 fixes not reviewed again, under the cap. See the
+ADR-0014 amendment and [round43-journal-compaction.md](validation/round43-journal-compaction.md).
+
 **M3 step 2 (Structure view, couplings reconciliation, staleness by content) is done: tag
 `m3-step2`.**
 - **Staleness by content** (the owner's decision): a run is stale when the science differs from
@@ -216,22 +224,21 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: journal compaction, then interval warm starts
+## Resume here: interval warm starts
 
-**Stopping point: tag `m3-step2`.** Earlier stopping points: `m3-step1`, `m2-complete`,
+**Stopping point: tag `journal-compaction`.** Earlier stopping points: `m3-step2`, `m3-step1`, `m2-complete`,
 `m2-exit-audit`, and one tag per step before them. To resume:
 
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 780 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 799 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
    (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 37 web tests
    ```
 
 2. **Next, as the owner chose (2026-11-13):**
-   - **journal compaction:** snapshots that replay can verify, which bound the journal and the
-     request table (the remaining storage limit);
+   - ~~journal compaction~~: done (tag `journal-compaction`);
    - **interval warm starts:** faster profile intervals; this needs a `FIT_VERSION` bump and a
      gate (c) rerun;
    - then M3 step 3 (the proposal inbox and live preview) and step 4 (Playwright, performance).
