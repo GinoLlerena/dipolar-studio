@@ -267,7 +267,7 @@ def _get_json(url: str, token: str, method: str = "GET") -> tuple[int, Any]:
 def launch_url(ready_file: Path) -> tuple[str, str]:
     """Check the instance handshake, then return a page URL carrying a fresh single-use code."""
     try:
-        ready = json.loads(ready_file.read_text("utf-8"))
+        ready = json.loads(ready_file.read_text(encoding="utf-8"))
         base, token, expected = ready["base_url"], ready["tokens"]["user"], ready["instance_id"]
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise StaleReadyFile(f"cannot read {ready_file}: {exc}") from None

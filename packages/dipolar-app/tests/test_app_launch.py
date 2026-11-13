@@ -36,7 +36,7 @@ def test_anything_but_a_plain_directory_is_refused(tmp_path: Path, kind: str) ->
         elsewhere.mkdir(mode=0o755)
         target.symlink_to(elsewhere, target_is_directory=True)
     else:
-        target.write_text("not a directory")
+        target.write_text("not a directory", encoding="utf-8")
     with pytest.raises(cli.UnsafeLaunchDir):
         cli.verified_launch_dir(tmp_path, create=True)
     if kind == "symlink":

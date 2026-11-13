@@ -32,7 +32,7 @@ def test_ready_file_is_private_and_secrets_stay_out_of_output(server: Server) ->
     if os.name == "posix":  # Windows has no POSIX mode bits
         assert stat.S_IMODE(server.ready_file.stat().st_mode) == 0o600
     assert server.base_url.startswith("http://127.0.0.1:")
-    output = server.stdout_path.read_text()
+    output = server.stdout_path.read_text(encoding="utf-8")
     assert "127.0.0.1" in output
     for token in server.tokens.values():
         assert token not in output
@@ -143,7 +143,7 @@ def test_error_status_mapping(server: Server) -> None:
 def test_security_headers_and_static_page(tmp_path: Path) -> None:
     static = tmp_path / "dist"
     static.mkdir()
-    (static / "index.html").write_text("<!doctype html><title>t</title>")
+    (static / "index.html").write_text("<!doctype html><title>t</title>", encoding="utf-8")
     srv = start_server(tmp_path, static_dir=static)
     try:
         page = srv.request("GET", "/", token=None)
@@ -188,7 +188,7 @@ def test_http_registry_equals_snapshot(server: Server) -> None:
 
 # --------------------------------------------------------------------------- the robot
 def test_robot_is_standard_library_only() -> None:
-    tree = ast.parse(ROBOT_SCRIPT.read_text())
+    tree = ast.parse(ROBOT_SCRIPT.read_text(encoding="utf-8"))
     roots = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -227,7 +227,10 @@ def test_robot_completes_the_slice_in_a_clean_process(server: Server, clean_env:
     view = server.call("render.describe_view")["result"]
     assert [s["id"] for s in view["selection"]] == [worst["id"]]
     assert (view["science_revision"], view["workspace_revision"]) == (1, 1)
-    journal = [json.loads(line) for line in (server.project_dir / "project.events.jsonl").read_text().splitlines()]
+    journal = [
+        json.loads(line)
+        for line in (server.project_dir / "project.events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
     assert [(r["actor"], r["operation"]) for r in journal] == [
         ("script:robot", "project.open_example"),
         ("script:robot", "view.select"),

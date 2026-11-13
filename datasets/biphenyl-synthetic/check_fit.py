@@ -42,7 +42,7 @@ def chi2_at(phi: float, pairs, y, sigma):
 
 
 def main() -> None:
-    with open(HERE / "couplings.csv") as f:
+    with open(HERE / "couplings.csv", encoding="utf-8") as f:
         data = list(csv.DictReader(f))
     pairs = [(d["spin_a"], d["spin_b"]) for d in data]
     y = np.array([float(d["D_obs_Hz"]) for d in data])
@@ -83,7 +83,7 @@ def main() -> None:
                                      "H2'<->H6', H3'<->H5' (x moves to the other bisector). Domain folded to phi in [0, 90] deg.",
     }
     print(json.dumps(report, indent=2))
-    (HERE / "check_fit.out.json").write_text(json.dumps(report, indent=2) + "\n")
+    (HERE / "check_fit.out.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

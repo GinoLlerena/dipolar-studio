@@ -25,7 +25,7 @@ INDEX = {label: i for i, label in enumerate(PROTON_LABELS)}
 
 
 def load(name: str) -> dict[str, Any]:
-    data: dict[str, Any] = json.loads((EXPECTED / name).read_text())
+    data: dict[str, Any] = json.loads((EXPECTED / name).read_text(encoding="utf-8"))
     return data
 
 

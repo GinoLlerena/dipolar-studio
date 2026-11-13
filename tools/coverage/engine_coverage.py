@@ -40,8 +40,8 @@ def _single_threaded() -> None:
 
 
 def _inputs() -> tuple[dict[str, Any], dict[str, Any]]:
-    spec = json.loads((EXPECTED / "spec.json").read_text())
-    noiseless = json.loads((EXPECTED / "noiseless.json").read_text())
+    spec = json.loads((EXPECTED / "spec.json").read_text(encoding="utf-8"))
+    noiseless = json.loads((EXPECTED / "noiseless.json").read_text(encoding="utf-8"))
     return spec, noiseless
 
 
@@ -132,7 +132,7 @@ def main(argv: list[str]) -> int:
     summary = {k: v for k, v in report.items() if k != "seeds"}
     print(json.dumps(summary, indent=2))
     if args.out:
-        args.out.write_text(dumps_record(report))
+        args.out.write_text(dumps_record(report), encoding="utf-8")
     return 0 if all(report["within_band"].values()) and not any(report["interval_not_supported"].values()) else 1
 
 

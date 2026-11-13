@@ -69,7 +69,7 @@ def test_fsync_failure_stops_commands_and_restart_follows_the_journal(
     assert c.call("render.describe_view")["ok"]
     assert s.state.seq == 0
 
-    lines = (tmp_path / "project.events.jsonl").read_text().splitlines()
+    lines = (tmp_path / "project.events.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1  # no second record with the same sequence number
     restarted = new_session(tmp_path)  # replay: the journal is the source of truth
     assert (restarted.state.seq, restarted.state.science_revision) == (1, 1)

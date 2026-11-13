@@ -17,12 +17,12 @@ from dipolar_core.fit import FitResult, Problem, Settings, fit, full_jacobian, p
 from scipy.optimize import least_squares
 
 EXPECTED = Path(__file__).resolve().parents[3] / "datasets" / "biphenyl-synthetic" / "expected"
-SPEC = json.loads((EXPECTED / "spec.json").read_text())
+SPEC = json.loads((EXPECTED / "spec.json").read_text(encoding="utf-8"))
 TOL = SPEC["tolerances"]["regression"]
 
 
 def load(name: str, y_key: str) -> tuple[tuple[tuple[int, int], ...], np.ndarray, np.ndarray, dict[str, Any]]:
-    data = json.loads((EXPECTED / name).read_text())
+    data = json.loads((EXPECTED / name).read_text(encoding="utf-8"))
     index = {label: i for i, label in enumerate(PROTON_LABELS)}
     pairs = tuple((index[a], index[b]) for a, b in data["pairs"])
     return pairs, np.array(data[y_key]), np.array(data["sigma_Hz"]), data["expected"]

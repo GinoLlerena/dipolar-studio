@@ -120,6 +120,15 @@ class Instance:
         return self.raw("POST", "/api/v1/auth/session", headers=headers, body=json.dumps({"code": code}).encode())
 
 
+def is_ours(ready: dict[str, Any], pid: int, ready_file: Path, started: float) -> bool:
+    """Whether the ready file is the one the launched process wrote. On POSIX its pid is ours. On
+    Windows a virtualenv's python.exe is a launcher that runs the interpreter as a child process,
+    so the pid differs; there the file must have been written after the launch."""
+    if ready["pid"] == pid:
+        return True
+    return os.name == "nt" and ready_file.stat().st_mtime >= started
+
+
 def launch(
     tmp: Path,
     name: str = "a",
@@ -141,19 +150,20 @@ def launch(
         cmd += ["--ready-file", str(ready_arg)]
     if not PACKAGED and (WEB_DIST / "index.html").is_file():
         cmd += ["--static-dir", str(WEB_DIST)]
+    started = time.time()
     with output.open("wb") as out:
         process = subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT, cwd=cwd, env=env)
     deadline = time.monotonic() + 20
     while True:  # wait for *this* process's ready file (a crashed one may have left an old file)
         try:
-            ready = json.loads(ready_file.read_text())
-            if ready["pid"] == process.pid:
+            ready = json.loads(ready_file.read_text(encoding="utf-8"))
+            if is_ours(ready, process.pid, ready_file, started):
                 break
         except (OSError, ValueError):
             pass
         if process.poll() is not None or time.monotonic() > deadline:
             process.kill()
-            raise RuntimeError(output.read_text())
+            raise RuntimeError(output.read_text(encoding="utf-8"))
         time.sleep(0.05)
     return Instance(process, base / project_dir, ready_file, output, ready)
 
@@ -255,19 +265,21 @@ def test_the_browser_launcher_never_sees_the_code(inst: Instance, tmp_path: Path
     can read process arguments (ps). ``dipolar open`` therefore gives the launcher only the path of
     a private redirect page; the code is inside that file (0600, in a 0700 directory)."""
     recorder, record = tmp_path / "browser.py", tmp_path / "argv.json"
-    recorder.write_text(RECORDER)
+    recorder.write_text(RECORDER, encoding="utf-8")
     env = {**os.environ, "BROWSER": f"{sys.executable} {recorder} {record} %s"}
     cmd = [*BASE_CMD, "open", "--ready-file", str(inst.ready_file)]
     opened = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=env, check=False)
     assert opened.returncode == 0, opened
-    argv = json.loads(record.read_text())
+    argv = json.loads(record.read_text(encoding="utf-8"))
     assert len(argv) == 1 and argv[0].startswith("file://") and argv[0].endswith(".html"), argv
     assert "launch" not in argv[0].split("/")[-1] and "#" not in argv[0]  # only a path: nothing to steal
     page = Path(argv[0].removeprefix("file://"))
     assert stat.S_IMODE(page.stat().st_mode) == 0o600
     assert stat.S_IMODE(page.parent.stat().st_mode) == 0o700
-    match = re.search(rf'url=http://127\.0\.0\.1:{inst.port}/#launch=([A-Za-z0-9_-]+)"', page.read_text())
-    assert match, page.read_text()
+    match = re.search(
+        rf'url=http://127\.0\.0\.1:{inst.port}/#launch=([A-Za-z0-9_-]+)"', page.read_text(encoding="utf-8")
+    )
+    assert match, page.read_text(encoding="utf-8")
     code = match.group(1)
     assert code not in opened.stdout + opened.stderr
     assert inst.exchange(code).status == 200  # the page that follows the redirect gets the session
@@ -277,7 +289,7 @@ def test_the_browser_launcher_never_sees_the_code(inst: Instance, tmp_path: Path
 
 def recording_browser(tmp_path: Path) -> tuple[dict[str, str], Path]:
     recorder, record = tmp_path / "browser.py", tmp_path / "argv.json"
-    recorder.write_text(RECORDER)
+    recorder.write_text(RECORDER, encoding="utf-8")
     return {**os.environ, "BROWSER": f"{sys.executable} {recorder} {record} %s"}, record
 
 
@@ -291,7 +303,7 @@ def test_a_symlinked_launch_directory_is_refused_and_never_touched(tmp_path: Pat
     victim.mkdir(mode=0o755)
     precious = [victim / "open-important.html", victim / "open-ins_x-y.html"]
     for path in precious:
-        path.write_text("keep me")
+        path.write_text("keep me", encoding="utf-8")
         os.utime(path, (1, 1))  # "expired", so age-based cleanup would pick it if it looked here
     project = tmp_path / "project-a"
     project.mkdir()
@@ -303,7 +315,7 @@ def test_a_symlinked_launch_directory_is_refused_and_never_touched(tmp_path: Pat
     assert opened.returncode == 1 and "not a plain directory" in opened.stderr, opened
     assert not record.exists()  # no browser was started
     stop(inst)
-    assert all(path.read_text() == "keep me" for path in precious)
+    assert all(path.read_text(encoding="utf-8") == "keep me" for path in precious)
     assert stat.S_IMODE(victim.stat().st_mode) == 0o755
     assert sorted(victim.iterdir()) == sorted(precious)
 
@@ -317,7 +329,7 @@ def test_relative_paths_and_a_custom_ready_file_location(tmp_path: Path) -> None
     cmd = [*BASE_CMD, "open", "--ready-file", "elsewhere/ready.json"]
     opened = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=env, cwd=tmp_path, check=False)
     assert opened.returncode == 0, opened
-    page = Path(json.loads(record.read_text())[0].removeprefix("file://"))
+    page = Path(json.loads(record.read_text(encoding="utf-8"))[0].removeprefix("file://"))
     assert page.is_absolute() and page.parent == (tmp_path / "elsewhere" / "browser-launch").resolve()
     assert inst.ready["instance_id"] in page.name
     stop(inst)  # graceful shutdown removes this instance's pages
@@ -334,8 +346,8 @@ def test_serve_open_with_a_relative_project(tmp_path: Path) -> None:
     deadline = time.monotonic() + 10
     while not record.exists() and time.monotonic() < deadline:
         time.sleep(0.05)
-    page = Path(json.loads(record.read_text())[0].removeprefix("file://"))
-    match = re.search(r"#launch=([A-Za-z0-9_-]+)", page.read_text())
+    page = Path(json.loads(record.read_text(encoding="utf-8"))[0].removeprefix("file://"))
+    match = re.search(r"#launch=([A-Za-z0-9_-]+)", page.read_text(encoding="utf-8"))
     assert match and inst.exchange(match.group(1)).status == 200
     stop(inst)
     assert not page.exists() and not inst.ready_file.exists()
@@ -448,17 +460,17 @@ def test_no_credential_leaks(inst: Instance) -> None:
     argv = subprocess.run(["ps", "-o", "command=", "-p", str(inst.process.pid)], capture_output=True, text=True)
     places = {
         "process arguments": argv.stdout,
-        "journal": (inst.project_dir / "project.events.jsonl").read_text(),
-        "server output (so far)": inst.output.read_text(),
+        "journal": (inst.project_dir / "project.events.jsonl").read_text(encoding="utf-8"),
+        "server output (so far)": inst.output.read_text(encoding="utf-8"),
     }
     places.update({f"reply {i}": r.body.decode() + json.dumps(r.headers) for i, r in enumerate(replies)})
     assert "dipolar" in argv.stdout or "dipolar_app" in argv.stdout
     stop(inst)
-    places["server output (after shutdown)"] = inst.output.read_text()
+    places["server output (after shutdown)"] = inst.output.read_text(encoding="utf-8")
     for where, text in places.items():
         for secret in secrets:
             assert secret not in text, f"a credential appears in the {where}"
-    assert code not in inst.output.read_text()
+    assert code not in inst.output.read_text(encoding="utf-8")
 
 
 # --------------------------------------------------------------------------- instances and port reuse
@@ -467,7 +479,9 @@ def test_second_instance_on_the_same_project_is_refused(inst: Instance, tmp_path
     second = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
     assert second.returncode == 3, second
     assert "already using" in second.stderr
-    assert json.loads(inst.ready_file.read_text())["instance_id"] == inst.ready["instance_id"]  # not clobbered
+    assert (
+        json.loads(inst.ready_file.read_text(encoding="utf-8"))["instance_id"] == inst.ready["instance_id"]
+    )  # not clobbered
     assert inst.op("render.describe_view", {}, inst.token("robot")).status == 200
 
 
@@ -532,7 +546,7 @@ def test_stale_ready_file_and_port_reuse_are_detected(tmp_path: Path, clean_robo
     b = launch(tmp_path, "b", project_dir=a.project_dir)
     try:
         assert b.ready["instance_id"] != a.ready["instance_id"]
-        assert json.loads(b.ready_file.read_text())["instance_id"] == b.ready["instance_id"]
+        assert json.loads(b.ready_file.read_text(encoding="utf-8"))["instance_id"] == b.ready["instance_id"]
         robot = subprocess.run(
             [sys.executable, "-I", str(ROBOT), "--ready-file", str(b.ready_file)],
             capture_output=True,

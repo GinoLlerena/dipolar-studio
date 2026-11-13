@@ -85,7 +85,7 @@ class Client:
 
 
 def run(ready_file: Path, phi_deg: float) -> dict[str, Any]:
-    ready = json.loads(ready_file.read_text("utf-8"))
+    ready = json.loads(ready_file.read_text(encoding="utf-8"))
     client = Client(ready["base_url"], ready["tokens"]["robot"])
 
     try:
@@ -152,7 +152,7 @@ def _csv(project: dict[str, Any]) -> str:
 
 
 def run_m2(ready_file: Path, phi_deg: float) -> dict[str, Any]:
-    ready = json.loads(ready_file.read_text("utf-8"))
+    ready = json.loads(ready_file.read_text(encoding="utf-8"))
     robot = Client(ready["base_url"], ready["tokens"]["robot"])
     agent = Client(ready["base_url"], ready["tokens"]["agent"])
     if robot.instance().get("instance_id") != ready["instance_id"]:

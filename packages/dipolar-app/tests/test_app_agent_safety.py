@@ -488,14 +488,14 @@ def test_a_record_whose_steps_do_not_split_its_events_is_corrupt(tmp_path: Path)
     ok(client(s, AGENT).call("proposal.create", two_steps()))
     ok(user.call("proposal.accept", {"proposal_id": "prp_000001"}))
     path = tmp_path / "project.events.jsonl"
-    lines = path.read_text().splitlines()
+    lines = path.read_text(encoding="utf-8").splitlines()
     from dipolar_app.journal import checksum
 
     record = json.loads(lines[-1])
     record.pop("checksum")
     record["step_lengths"] = [2, 1]
     lines[-1] = json.dumps({**record, "checksum": checksum(record)})
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     with pytest.raises(JournalCorrupt, match=r"step_lengths|reproduce"):
         replay(Journal(path))
 

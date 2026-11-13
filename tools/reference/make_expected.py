@@ -71,25 +71,25 @@ ADEQUACY_POLICY = {"statistic": "p = chi2.sf(chi2, nu)", "adequate_if": "p >= 1e
 
 def write_json(path: Path, obj: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + "\n")
+    path.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def write_manifest(directory: Path) -> None:
     lines = []
     for f in sorted(directory.glob("*.json")):
         lines.append(f"{hashlib.sha256(f.read_bytes()).hexdigest()}  {f.name}")
-    (directory / "MANIFEST.sha256").write_text("\n".join(lines) + "\n")
+    (directory / "MANIFEST.sha256").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def read_rows(path: Path) -> list[dict[str, str]]:
-    with path.open() as f:
+    with path.open(encoding="utf-8") as f:
         return list(csv.DictReader(f))
 
 
 # --------------------------------------------------------------------------- synthetic
 def synthetic(run_coverage: bool) -> None:
     out = R.SYNTHETIC_DIR / "expected"
-    truth = json.loads((R.SYNTHETIC_DIR / "truth.json").read_text())
+    truth = json.loads((R.SYNTHETIC_DIR / "truth.json").read_text(encoding="utf-8"))
     rows = read_rows(R.SYNTHETIC_DIR / "couplings.csv")
     pairs = [(r["spin_a"], r["spin_b"]) for r in rows]
     sigma = np.array([float(r["sigma_Hz"]) for r in rows])
@@ -217,7 +217,7 @@ def coverage(
 def dipietro() -> None:
     out = R.DIPIETRO_DIR / "expected"
     rows = read_rows(R.DIPIETRO_DIR / "couplings.csv")
-    proto = json.loads((R.DIPIETRO_DIR / "check_fit.out.json").read_text())
+    proto = json.loads((R.DIPIETRO_DIR / "check_fit.out.json").read_text(encoding="utf-8"))
     write_json(
         out / "spec.json",
         {

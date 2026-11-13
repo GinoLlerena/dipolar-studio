@@ -26,7 +26,7 @@ def build(tmp_path: Path) -> tuple[Path, object]:
 
 def test_replay_reproduces_state(tmp_path: Path) -> None:
     path, live = build(tmp_path)
-    records = [json.loads(line) for line in path.read_text().splitlines()]
+    records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     assert [r["operation"] for r in records] == [
         "project.open_example",
         "view.select",
@@ -51,8 +51,8 @@ def test_replay_reproduces_state(tmp_path: Path) -> None:
 
 def test_tampered_record_is_refused(tmp_path: Path) -> None:
     path, _ = build(tmp_path)
-    text = path.read_text()
-    path.write_text(text.replace('"cpl_000010"', '"cpl_000011"', 1))
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace('"cpl_000010"', '"cpl_000011"', 1), encoding="utf-8")
     with pytest.raises(JournalCorrupt, match="checksum"):
         replay(Journal(path))
 

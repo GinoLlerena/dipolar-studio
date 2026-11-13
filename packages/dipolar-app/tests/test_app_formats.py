@@ -26,7 +26,7 @@ from dipolar_core.biphenyl import BiphenylGeometry, proton_positions
 from dipolar_core.fit import fit
 
 ROOT = Path(__file__).resolve().parents[3]
-SYNTHETIC_CSV = (ROOT / "datasets" / "biphenyl-synthetic" / "couplings.csv").read_text()
+SYNTHETIC_CSV = (ROOT / "datasets" / "biphenyl-synthetic" / "couplings.csv").read_text(encoding="utf-8")
 EXAMPLE = load_example("biphenyl-synthetic")
 
 
@@ -281,7 +281,7 @@ def test_a_tampered_v1_journal_is_still_refused(tmp_path: Path) -> None:
     from dipolar_app.journal import Journal, JournalCorrupt
     from dipolar_app.session import Session
 
-    record = json.loads(V1_JOURNAL.read_text().splitlines()[0])
+    record = json.loads(V1_JOURNAL.read_text(encoding="utf-8").splitlines()[0])
     record["events"][0]["project"]["name"] = "tampered"
     del record["checksum"]
     copy = tmp_path / "events.jsonl"
@@ -291,7 +291,7 @@ def test_a_tampered_v1_journal_is_still_refused(tmp_path: Path) -> None:
 
 
 def test_a_v1_project_file_is_migrated() -> None:
-    record = json.loads(V1_JOURNAL.read_text().splitlines()[0])
+    record = json.loads(V1_JOURNAL.read_text(encoding="utf-8").splitlines()[0])
     document = {"format": "dipolar-studio-project", "schema_version": 1, "project": record["events"][0]["project"]}
     project = loads_project(json.dumps(document))
     assert project.schema_version == 2 and project.model.order == "bisector-diagonal"
@@ -398,7 +398,7 @@ def test_import_contracts_bom_and_one_to_one_mappings() -> None:
 def _journal_with(tmp_path: Path, mutate) -> Path:  # type: ignore[no-untyped-def]
     from dipolar_app.journal import Journal
 
-    record = json.loads(V1_JOURNAL.read_text().splitlines()[0])
+    record = json.loads(V1_JOURNAL.read_text(encoding="utf-8").splitlines()[0])
     del record["checksum"]
     mutate(record)
     path = tmp_path / "events.jsonl"

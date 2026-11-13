@@ -90,7 +90,7 @@ def run_until_killed(journal_dir: Path, mode: str, rng: random.Random) -> tuple[
     def fail(reason: str) -> None:
         child.kill()  # never read diagnostics from a live child: that could block
         child.wait()
-        pytest.fail(f"{reason}: {errors.read_text()}")
+        pytest.fail(f"{reason}: {errors.read_text(encoding='utf-8')}")
 
     deadline = time.monotonic() + 30
     header_line = None
@@ -167,6 +167,7 @@ def test_a_killed_server_restarts_from_its_torn_journal(tmp_path: Path) -> None:
 
     def serve() -> tuple[subprocess.Popen[bytes], dict[str, object], Path]:
         out = tmp_path / f"serve-{time.monotonic_ns()}.out"
+        started = time.time()
         with out.open("wb") as handle:
             proc = subprocess.Popen(
                 [sys.executable, "-m", "dipolar_app.cli", "serve", "--project-dir", str(project)],
@@ -176,12 +177,14 @@ def test_a_killed_server_restarts_from_its_torn_journal(tmp_path: Path) -> None:
         deadline = time.monotonic() + 20
         while True:
             try:
-                ready = json.loads(ready_file.read_text())
-                if ready["pid"] == proc.pid:
+                ready = json.loads(ready_file.read_text(encoding="utf-8"))
+                # On Windows a virtualenv's python.exe runs the interpreter as a child process, so
+                # the pid differs there; the file must then be newer than the launch.
+                if ready["pid"] == proc.pid or (os.name == "nt" and ready_file.stat().st_mtime >= started):
                     return proc, ready, out
             except (OSError, ValueError):
                 pass
-            assert proc.poll() is None and time.monotonic() < deadline, out.read_text()
+            assert proc.poll() is None and time.monotonic() < deadline, out.read_text(encoding="utf-8")
             time.sleep(0.05)
 
     def robot(ready_path: Path) -> subprocess.CompletedProcess[str]:
@@ -206,7 +209,7 @@ def test_a_killed_server_restarts_from_its_torn_journal(tmp_path: Path) -> None:
 
     second, _, out = serve()
     try:
-        assert "Recovered the journal" in out.read_text()
+        assert "Recovered the journal" in out.read_text(encoding="utf-8")
         assert journal.read_bytes() == kept
         assert robot(ready_file).returncode == 0  # the session carries on: reopens and selects again
     finally:

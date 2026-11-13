@@ -45,7 +45,7 @@ def _cpu() -> str:
             ["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True
         ).stdout.strip()
     try:
-        for line in Path("/proc/cpuinfo").read_text().splitlines():
+        for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
             if line.startswith("model name"):
                 return line.split(":", 1)[1].strip()
     except OSError:
@@ -171,7 +171,7 @@ def end_to_end() -> dict[str, Any]:
                 raise RuntimeError("dipolar serve did not start")
             time.sleep(0.02)
         startup = time.perf_counter() - start
-        info = json.loads(ready.read_text())
+        info = json.loads(ready.read_text(encoding="utf-8"))
         base, token = info["base_url"], info["tokens"]["user"]
 
         def call(name: str, args: dict[str, Any] | None = None) -> tuple[dict[str, Any], float]:
@@ -238,8 +238,8 @@ def end_to_end() -> dict[str, Any]:
 
 
 def agreement(fit_result: dict[str, Any]) -> dict[str, Any]:
-    e = json.loads((EXPECTED / "noisy_fixture.json").read_text())["expected"]
-    tol = json.loads((EXPECTED / "spec.json").read_text())["tolerances"]["regression"]
+    e = json.loads((EXPECTED / "noisy_fixture.json").read_text(encoding="utf-8"))["expected"]
+    tol = json.loads((EXPECTED / "spec.json").read_text(encoding="utf-8"))["tolerances"]["regression"]
     theta = {x["name"]: x["value"] for x in fit_result["theta"]}
     order = {x["name"]: x["value"] for x in fit_result["order"]}
     return {
