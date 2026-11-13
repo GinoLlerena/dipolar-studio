@@ -3,7 +3,7 @@
 - A snapshot decodes to exactly the state it was written from, for every part of the state.
 - After compaction, opening the project gives the same state and request table, the journal is
   empty and the covered records are archived, never deleted.
-- A crash between writing the snapshot and rotating the journal is recovered.
+- A crash at each step of a compaction, the first or a later one, is recovered (round 43).
 - Damage is refused: a bad checksum, a snapshot the journal does not continue, a different
   numerical context.
 - The request table and the number of records since the last snapshot are bounded.
@@ -19,7 +19,7 @@ import pytest
 from conftest import AGENT, client, new_session, run_fit
 from dipolar_app import snapshot as snap
 from dipolar_app.journal import Journal, JournalCorrupt
-from dipolar_app.session import replay, replay_full
+from dipolar_app.session import replay
 
 OPEN = {"name": "biphenyl-synthetic", "expected_science_revision": 0}
 
@@ -105,18 +105,6 @@ def test_after_compaction_the_project_reopens_identically_and_the_journal_is_arc
     assert after.runs and reopened.blobs.text(after.runs[0].result_sha256) is not None
 
 
-def test_a_crash_between_the_snapshot_and_the_rotation_is_recovered(tmp_path: Path) -> None:
-    s, _ = busy_session(tmp_path)
-    before = s.state
-    body = snap.build(before, dict(s._requests), "test")
-    snap.write(tmp_path / snap.SNAPSHOT_NAME, body)  # step 1 done, step 2 not
-    reopened = new_session(tmp_path)
-    assert reopened.state == before
-    ok(client(reopened).call("view.select", {"ids": []}))
-    state, _ = replay_full(journal_of(tmp_path))  # the old records are skipped, the new one applied
-    assert state == reopened.state and state.seq == before.seq + 1
-
-
 def test_damage_to_a_snapshot_or_its_continuation_is_refused(tmp_path: Path) -> None:
     s, _ = busy_session(tmp_path)
     s.compact()
@@ -141,16 +129,6 @@ def test_damage_to_a_snapshot_or_its_continuation_is_refused(tmp_path: Path) -> 
     }
     journal.append(record)
     with pytest.raises(JournalCorrupt):
-        new_session(tmp_path)
-
-
-def test_a_snapshot_whose_covered_record_disagrees_is_refused(tmp_path: Path) -> None:
-    s, _ = busy_session(tmp_path)
-    body = snap.build(s.state, dict(s._requests), "test")
-    body["state"]["view"]["selection"] = ["spn_000009"]  # not what the journal's records produce
-    body = snap.build(snap.state_from_json(body["state"]), {}, "test")
-    snap.write(tmp_path / snap.SNAPSHOT_NAME, body)
-    with pytest.raises(JournalCorrupt, match="does not match the journal"):
         new_session(tmp_path)
 
 
@@ -224,3 +202,130 @@ def vars_of(state: Any) -> dict[str, Any]:
     from dataclasses import fields
 
     return {f.name: getattr(state, f.name) for f in fields(state)}
+
+
+# --------------------------------------------------------------------------- crashes (round 43)
+def select(s: Any, k: int) -> None:
+    ok(client(s).call("view.select", {"ids": [f"spn_00000{k}"]}))
+
+
+def next_snapshot_only(tmp_path: Path, s: Any) -> None:
+    """A compaction that stopped after step 1: the next snapshot is written, nothing else."""
+    snap.write(tmp_path / snap.NEXT_NAME, snap.build(s.state, dict(s._requests), "test"))
+
+
+@pytest.mark.parametrize("earlier", [False, True], ids=["first compaction", "a later compaction"])
+def test_a_crash_before_the_rotation_discards_the_next_snapshot(tmp_path: Path, earlier: bool) -> None:
+    s, _ = busy_session(tmp_path)
+    if earlier:
+        s.compact()
+        select(s, 2)  # the journal now starts after the first snapshot
+    before = s.state
+    next_snapshot_only(tmp_path, s)
+    reopened = new_session(tmp_path)
+    assert reopened.state == before and not (tmp_path / snap.NEXT_NAME).exists()
+    select(reopened, 3)
+    assert new_session(tmp_path).state == reopened.state
+
+
+@pytest.mark.parametrize("journal_left", [True, False], ids=["empty journal", "no journal"])
+def test_a_crash_after_the_rotation_promotes_the_next_snapshot(tmp_path: Path, journal_left: bool) -> None:
+    s, _ = busy_session(tmp_path)
+    s.compact()
+    select(s, 2)
+    select(s, 3)
+    before = s.state
+    next_snapshot_only(tmp_path, s)
+    journal = journal_of(tmp_path)
+    archive = tmp_path / snap.ARCHIVE_DIR / snap.archive_name(before.seq - 1, before.seq)
+    if journal_left:
+        journal.rotate(archive)  # step 2 done, step 3 not
+    else:
+        (tmp_path / "project.events.jsonl").replace(archive)  # stopped inside the rotation
+    reopened = new_session(tmp_path)
+    assert reopened.state == before and not (tmp_path / snap.NEXT_NAME).exists()
+    assert json.loads((tmp_path / snap.SNAPSHOT_NAME).read_text(encoding="utf-8"))["seq"] == before.seq
+    select(reopened, 4)
+    assert new_session(tmp_path).state == reopened.state
+
+
+def test_a_journal_that_continues_neither_snapshot_is_refused(tmp_path: Path) -> None:
+    s, _ = busy_session(tmp_path)
+    s.compact()
+    select(s, 2)
+    select(s, 3)
+    next_snapshot_only(tmp_path, s)
+    archive = tmp_path / snap.ARCHIVE_DIR / "manual.jsonl"
+    journal_of(tmp_path).rotate(archive)
+    journal = journal_of(tmp_path)
+    with archive.open("rb") as handle:  # put back only the second of the two records
+        lines = handle.readlines()
+    (tmp_path / "project.events.jsonl").write_bytes(lines[1])
+    del journal
+    with pytest.raises(JournalCorrupt, match="continues neither"):
+        new_session(tmp_path)
+
+
+def test_a_failed_rotation_stops_the_session_and_reopening_recovers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    s, _ = busy_session(tmp_path)
+    before = s.state
+
+    def broken(self: Journal, archive: Path) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Journal, "rotate", broken)
+    with pytest.raises(OSError, match="disk full"):
+        s.compact()
+    refused = client(s).call("view.select", {"ids": []})
+    assert not refused["ok"] and refused["error"]["code"] == "JOURNAL_FAILED"
+    monkeypatch.undo()
+    assert new_session(tmp_path).state == before  # the next snapshot is discarded
+
+
+def test_a_failed_snapshot_write_leaves_no_file_and_is_retried(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(snap, "COMPACT_RECORDS", 2)
+    s = new_session(tmp_path)
+    ok(client(s).call("project.open_example", OPEN))
+    calls = {"n": 0}
+    real = snap.fsync_dir
+
+    def flaky(path: Path) -> None:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("fsync failed")
+        real(path)
+
+    monkeypatch.setattr(snap, "fsync_dir", flaky)
+    select(s, 1)  # the second record: compaction is due, and its snapshot write fails
+    assert s.compaction_error and "fsync failed" in s.compaction_error
+    assert sorted(p.name for p in tmp_path.iterdir() if "snapshot" in p.name) == []
+    select(s, 2)  # retried after the next commit
+    assert s.compaction_error is None and (tmp_path / snap.SNAPSHOT_NAME).exists()
+    assert new_session(tmp_path).state == s.state
+
+
+def test_leftover_temporary_snapshots_are_removed_when_a_project_opens(tmp_path: Path) -> None:
+    busy_session(tmp_path)
+    leftover = tmp_path / ".project.snapshot.next.json.abcd1234.tmp"
+    leftover.write_bytes(b"partial")
+    new_session(tmp_path)
+    assert not leftover.exists()
+
+
+def test_deduplication_expires_with_the_bounded_request_table(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Documented (round 43): after eviction a retry is a new request, and fit.run, which does not
+    advance the science revision, then submits a second job."""
+    monkeypatch.setattr(snap, "MAX_REQUESTS", 1)
+    s = new_session(tmp_path)
+    c = client(s)
+    ok(c.call("project.open_example", OPEN))
+    fit = {"expected_science_revision": 1}
+    first = ok(c.call("fit.run", fit, request_id="fit-1"))
+    ok(c.call("view.select", {"ids": []}, request_id="later"))  # evicts fit-1 at compaction
+    s.compact()
+    reopened = new_session(tmp_path)
+    again = client(reopened).call("fit.run", fit, request_id="fit-1")
+    assert again["ok"] and not again["replayed"]
+    assert again["result"]["job"]["id"] != first["job"]["id"]

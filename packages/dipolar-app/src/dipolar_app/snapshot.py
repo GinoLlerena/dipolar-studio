@@ -15,20 +15,26 @@ in-memory state exactly. When a project opens, the checksum, the decoded science
 numerical context and the schema versions are checked, and the first journal record after it must
 continue its sequence and revisions; any mismatch is ``JournalCorrupt``, never repaired.
 
-**Compaction** (``compact``), under the session's writer lock:
+**Compaction** (``Session.compact``), under the session's writer lock, keeps the previous
+snapshot until the new one is complete (round 43):
 
-1. write the snapshot to a private temporary file, fsync it, rename it over
-   ``project.snapshot.json`` and fsync the directory;
+1. write the new snapshot as ``project.snapshot.next.json`` (a private temporary file, fsynced,
+   renamed, the directory fsynced);
 2. move the journal it covers to ``archive/project.events.<first>-<last>.jsonl`` and start an
-   empty journal, fsyncing the directories.
+   empty journal, fsyncing the directories;
+3. rename the new snapshot over ``project.snapshot.json`` and fsync the directory.
 
-A crash between the steps leaves a snapshot and a journal that still holds the records it covers;
-opening skips those records after checking that the last of them matches the snapshot. Nothing is
-deleted: archived journals keep the full audit trail, and the user may remove them.
+Opening (``settle``) tells from the journal where a crash stopped: if the journal still starts
+right after the current snapshot, the rotation never happened and the unpublished next snapshot
+is discarded; if the journal is empty or starts right after the next snapshot, the rotation
+happened and the next snapshot is promoted. Anything else is ``JournalCorrupt``. Nothing is
+deleted except an unpublished snapshot: archived journals keep the full audit trail, and the user
+may remove them.
 
-**The request table is bounded.** A retry of a request older than the last ``MAX_REQUESTS``
-recorded requests, after a compaction, is treated as a new request; a command that carries an
-expected revision then fails its precondition instead of applying twice.
+**The request table is bounded.** Deduplication protection expires: a retry of a request older
+than the last ``MAX_REQUESTS`` recorded requests, after a compaction, is treated as a new request.
+An expected revision then protects only if that revision has advanced since; ``fit.run``, which
+does not advance the science revision, would submit a second job (round 43, documented).
 """
 
 from __future__ import annotations
@@ -60,6 +66,7 @@ from dipolar_app.session import (
 SNAPSHOT_FORMAT = "dipolar-session-snapshot"
 SNAPSHOT_SCHEMA_VERSION = 1
 SNAPSHOT_NAME = "project.snapshot.json"
+NEXT_NAME = "project.snapshot.next.json"
 ARCHIVE_DIR = "archive"
 
 #: Request outcomes kept in a snapshot (the most recent ones).
@@ -177,6 +184,50 @@ def snapshot_path(journal_path: Path) -> Path:
     return journal_path.with_name(SNAPSHOT_NAME)
 
 
+def next_path(journal_path: Path) -> Path:
+    return journal_path.with_name(NEXT_NAME)
+
+
+Loaded = tuple[SessionState, dict[tuple[str, str], StoredOutcome], dict[str, Any]]
+
+
+def choose(journal_path: Path, first_seq: int | None) -> tuple[Loaded | None, str | None]:
+    """The snapshot to replay from, given the journal's first sequence number (None: empty), and
+    what opening must do to finish an interrupted compaction: "promote" the next snapshot,
+    "discard" it, or nothing. Reads only; ``settle`` acts."""
+    current = load(snapshot_path(journal_path))
+    upcoming = load(next_path(journal_path))
+    base = current[0].seq if current else 0
+    if upcoming is None:
+        if first_seq is not None and first_seq != base + 1:
+            raise JournalCorrupt(f"record seq {first_seq}: the journal does not continue the snapshot (seq {base})")
+        return current, None
+    covered = upcoming[0].seq
+    if covered <= base:
+        return current, "discard"  # never published, and older than what is: drop it
+    if first_seq == base + 1:
+        return current, "discard"  # the rotation never happened: the journal still holds the segment
+    if first_seq is None or first_seq == covered + 1:
+        return upcoming, "promote"  # the rotation happened: finish the compaction
+    raise JournalCorrupt(
+        f"record seq {first_seq}: the journal continues neither the snapshot (seq {base}) "
+        f"nor the next snapshot (seq {covered})"
+    )
+
+
+def settle(journal_path: Path, action: str | None) -> None:
+    """Finish an interrupted compaction (under the project lock, when a project opens), and remove
+    temporary files a failed or interrupted snapshot write left behind (round 43)."""
+    if action == "promote":
+        os.replace(next_path(journal_path), snapshot_path(journal_path))
+        fsync_dir(journal_path.parent)
+    elif action == "discard":
+        next_path(journal_path).unlink()
+        fsync_dir(journal_path.parent)
+    for leftover in journal_path.parent.glob(".project.snapshot*.tmp"):
+        leftover.unlink(missing_ok=True)
+
+
 def build(state: SessionState, requests: dict[tuple[str, str], StoredOutcome], contract_version: str) -> dict[str, Any]:
     """The snapshot record (without its checksum), verified to decode back to ``state``."""
     body: dict[str, Any] = {
@@ -208,17 +259,24 @@ def write(path: Path, body: dict[str, Any]) -> None:
     tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
-        view = memoryview(data)
-        while view:
-            written = os.write(fd, view)
-            if written <= 0:
-                raise OSError("snapshot write stored no bytes")
-            view = view[written:]
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-    os.replace(tmp, path)
-    fsync_dir(path.parent)
+        try:
+            view = memoryview(data)
+            while view:
+                written = os.write(fd, view)
+                if written <= 0:
+                    raise OSError("snapshot write stored no bytes")
+                view = view[written:]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(tmp, path)
+        fsync_dir(path.parent)
+    except BaseException:
+        # Unpublished: never leave a temporary file (or a snapshot not known durable) behind; a
+        # failed attempt is retried after the next commit (round 43).
+        tmp.unlink(missing_ok=True)
+        path.unlink(missing_ok=True)
+        raise
 
 
 def load(path: Path) -> tuple[SessionState, dict[tuple[str, str], StoredOutcome], dict[str, Any]] | None:

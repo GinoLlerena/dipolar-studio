@@ -24,3 +24,19 @@ bounded; an incomplete codec stops compaction before any file is written.
 Mutation checks (each break makes a test fail): the checksum check; the comparison of covered
 records with the snapshot; the request bound; the automatic trigger; the numerical-context check;
 the recorded-sequence check; the journal rotation; the build-time round-trip guard.
+
+## Round 43: NOT READY (one A, three B), on commit 4382819
+
+The reviewer's run: 790 passed, mypy and Ruff passed. Windows power-loss behaviour was not tested
+experimentally.
+
+| # | Class | Finding | Resolution |
+|---|---|---|---|
+| 1 | A | **A crash in a second or later compaction made the project unopenable.** The new snapshot replaced the old one before the journal rotated; the journal then started after the old snapshot, which no longer existed, and the "starts at 1" recovery did not apply. An injected directory-fsync failure after the replacement did the same while the session kept accepting commands. | The previous snapshot is kept until the new one is complete: next snapshot (`project.snapshot.next.json`), then rotation, then publication by rename. Opening decides from the journal's first sequence number whether to discard or promote the next snapshot (`snapshot.choose`, `settle`); the replay-and-compare path is gone. Any failure after the next snapshot fail-stops the session. Tests: a crash before the rotation (first and later compaction), after it (empty or missing journal), a journal that continues neither snapshot, a failed rotation (fail-stop, then reopening recovers). |
+| 2 | B | Compaction is costly: 34 MB of JSON, 5.4 s, 590 MB for 100 undo entries of a 1 000-coupling project, under the writer lock. | Documented in the ADR-0014 amendment, with the numbers. Deduplicating history payloads and building outside the lock are left for later. |
+| 3 | B → fixed | Failed snapshot writes left temporary files, one per retry. | `write` removes its temporary file (and an unconfirmed result) on any failure; opening removes leftovers. Tests added. |
+| 4 | B → documented | An evicted `fit.run` retry submits a second job: its science revision has not advanced. | The module docstring and the ADR now say that deduplication protection expires and that a revision check helps only when the revision has advanced. A test pins the behaviour. |
+
+Mutation checks: discarding before the rotation, promoting after it, the cleanup of a failed write,
+the cleanup at open, the order of rotation and publication, and the fail-stop on a failed rotation
+each make a test fail when broken.

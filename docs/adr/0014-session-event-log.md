@@ -27,17 +27,29 @@ The journal and the request table no longer grow for ever (`dipolar_app.snapshot
   10 000 request outcomes, with the revisions, science hash, schema versions, numerical context
   and a checksum. It is written only after decoding it reproduces the in-memory state exactly.
 - **Compaction** runs automatically after 5 000 records since the last snapshot (after a commit,
-  or when a project opens): the snapshot is written atomically (temporary file, fsync, rename,
-  directory fsync), then the covered journal moves to `archive/project.events.<first>-<last>.jsonl`
-  and an empty journal starts. Nothing is deleted; archives keep the audit trail.
-- **Opening** loads and verifies the snapshot, then replays only the records after it; the first
-  must continue its sequence. If a crash left the covered records in the journal, they are
-  replayed and must reproduce the snapshot exactly, otherwise the project is refused.
-- **Bounded deduplication:** a retry of a request older than the last 10 000, after a
-  compaction, is treated as new; commands with an expected revision then fail their precondition.
-- A failed snapshot write leaves everything as it was (the commits are durable; compaction is
-  retried after the next commit). A failed journal rotation fail-stops the session like a failed
-  append.
+  or when a project opens), and keeps the previous snapshot until the new one is complete
+  (round 43): (1) the new snapshot is written atomically as `project.snapshot.next.json`;
+  (2) the covered journal moves to `archive/project.events.<first>-<last>.jsonl` and an empty
+  journal starts; (3) the new snapshot is renamed over `project.snapshot.json`. Nothing is
+  deleted; archives keep the audit trail.
+- **Opening** tells from the journal where a crash stopped: a journal that still starts right
+  after the current snapshot means the rotation never happened (the next snapshot is discarded);
+  an empty or missing journal, or one that starts right after the next snapshot, means it did
+  (the next snapshot is promoted). Any other journal is refused. Replay then starts from the
+  chosen snapshot, verified, and the first record must continue its sequence. Temporary files
+  from an interrupted snapshot write are removed.
+- **Bounded deduplication:** protection expires. A retry of a request older than the last
+  10 000, after a compaction, is treated as new. An expected revision then protects only if that
+  revision has advanced since: `fit.run`, which does not advance the science revision, would
+  submit a second job (round 43).
+- A failed snapshot write leaves everything as it was, with no file left behind (the commits are
+  durable; compaction is retried after the next commit). A failure after it (archive, rotation,
+  publication) fail-stops the session like a failed append; reopening finishes or discards the
+  compaction.
+- **Cost:** compaction encodes and verifies the whole state under the writer lock. Round 43
+  measured 100 undo entries of a 1 000-coupling project at about 34 MB of JSON, 5.4 s and
+  590 MB peak memory; commands wait meanwhile, once every 5 000 records. Deduplicating the
+  history's project payloads and preparing the snapshot outside the lock are left for later.
 
 ## Verified by
 

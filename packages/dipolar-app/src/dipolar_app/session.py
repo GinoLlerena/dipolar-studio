@@ -610,7 +610,10 @@ class Session:
         self.compaction_error: str | None = None
         if journal is not None:
             self.recovery = journal.recover_torn_tail()
-            self._state, self._requests, self._since_snapshot = _replay(journal)
+            self._state, self._requests, self._since_snapshot, action = _replay_choosing(journal)
+            from dipolar_app import snapshot as snap
+
+            snap.settle(journal.path, action)  # finish an interrupted compaction (round 43)
             for run in self._state.runs:  # fsynced before its record: a missing blob is damage
                 if self.blobs.text(run.result_sha256) is None:
                     raise JournalCorrupt(f"{run.id}: its result blob is missing or damaged")
@@ -833,20 +836,24 @@ class Session:
             raise ValueError("an in-memory session has no journal to compact")
         if self._failure is not None:
             raise OperationError(ErrorCode.JOURNAL_FAILED, "the session stopped after a journal failure")
+        if self._since_snapshot == 0:
+            return  # the snapshot already covers every record
         state = self._state
         first = state.seq - self._since_snapshot + 1
         body = snap.build(state, self._requests, self._contract_version)
-        snap.write(snap.snapshot_path(journal.path), body)  # step 1: the snapshot is durable
-        if self._since_snapshot > 0:
+        upcoming = snap.next_path(journal.path)
+        snap.write(upcoming, body)  # step 1: the next snapshot; the current one stays
+        try:
             archive = journal.path.parent / snap.ARCHIVE_DIR
             make_durable_dirs(archive)
-            try:
-                journal.rotate(archive / snap.archive_name(first, state.seq))  # step 2
-            except Exception as exc:
-                # The journal may be gone or half rotated: stop, as after a failed append; opening
-                # again recovers from the snapshot (a missing journal is recreated empty).
-                self._failure = f"journal rotation failed: {type(exc).__name__}: {exc}"
-                raise
+            journal.rotate(archive / snap.archive_name(first, state.seq))  # step 2
+            os.replace(upcoming, snap.snapshot_path(journal.path))  # step 3: publish
+            fsync_dir(journal.path.parent)
+        except Exception as exc:
+            # The journal may be half rotated: stop, as after a failed append. Opening again tells
+            # from the journal whether to promote or discard the next snapshot (snapshot.choose).
+            self._failure = f"compaction failed after its snapshot: {type(exc).__name__}: {exc}"
+            raise
         self._since_snapshot = 0
         self._requests = dict(list(self._requests.items())[-snap.MAX_REQUESTS :])
 
@@ -929,35 +936,27 @@ def replay_full(journal: Journal) -> tuple[SessionState, dict[tuple[str, str], S
 
 def _replay(journal: Journal) -> tuple[SessionState, dict[tuple[str, str], StoredOutcome], int]:
     """``replay_full``, plus the number of journal records applied after the snapshot."""
+    state, requests, applied, _ = _replay_choosing(journal)
+    return state, requests, applied
+
+
+def _replay_choosing(
+    journal: Journal,
+) -> tuple[SessionState, dict[tuple[str, str], StoredOutcome], int, str | None]:
+    """Replay from the snapshot ``snapshot.choose`` picks; also returns what opening must do to
+    finish an interrupted compaction (``snapshot.settle``)."""
     from dipolar_app import snapshot as snap
 
-    loaded = snap.load(snap.snapshot_path(journal.path))
+    first = next(journal.records(), None)
+    loaded, action = snap.choose(journal.path, None if first is None else first["seq"])
     if loaded is None:
-        return _replay_records(journal.records(), SessionState(), {}, None, 1)
-    base, requests, meta = loaded
-    records = journal.records()
-    first = next(records, None)
-    if first is not None and first["seq"] <= base.seq:
-        # A compaction stopped after its snapshot and before rotating the journal: the journal
-        # still begins with the records the snapshot covers. They are replayed and must give
-        # exactly the snapshot's state; the records after them continue from it.
-        if first["seq"] != 1:
-            raise JournalCorrupt(f"record seq {first['seq']}: the journal neither starts at 1 nor follows the snapshot")
-        covered: list[dict[str, Any]] = [first]
-        tail: list[dict[str, Any]] = []
-        for record in records:
-            (covered if record["seq"] <= base.seq else tail).append(record)
-        state, _, _ = _replay_records(iter(covered), SessionState(), {}, None, 1)
-        if state != base:
-            raise JournalCorrupt("the snapshot does not match the journal records it covers")
-        return _replay_records(iter(tail), base, requests, meta["state"]["project"], meta["project_schema"])
-    rest = records if first is None else _chain(first, records)
-    return _replay_records(rest, base, requests, meta["state"]["project"], meta["project_schema"])
-
-
-def _chain(first: dict[str, Any], rest: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]:
-    yield first
-    yield from rest
+        state, requests, applied = _replay_records(journal.records(), SessionState(), {}, None, 1)
+    else:
+        base, table, meta = loaded
+        state, requests, applied = _replay_records(
+            journal.records(), base, table, meta["state"]["project"], meta["project_schema"]
+        )
+    return state, requests, applied, action
 
 
 def _replay_records(
