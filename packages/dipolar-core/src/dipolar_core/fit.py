@@ -1076,18 +1076,28 @@ def _interval(
 
     cold = evaluator(warm=False)
     if kind == "profile" and WARM_STARTS:
-        # Continuation can only overstate χ², so a warm interval can err only where a value above
-        # the threshold decides something: just outside each endpoint (too narrow), or at a
-        # component probe (a second component missed). Values below it (inside) are genuine.
-        # Those decisive values are recomputed from the basins themselves (cold), and the warm
-        # interval stands only if they agree; otherwise, or if the warm pass finds the interval
-        # unsupported, the cold pass decides (round 45).
+        # Continuation can only overstate χ², so a value found below the threshold is genuine;
+        # an overstated one can mislead only where the interval's acceptance rests on it: at each
+        # endpoint (where the crossing and its continuity are judged, so too narrow an interval or
+        # a hidden jump; rounds 45 and 46), and at the component probes (a second component
+        # missed). Those are recomputed from the basins themselves (cold): each endpoint must be a
+        # continuous crossing of the cold profile at the search's resolution, and every probe
+        # above the threshold, as the search requires. Otherwise, or if the warm pass finds the interval
+        # unsupported, the cold pass decides.
         found = attempt(evaluator(warm=True))
         if not isinstance(found, str):
             lower, upper = found
-            decisive = [lower - beside(lower), upper + beside(upper)] + [p for _, p in probes(lower, upper)]
+
+            def crossing(root: float) -> bool:
+                """The cold profile crosses the threshold at ``root``, at the search's resolution:
+                within JUMP_RTOL · Δχ² of it on both sides (the signs a few ulps away are rounding
+                noise where the profile is flat), and continuous by the search's own test."""
+                tolerance = JUMP_RTOL * delta_chi2
+                below, above = cold(root - beside(root)), cold(root + beside(root))
+                return abs(below) <= tolerance and abs(above) <= tolerance and abs(above - below) <= tolerance
+
             try:
-                if all(cold(v) > 0 for v in decisive):
+                if crossing(lower) and crossing(upper) and all(cold(p) > 0 for _, p in probes(lower, upper)):
                     return Interval(name, kind, delta_chi2, label, estimate, lower, upper, True, "")
             except _Unsupported:
                 pass

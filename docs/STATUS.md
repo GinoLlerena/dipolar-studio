@@ -1,13 +1,14 @@
 # Status
 
-**Interval warm starts are done (pending review).** Profile intervals are first searched with
+**Interval warm starts are done: tag `interval-warm-starts`.** Profile intervals are first searched with
 continuation: each re-minimization starts where it ended at the nearest value already computed,
 instead of at its basin (`FIT_VERSION` varpro-trf.9). Continuation can only overstate χ², so the
-values that decide an interval (just outside each endpoint, and the component probes) are
-recomputed from the basins; on any disagreement a cold pass decides. About 17% less CPU on the
-protocol seeds. Gate (c) rerun on all 1 000 seeds: the same hits (φ 701, Szz 691, Δ 684), every
-endpoint within 1.3e-12 of its interval's width. Round 45 returned NOT READY (one A: merged starts
-could follow the wrong valley); fixed and mutation-checked. See
+values the interval's acceptance rests on (both sides of each endpoint, and the component probes)
+are recomputed from the basins; on any disagreement a cold pass decides. About 17–20% less CPU on
+the protocol seeds. Gate (c) rerun on all 1 000 seeds: the same hits (φ 701, Szz 691, Δ 684), every
+endpoint within 1.3e-12 of its interval's width. Rounds 45 and 46 returned NOT READY (one A each:
+merged starts could follow the wrong valley; the continuity check used warm values); both were
+fixed and mutation-checked, the round-46 fix not reviewed again, under the cap. See
 [round45-interval-warm-starts.md](validation/round45-interval-warm-starts.md).
 
 **Journal compaction is done: tag `journal-compaction`.** Verified snapshots of the whole session
@@ -242,7 +243,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 804 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 806 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
    (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 37 web tests
    ```

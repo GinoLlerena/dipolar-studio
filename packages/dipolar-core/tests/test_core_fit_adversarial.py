@@ -786,3 +786,71 @@ def test_an_unconverged_verification_never_confirms_a_warm_interval(
     monkeypatch.setattr(F, "_profile_chi2", failing_cold)
     interval = profile_interval(problem, result, "x")  # type: ignore[arg-type]
     assert not interval.supported and "did not converge" in interval.note
+
+
+def test_a_jump_hidden_by_continuation_is_still_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 46 (A): a steep rise, four ulps wide, only in the well the cold starts find, at the
+    point where the warm search puts its upper endpoint. Continuation followed the other well, whose
+    profile is smooth there, so the warm pass saw a continuous crossing; checking only that the
+    cold profile is above the threshold outside the endpoint accepted it. The cold pass finds the
+    jump (χ² rises by about 4 within 16 ulps), so the interval is unsupported either way."""
+    import dipolar_core.fit as F
+
+    cut = 0.47711831759713985  # the warm upper endpoint of _merging_wells
+
+    def smooth(x: float) -> float:
+        x = min(max(x, 0.0), 1.0)
+        return x * x * x * (10 + x * (-15 + 6 * x))
+
+    def design(theta: np.ndarray) -> np.ndarray:
+        x, z = theta
+        w = smooth((x - 0.10) / 0.10) * (1 - smooth((x - 0.35) / 0.20))
+        ulp = float(np.spacing(cut))
+        jump = 2 * smooth((x - (cut - 2 * ulp)) / (4 * ulp)) * (1 - smooth((z + 0.5) / 0.5))
+        rows = [100.0, x, 2 * (1 - w) * (z * z - 1), (1 - w) * 0.6 * (z + 1) + w * 0.1 * (z - 1), jump]
+        return np.array(rows)[:, None]
+
+    problem = Problem(
+        design=design,
+        y=np.array([100.0, 0.0, 0.0, 0.0, 0.0]),
+        sigma=np.ones(5),
+        lower=np.array([-2.0, -2.0]),
+        upper=np.array([2.0, 2.0]),
+        theta_names=("x", "z"),
+        order_names=("t",),
+    )
+    result = fit(problem, Settings(n_sobol=1024, n_starts=1, seed=0))
+    assert result.validity.regular
+    for warm in (False, True):
+        monkeypatch.setattr(F, "WARM_STARTS", warm)
+        interval = profile_interval(problem, result, "x")
+        assert not interval.supported and "jumps across the threshold" in interval.note, warm
+
+
+def test_a_second_component_missed_by_continuation_is_found_by_the_cold_probes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D = [100, x(3 − x), 0]ᵀ: the Δχ² = 1 region has a second component around x = 3, beyond a
+    barrier, and the fit knows only the basin at 0, so only the component probes can find it.
+    Continuation is made to overstate χ² there (as a lost track would): the warm pass accepts the
+    interval, the cold check at the probes disagrees, and the cold pass decides."""
+    import dipolar_core.fit as F
+
+    q = problem(lambda x: np.array([[100.0], [x[0] * (3 - x[0])], [0.0]]), [100.0, 0.0, 0.0], [-5.0], [5.0])
+    result = fit(q, Settings(grid=np.array([0.0])))
+    assert len(result.basins) == 1
+    original = F._profile_chi2
+
+    def lost_track(*args: object, **kwargs: object) -> object:
+        starts = args[5] if len(args) > 5 else kwargs.get("starts")
+        chi2, ok, reached = original(*args, **kwargs)  # type: ignore[arg-type]
+        value = float(args[3])  # type: ignore[arg-type]
+        return (chi2 + 100.0 if starts is not None and value > 2.0 else chi2), ok, reached
+
+    monkeypatch.setattr(F, "_profile_chi2", lost_track)
+    monkeypatch.setattr(F, "WARM_STARTS", False)
+    cold = profile_interval(q, result, "x0")
+    assert not cold.supported and "continues beyond" in cold.note
+    monkeypatch.setattr(F, "WARM_STARTS", True)
+    warm = profile_interval(q, result, "x0")
+    assert (warm.supported, warm.note) == (False, cold.note)
