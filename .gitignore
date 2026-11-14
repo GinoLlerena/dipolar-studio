@@ -28,3 +28,7 @@ tools/legacy-harness/t
 .vscode/
 .playwright-mcp/
 actual-output.txt
+
+# Playwright (M3 step 4)
+web/test-results/
+web/playwright-report/

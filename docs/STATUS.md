@@ -1,5 +1,22 @@
 # Status
 
+**M3 step 4a (the browser suite, the latency targets) is done: tag `m3-step4a`.**
+- **Playwright on Chromium, Firefox and WebKit** (`web/e2e/`, `pnpm run e2e`, a new CI job): the
+  page against a real `dipolar serve`, with the robot and an agent acting over HTTP. It covers the
+  launch, the workspaces, staleness by content, the two store fixes of step 1 that waited for a
+  browser, the inbox's rounds 47–48 regressions, a REVISION_CONFLICT, and the preview's ordering
+  hazards. 19 tests × 3 browsers.
+- **The latency targets, on named hardware** (i7-8750H, macOS, headless): preview p95 from a slider
+  gesture to the residual table displaying the new values 19–53 ms (target 100 ms); a robot's
+  highlight drawn in at most 13–17 ms (target 200 ms), on all three browsers.
+- **Found by the suite:** a typed φ could be overwritten by the preview's automatic start
+  (WebKit); a malformed reply crashed the store. Both fixed.
+- Rounds 49 and 50 returned NOT READY (six and two class-(A) findings: the typing guard, the reply
+  check, the harness's teardown, tests that did not prove their claims, stale doc claims); all
+  fixed and mutation-checked, the round-50 fixes not reviewed again, under the cap.
+
+See [round49-m3-step4a.md](validation/round49-m3-step4a.md).
+
 **M3 step 3 (the proposal inbox, live preview, the landscape) is done: tag `m3-step3`.**
 - **The proposal inbox:** a Proposals workspace follows the feed; each proposal shows its note
   and arguments as text, a dependency-closed choice of steps, and a dry run of exactly the
@@ -251,9 +268,9 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: M3 step 4 (Playwright, performance)
+## Resume here: M3 step 4b (the robot tutorial, performance)
 
-**Stopping point: tag `m3-step3`.** Earlier stopping points: `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
+**Stopping point: tag `m3-step4a`.** Earlier stopping points: `m3-step3`, `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
 `m2-exit-audit`, and one tag per step before them. To resume:
 
 1. Check the baseline:
@@ -261,16 +278,22 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
    ```sh
    uv sync --locked && uv run pytest -q -m "not slow"   # 823 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
-   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 57 web tests
+   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 59 web tests
+   (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 57 browser tests
    ```
 
 2. **Next, as the owner chose (2026-11-13):**
    - ~~journal compaction~~: done (tag `journal-compaction`);
    - ~~interval warm starts~~: done (tag `interval-warm-starts`);
    - ~~M3 step 3~~ (the proposal inbox, live preview, the landscape): done (tag `m3-step3`);
-   - then M3 step 4: Playwright on Chromium, Firefox and WebKit; the robot tutorial; the preview
-     p95 target on named hardware (the page already records response times); virtualised large
-     tables; the two store fixes from step 1 that need a browser test.
+   - ~~M3 step 4a~~ (Playwright on three browsers, the step-1 store fixes, the latency targets
+     on named hardware): done (tag `m3-step4a`);
+   - then M3 step 4b: the robot tutorial from an XYZ file (create → import couplings → confirm
+     mapping → bind torsion → preview → profile fit → select the worst coupling → render → export),
+     over HTTP only, compared with the same tutorial through the page; virtualised large tables;
+     a workload limit for `fit.landscape` on large projects (round 47 B); waking open change feeds
+     at shutdown (round 49 B). Then the M3 exit check.
+   - **Use pnpm 9** (as CI): `node_modules` linked by pnpm 10 makes `pnpm add` fail.
 3. Work under the medium plan (below): at most two review rounds per step, a fresh session per
    step.
 4. **When the registry changes,** regenerate the snapshot, then run
@@ -950,6 +973,20 @@ See [round35-m2-step4.md](validation/round35-m2-step4.md).
   and a table of every sample.
 - **Tests:** 57 web (inbox and preview helpers added); `fit.landscape` in the Python tests and the
   cross-adapter contract test. Driven by hand in Chromium with an agent token proposing.
+
+### Step 4a: the browser suite, the latency targets
+
+- **Playwright** (`web/e2e/`, `playwright.config.ts`, `tsconfig.e2e.json`): one `dipolar serve`
+  per test on a fresh directory (`e2e/harness.ts`: `startServer`, `server.call/ok`,
+  `launchUrl`, the signed-in `app` fixture); Chromium, Firefox, WebKit; CI job "Browsers".
+- **Specs:** basics (launch, fit, staleness by content), store (round 39 fixes 3 and 4, with a
+  fake clock for the feed watchdog), inbox, concurrency, preview (ordering hazards, with
+  `project.describe` held back by the test), latency.
+- **Latency on named hardware** (`DIPOLAR_RECORD_LATENCY=1` → `docs/validation/data/m3-latency/`):
+  preview p95 19–53 ms (values displayed, checked against the server); perception max 13–17 ms;
+  looser bounds on CI.
+- **Fixes:** `callOperation` returns an INTERNAL envelope for any malformed reply; the preview's
+  start stands down once the user types, and its effects read the latest φ from a ref.
 
 ## The small batch (after M2)
 

@@ -407,6 +407,7 @@ const ResidualsPane = memo(function ResidualsPane({
   rms,
   title = strings.residuals,
   stale = false,
+  phi,
 }: {
   studio: Studio;
   couplings: readonly FittedCoupling[];
@@ -414,6 +415,8 @@ const ResidualsPane = memo(function ResidualsPane({
   rms: number;
   title?: string;
   stale?: boolean;
+  /** The preview's φ, recorded on the table (`data-phi`) so a test can tell it is fresh. */
+  phi?: number;
 }) {
   const pick = (id: string) => selectableRow(studio, id, selected).onClick();
   return (
@@ -423,7 +426,7 @@ const ResidualsPane = memo(function ResidualsPane({
           <p className="help">
             {strings.selectHint} {strings.residualBarHelp}
           </p>
-          <table className="grid">
+          <table className="grid" data-phi={phi}>
             <thead>
               <tr>
                 <th>{strings.colCoupling}</th>
@@ -502,8 +505,15 @@ function PreviewPane({ studio, state }: Props) {
   );
   useEffect(() => () => live.cancel(), [live]);
 
+  // The φ last asked for, read by the effects below: their closures can be a render old, and a
+  // value the user typed in that window must not be overwritten by the automatic start (WebKit
+  // showed it, M3 step 4).
+  const asked = useRef<number | null>(null);
+  // The user started typing in the φ field: the automatic start must not overwrite that text.
+  const typing = useRef(false);
   const go = (value: number) => {
     const v = snap(value, lo, hi, PHI_STEP);
+    asked.current = v;
     setPhi(v);
     setText(inputText(v));
     live.ask(v);
@@ -525,18 +535,20 @@ function PreviewPane({ studio, state }: Props) {
   // after a science change: both only once the domain shown is the current science's (round 48;
   // project.describe and the view can arrive in either order).
   const current = boundsCurrent(project?.science_revision ?? null, view?.science_revision ?? null);
-  useEffect(() => {
+  const tryStart = () => {
+    if (typing.current) return;
     const start = startAt({
-      current: phi,
+      current: asked.current,
       fitted,
       landscape: land,
       projectRevision: project?.science_revision ?? null,
       viewRevision: view?.science_revision ?? null,
     });
     if (start !== null) go(start);
-  }, [fitted, land, current]);
+  };
+  useEffect(tryStart, [fitted, land, current]);
   useEffect(() => {
-    if (phi !== null && current) go(phi);
+    if (asked.current !== null && current) go(asked.current);
   }, [revision, lo, hi, current]);
 
   const preview = shown?.out ?? null;
@@ -544,10 +556,20 @@ function PreviewPane({ studio, state }: Props) {
   const selection = view?.selection.map((s) => s.id).join(" ") ?? "";
   const selected = useMemo(() => new Set(selection === "" ? [] : selection.split(" ")), [selection]);
   const timing = p95(live.timings);
-  const commitText = () => {
-    const value = parseAngle(text);
+  // Reads the field itself, not the `text` state: an Enter right after typing can reach a handler
+  // from the render before the typing (WebKit showed it, M3 step 4).
+  // Committing (Enter or leaving the field) ends the edit: a valid angle is previewed; otherwise the
+  // field shows the current φ again, or, before any preview, the automatic start resumes (round 49:
+  // an invalid first edit kept the start from ever running).
+  const commitText = (typed: string) => {
+    typing.current = false;
+    const value = parseAngle(typed);
     if (value !== null) go(value);
     else if (phi !== null) setText(inputText(phi));
+    else {
+      setText("");
+      tryStart();
+    }
   };
 
   return (
@@ -572,10 +594,13 @@ function PreviewPane({ studio, state }: Props) {
             inputMode="decimal"
             className="short"
             value={text}
-            onChange={(e) => setText(e.target.value)}
-            onBlur={commitText}
+            onChange={(e) => {
+              typing.current = true;
+              setText(e.target.value);
+            }}
+            onBlur={(e) => commitText(e.currentTarget.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") commitText();
+              if (e.key === "Enter") commitText(e.currentTarget.value);
             }}
           />
           {fitted !== null && (
@@ -628,6 +653,7 @@ function PreviewPane({ studio, state }: Props) {
           rms={preview.rms_residual.value}
           title={`${strings.residuals}: ${strings.preview.toLowerCase()}`}
           stale={stale}
+          phi={preview.phi.value}
         />
       )}
     </>
