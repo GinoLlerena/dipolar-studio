@@ -226,3 +226,20 @@ def test_problem_validation(lower: list[float], upper: list[float], sigma: list[
             theta_names=("phi_deg",),
             order_names=("Szz", "Delta"),
         )
+
+
+def test_warm_started_intervals_equal_cold_ones_on_the_fixture(
+    noisy: tuple[Problem, FitResult, dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Interval warm starts change how fast each constrained fit converges, not where: the noisy
+    fixture's profile intervals agree with cold starts from every basin to rounding."""
+    import dipolar_core.fit as F
+
+    problem, result, _ = noisy
+    names = ("Szz", "Delta")
+    warm = [profile_interval(problem, result, name) for name in names]
+    monkeypatch.setattr(F, "WARM_STARTS", False)
+    cold = [profile_interval(problem, result, name) for name in names]
+    for w, c in zip(warm, cold, strict=True):
+        assert w.supported and c.supported
+        np.testing.assert_allclose([w.lower, w.upper], [c.lower, c.upper], rtol=1e-12, atol=0)
