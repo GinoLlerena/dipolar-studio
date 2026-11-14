@@ -170,3 +170,14 @@ export { expect };
 export async function openExample(server: Server): Promise<void> {
   await server.ok("robot", "project.open_example", { name: "biphenyl-synthetic", expected_science_revision: 0 });
 }
+
+/** Opens a workspace tab and waits until it is selected. A click can land on the button during a
+ * render and only focus it (seen once on Firefox in CI, M3 step 4a), so it is retried until the
+ * tab reports itself selected. */
+export async function openTab(page: Page, name: string | RegExp): Promise<void> {
+  const tab = page.getByRole("tab", { name });
+  await expect(async () => {
+    await tab.click();
+    await expect(tab).toHaveAttribute("aria-selected", "true", { timeout: 1000 });
+  }).toPass({ timeout: 15_000 });
+}

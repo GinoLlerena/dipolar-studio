@@ -1,6 +1,6 @@
 // The store's behaviour that needs a browser (round 39, fixes 3 and 4 of M3 step 1).
 import type { Page } from "@playwright/test";
-import { expect, openExample, type Server, test } from "./harness";
+import { expect, openExample, openTab, type Server, test } from "./harness";
 
 /** Counts the live "abort" listeners on AbortSignals that have not aborted (round 39, fix 3: each
  * reconnection used to leave one on the store's lifetime signal). Installed before the page runs. */
@@ -61,7 +61,7 @@ test("a result that could not be read says so, and Retry reads it (round 39, fix
       : route.continue(),
   );
   await server.ok("robot", "fit.run", { expected_science_revision: await server.revision() });
-  await app.getByRole("tab", { name: "Fit" }).click();
+  await openTab(app, "Fit");
   const failed = app.locator("#panel-fit").getByRole("alert").filter({ hasText: "disk unavailable" });
   await expect(failed).toBeVisible();
   await expect(app.getByText("Loading")).toHaveCount(0); // not "loading" for ever
@@ -83,7 +83,7 @@ test("a failed result read is retried by itself when the feed reconnects", async
   await page.goto(await server.launchUrl());
   await expect(page.locator(".conn-live")).toBeVisible();
   await server.ok("robot", "fit.run", { expected_science_revision: await server.revision() });
-  await page.getByRole("tab", { name: "Fit" }).click();
+  await openTab(page, "Fit");
   await expect(page.locator("#panel-fit").getByRole("alert")).toContainText("not an operation envelope");
   fail = false;
   // 41 s without a byte: the watchdog reopens the feed; every (re)connection retries failed reads.
@@ -100,7 +100,7 @@ test("a reply that is not JSON is recorded as a failed read (round 49)", async (
     route.fulfill({ status: 502, contentType: "text/html", body: "<html><body>Bad gateway</body></html>" }),
   );
   await server.ok("robot", "fit.run", { expected_science_revision: await server.revision() });
-  await app.getByRole("tab", { name: "Fit" }).click();
+  await openTab(app, "Fit");
   const failed = app.locator("#panel-fit").getByRole("alert");
   await expect(failed).toContainText("not an operation envelope (HTTP 502)");
   await expect(failed.getByRole("button", { name: "Retry" })).toBeVisible();

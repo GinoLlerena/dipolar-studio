@@ -152,3 +152,10 @@ Process-group cleanup was checked on macOS, not on Linux (CI runs it there).
    the barriers; the earlier counts stay in the baseline section.
 
 Under the cap, these fixes were not reviewed again. After them: 57 browser tests (19 × 3) passed.
+
+**CI after round 50.** The first CI run of the browser job on this commit failed once, on Firefox:
+the perception test clicked the Structure tab, which took focus but was not selected (the page was
+also reconnecting its feed), so no arc appeared. It did not reproduce locally (each test twice on
+three browsers: 114 passed). The tests now open tabs through `openTab`, which clicks until the tab
+reports itself selected. **(B)** The cause is not known; a retried click could also hide a real
+swallowed click. If it is the page's, the M3 step 4b runs should show it again.

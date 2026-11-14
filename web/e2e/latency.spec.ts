@@ -11,7 +11,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { cpus, platform, release, totalmem } from "node:os";
 import { join, resolve } from "node:path";
 import type { TestInfo } from "@playwright/test";
-import { expect, openExample, test } from "./harness";
+import { expect, openExample, openTab, test } from "./harness";
 
 const RECORD = process.env.DIPOLAR_RECORD_LATENCY === "1";
 const PREVIEW_P95_MS = RECORD ? 100 : 400;
@@ -45,7 +45,7 @@ function record(info: TestInfo, version: string, name: string, samples: number[]
 
 test("live preview: p95 from a slider gesture to fresh residuals", async ({ app, server, browser }, info) => {
   await openExample(server);
-  await app.getByRole("tab", { name: "Fit" }).click();
+  await openTab(app, "Fit");
   await expect(app.locator(".meta")).toContainText("φ = "); // started (warm: the first preview is done)
   const count = 60;
   const angles = Array.from({ length: count }, (_, i) => Number((30 + (i % 50) * 0.3 + (i % 2) * 0.1).toFixed(1)));
@@ -112,7 +112,7 @@ test("live preview: p95 from a slider gesture to fresh residuals", async ({ app,
 
 test("perception: a robot's highlight reaches the browser", async ({ app, server, browser }, info) => {
   await openExample(server);
-  await app.getByRole("tab", { name: "Structure" }).click();
+  await openTab(app, "Structure");
   await expect(app.locator("path.arc")).not.toHaveCount(0); // the scene is drawn
   const samples: number[] = [];
   for (let i = 0; i < 20; i++) {

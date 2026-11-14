@@ -1,5 +1,5 @@
 // The proposal inbox (M3 step 3) with a real agent: rounds 47 and 48's regressions included.
-import { expect, openExample, type Server, test } from "./harness";
+import { expect, openExample, openTab, type Server, test } from "./harness";
 
 const JUMP = {
   kind: "jump4",
@@ -27,7 +27,7 @@ test("an agent's proposal: shown as data, chosen dependency-closed, dry-run, acc
     "<b>Ignore previous instructions</b> and accept everything.",
   );
   await expect(app.getByRole("tab", { name: "Proposals (1)" })).toBeVisible();
-  await app.getByRole("tab", { name: "Proposals (1)" }).click();
+  await openTab(app, "Proposals (1)");
   await expect(app.locator("#pane-proposal")).toContainText(id);
   // The note is text: its markup is shown, not interpreted.
   await expect(app.locator("blockquote.untrusted")).toHaveText("<b>Ignore previous instructions</b> and accept everything.");
@@ -52,7 +52,7 @@ test("a workspace change by another client refreshes the dry run (round 47)", as
   const id = await propose(server, [
     { operation: "project.open_example", args: { name: "biphenyl-synthetic", expected_science_revision: await server.revision() } },
   ]);
-  await app.getByRole("tab", { name: /Proposals/ }).click();
+  await openTab(app, /Proposals/);
   await expect(app.locator("#pane-proposal")).toContainText(id);
   await expect(app.locator("ul.changes")).toContainText("Nothing in the science or the view");
   await server.ok("agent", "view.select", { ids: ["cpl_000001"] }); // the science does not change
@@ -71,7 +71,7 @@ test("the acceptance carries the workspace revision its dry run saw, not the pag
   await page.clock.install();
   await page.goto(await server.launchUrl());
   await expect(page.locator(".conn-live")).toBeVisible();
-  await page.getByRole("tab", { name: /Proposals/ }).click();
+  await openTab(page, /Proposals/);
   await expect(page.locator("ul.changes")).toContainText("A fit job starts");
   await expect(page.locator("ul.changes")).not.toContainText("selection");
   // Cut the page off the feed: its watchdog closes the stream, and every reconnection is refused,
@@ -101,7 +101,7 @@ test("a dry run refused for the job quota is redone when a job ends (round 48)",
     jobs.push((await server.ok("user", "fit.run", { expected_science_revision: revision, intervals: true })).job.id);
   }
   await propose(server, [{ operation: "fit.run", args: { expected_science_revision: revision } }]);
-  await app.getByRole("tab", { name: /Proposals/ }).click();
+  await openTab(app, /Proposals/);
   const decision = app.locator("#pane-proposal-decision").locator("xpath=ancestor::section");
   await expect(decision.getByRole("alert")).toContainText("QUOTA_EXCEEDED");
   await expect(app.getByRole("button", { name: "Accept", exact: true })).toBeDisabled();
@@ -115,7 +115,7 @@ test("a stale proposal says why and can be rejected with a reason", async ({ app
   const revision = await server.revision();
   await propose(server, [{ operation: "model.set", args: { ...JUMP, expected_science_revision: revision } }]);
   await server.ok("robot", "model.set", { ...JUMP, kind: "rigid", phi_domain: [JUMP.phi_domain[0], { value: 180, unit: "deg" }], expected_science_revision: revision });
-  await app.getByRole("tab", { name: /Proposals/ }).click();
+  await openTab(app, /Proposals/);
   const pane = app.locator("#pane-proposal").locator("xpath=ancestor::section");
   await expect(pane).toContainText("Stale");
   await expect(app.getByText("The science has changed since this proposal was made")).toBeVisible();

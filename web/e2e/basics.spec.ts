@@ -1,5 +1,5 @@
 // The launch, the Data and Fit workspaces and staleness by content, through the page.
-import { expect, openExample, test } from "./harness";
+import { expect, openExample, openTab, test } from "./harness";
 
 test("a launch link signs the tab in once; the session survives a reload", async ({ page, server }) => {
   const url = await server.launchUrl();
@@ -18,7 +18,7 @@ test("a launch link signs the tab in once; the session survives a reload", async
 test("open the example, fit it, and read the run", async ({ app }) => {
   await app.getByRole("button", { name: "Open the synthetic biphenyl example" }).click();
   await expect(app.locator(".crumb-name")).toHaveText("Synthetic biphenyl (known answer)");
-  await app.getByRole("tab", { name: "Fit" }).click();
+  await openTab(app, "Fit");
   await app.getByRole("button", { name: "Run fit" }).click();
   const status = app.locator(".statusbar");
   await expect(status).toContainText("Converged");

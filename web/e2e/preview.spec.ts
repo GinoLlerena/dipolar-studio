@@ -1,7 +1,7 @@
 // The live preview's ordering hazards (rounds 47 and 48): project.describe and the view are read
 // separately, so the domain can arrive after the revision that changed it.
 import type { Page } from "@playwright/test";
-import { expect, openExample, type Server, test } from "./harness";
+import { expect, openExample, openTab, type Server, test } from "./harness";
 
 const domain = (hi: number) => ({
   kind: "rigid",
@@ -35,7 +35,7 @@ async function setDomain(server: Server, hi: number): Promise<void> {
 test("a narrowed domain clamps the preview, even when the domain arrives last (round 47)", async ({ app, server }) => {
   await openExample(server);
   await setDomain(server, 180);
-  await app.getByRole("tab", { name: "Fit" }).click();
+  await openTab(app, "Fit");
   await expect(app.locator("#phi-slider")).toHaveAttribute("max", "180");
   const field = app.getByLabel("φ in degrees");
   await field.fill("120");
@@ -86,7 +86,7 @@ test("the preview starts at the fit's φ even when the domain arrives last (roun
   await server.ok("robot", "job.wait", { job_id: run.job.id });
   const held = await holdDescribe(page);
   await page.goto(await server.launchUrl());
-  await page.getByRole("tab", { name: "Fit" }).click();
+  await openTab(page, "Fit");
   // The hazard: the fit's φ and the landscape are known, the domain is not (the default [0°, 90°]).
   const fitted = page.getByRole("button", { name: /Go to the fit/ });
   await expect(fitted).toBeVisible();
@@ -101,7 +101,7 @@ test("the preview starts at the fit's φ even when the domain arrives last (roun
 
 test("a typed negative angle (typographic minus) is understood (round 47)", async ({ app, server }) => {
   await openExample(server);
-  await app.getByRole("tab", { name: "Fit" }).click();
+  await openTab(app, "Fit");
   const field = app.getByLabel("φ in degrees");
   await expect(field).not.toHaveValue("");
   await field.fill("−5"); // U+2212; clamped to the domain's lower end
@@ -123,7 +123,7 @@ test("an invalid first edit does not keep the preview from starting (round 49)",
     await route.fulfill({ response });
   });
   await page.goto(await server.launchUrl());
-  await page.getByRole("tab", { name: "Fit" }).click();
+  await openTab(page, "Fit");
   const field = page.getByLabel("φ in degrees");
   await expect(field).toHaveValue("");
   await field.fill("-");

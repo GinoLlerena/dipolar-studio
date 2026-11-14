@@ -1,10 +1,10 @@
 // 04 §7 "Concurrency": a UI edit and a robot edit at the same revision; one applies, the other is
 // refused with REVISION_CONFLICT, and nothing is lost.
-import { expect, openExample, test } from "./harness";
+import { expect, openExample, openTab, test } from "./harness";
 
 test("the page's edit made at an older revision is refused; the robot's stays", async ({ app, server }) => {
   await openExample(server);
-  await app.getByRole("tab", { name: "Data" }).click();
+  await openTab(app, "Data");
   await expect(app.locator("#model-kind")).toBeVisible();
   // The robot's edit lands while the page's request is on its way, at the same revision.
   await app.route("**/api/v1/ops/model.set", async (route) => {
