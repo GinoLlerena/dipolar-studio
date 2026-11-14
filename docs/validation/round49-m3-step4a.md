@@ -43,12 +43,17 @@ tables; a workload limit for the landscape.
 
   | Browser | Preview: slider gesture → fresh residuals (target p95 < 100 ms) | Perception: robot `view.highlight` → arc drawn (target < 200 ms) |
   |---|---|---|
-  | Chromium 159.0 | p50 17.8, **p95 19.0**, max 22.5 ms (60) | p50 12, max **13** ms (20) |
-  | Firefox 159.0 | p50 19, **p95 22**, max 55 ms (60) | p50 14, max **16** ms (20) |
-  | WebKit 27.2 | p50 19, **p95 22**, max 23 ms (60) | p50 12, max **15** ms (20) |
+  | Chromium 159.0 | p50 31, **p95 38.6**, max 78.7 ms (60) | p50 15, max **20** ms (20) |
+  | Firefox 159.0 | p50 21, **p95 26**, max 42 ms (60) | p50 15, max **19** ms (20) |
+  | WebKit 27.2 | p50 20, **p95 23**, max 54 ms (60) | p50 13, max **15** ms (20) |
 
-  The preview is timed in the page from the slider's input event to the preview line and
-  residuals rendered with the new φ (a MutationObserver), at about eight gestures a second. The
+  (Recorded after round 49, with the stricter completion condition below; the numbers before it
+  were 19–22 ms p95 and 13–16 ms.)
+
+  The preview is timed in the page from the slider's input event until the preview line shows the
+  new φ *and* the preview's residual table records that φ (`data-phi`) with a row for every
+  coupling (a MutationObserver on the document; DOM updates, not painted frames), at about eight
+  gestures a second. The
   perception time runs from just before the robot's HTTP call to the page's mutation (both clocks
   on one machine). CI's shared runners are not named hardware: there the tests only guard against
   regressions (p95 < 400 ms, max < 800 ms).
@@ -72,10 +77,58 @@ run's key without the workspace; without the jobs; the acceptance without
 `expected_workspace_revision`; the preview's refresh without the domain's bounds; the start
 without the domain check; no typing guard (WebKit).
 
-**Baseline:** 48 browser tests (16 × 3) passed twice in a row; 823 Python passed
+**Baseline (before review):** 48 browser tests (16 × 3) passed twice in a row; 823 Python passed
 (`-m "not slow"`), 57 web unit tests, TypeScript (including the suite), mypy, Ruff, the generated
 contract and projection parity.
 
-## Round 49
+## Round 49: NOT READY (six A), on commit 7e202d6
+
+The reviewer's checks: build, 57 web unit tests, TypeScript, 16 Chromium tests passed; restoring
+the abort-listener leak failed its test (4 listeners against 1); disabling the watchdog or the
+reconnection retry failed the fake-clock test; the concurrency test held; the recorded summaries
+match their samples.
+
+1. **(A) Typing could keep the preview from ever starting.** With the first landscape held back,
+   typing `-` and leaving the field left the typing guard on for good. **Fix:** committing the
+   field (Enter or leaving it) ends the edit; an invalid entry before any preview resumes the
+   automatic start. Test: the reviewer's sequence (the landscape held, `-`, blur, release).
+2. **(A) Malformed success replies passed the reply check** (`{"ok":true,"result":{}}`: the run
+   stayed "loading" with no Retry), and a reply that is not JSON threw before the check. **Fix:**
+   a success envelope needs `operation`, an object `result`, integer `revisions` and `dry_run`; a
+   parse failure becomes the INTERNAL envelope too. Tests: `web/tests/api.test.ts` (nine malformed
+   shapes) and a browser test with an HTML 502 for `run.get`.
+3. **(A) Teardown left the server running.** SIGTERM and SIGKILL reached only `uv`; with a feed
+   open, the server outlived its deleted directory by about 10 s. **Fix:** the server runs in its
+   own process group; `stop()` signals the group, escalates to SIGKILL after 3 s, waits until no
+   process is left, then removes the directory; a failed start is cleaned up the same way.
+   Checked: with a live feed the port is closed and the directory gone when `stop()` returns.
+4. **(A) The latency test did not establish fresh residuals:** it watched only the preview line;
+   an empty residual table passed. **Fix:** the preview's residual table records its φ
+   (`data-phi`), and a sample completes only when the line and the table show the new φ and the
+   table has a row for every coupling. The measurements were recorded again (above).
+5. **(A) The workspace test did not prove the acceptance carries the dry run's revision:**
+   sending the page's own revision passed too. **Fix:** a controlled race. The page's feed is cut
+   (its watchdog fired on a fake clock, reconnections refused); an agent changes the selection; a
+   new choice of steps makes a dry run that the server plans at the new revision, which the page
+   does not know. The acceptance must carry that revision (and is accepted); the page's own
+   would be refused.
+6. **(A) The preview race tests relied on a 1.5-s delay**, which did not guarantee that the domain
+   arrived last. **Fix:** `project.describe` is held behind a barrier, and each test asserts the
+   hazardous state before releasing it: the view's new revision shown with the old domain's
+   maximum; the fit's φ (143°) and the landscape shown with the default domain's.
+
+**(B) Shutting down `dipolar serve` waits for open change feeds.** On SIGTERM, uvicorn's graceful
+shutdown takes 2 s, but each open feed waits in a worker thread for up to one heartbeat (15 s)
+before the process can exit. Waking the feeds at shutdown belongs to step 4b's performance work.
+
+**Mutation checks** (each makes its test fail): the typing guard never released; an empty preview
+residual table; the page's workspace revision sent instead of the dry run's; the start without the
+domain check; the refresh without the bounds; no revisions check in the reply check (unit test);
+the JSON parse not caught (browser).
+
+**After the fixes:** 57 browser tests (19 × 3) passed twice in a row; 59 web unit tests; the
+boundary tests; TypeScript (app and suite).
+
+## Round 50
 
 (pending)

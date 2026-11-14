@@ -407,6 +407,7 @@ const ResidualsPane = memo(function ResidualsPane({
   rms,
   title = strings.residuals,
   stale = false,
+  phi,
 }: {
   studio: Studio;
   couplings: readonly FittedCoupling[];
@@ -414,6 +415,8 @@ const ResidualsPane = memo(function ResidualsPane({
   rms: number;
   title?: string;
   stale?: boolean;
+  /** The preview's φ, recorded on the table (`data-phi`) so a test can tell it is fresh. */
+  phi?: number;
 }) {
   const pick = (id: string) => selectableRow(studio, id, selected).onClick();
   return (
@@ -423,7 +426,7 @@ const ResidualsPane = memo(function ResidualsPane({
           <p className="help">
             {strings.selectHint} {strings.residualBarHelp}
           </p>
-          <table className="grid">
+          <table className="grid" data-phi={phi}>
             <thead>
               <tr>
                 <th>{strings.colCoupling}</th>
@@ -532,7 +535,7 @@ function PreviewPane({ studio, state }: Props) {
   // after a science change: both only once the domain shown is the current science's (round 48;
   // project.describe and the view can arrive in either order).
   const current = boundsCurrent(project?.science_revision ?? null, view?.science_revision ?? null);
-  useEffect(() => {
+  const tryStart = () => {
     if (typing.current) return;
     const start = startAt({
       current: asked.current,
@@ -542,7 +545,8 @@ function PreviewPane({ studio, state }: Props) {
       viewRevision: view?.science_revision ?? null,
     });
     if (start !== null) go(start);
-  }, [fitted, land, current]);
+  };
+  useEffect(tryStart, [fitted, land, current]);
   useEffect(() => {
     if (asked.current !== null && current) go(asked.current);
   }, [revision, lo, hi, current]);
@@ -554,10 +558,18 @@ function PreviewPane({ studio, state }: Props) {
   const timing = p95(live.timings);
   // Reads the field itself, not the `text` state: an Enter right after typing can reach a handler
   // from the render before the typing (WebKit showed it, M3 step 4).
+  // Committing (Enter or leaving the field) ends the edit: a valid angle is previewed; otherwise the
+  // field shows the current φ again, or, before any preview, the automatic start resumes (round 49:
+  // an invalid first edit kept the start from ever running).
   const commitText = (typed: string) => {
+    typing.current = false;
     const value = parseAngle(typed);
     if (value !== null) go(value);
     else if (phi !== null) setText(inputText(phi));
+    else {
+      setText("");
+      tryStart();
+    }
   };
 
   return (
@@ -641,6 +653,7 @@ function PreviewPane({ studio, state }: Props) {
           rms={preview.rms_residual.value}
           title={`${strings.residuals}: ${strings.preview.toLowerCase()}`}
           stale={stale}
+          phi={preview.phi.value}
         />
       )}
     </>

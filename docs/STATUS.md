@@ -5,12 +5,15 @@
   page against a real `dipolar serve`, with the robot and an agent acting over HTTP. It covers the
   launch, the workspaces, staleness by content, the two store fixes of step 1 that waited for a
   browser, the inbox's rounds 47–48 regressions, a REVISION_CONFLICT, and the preview's ordering
-  hazards. 16 tests × 3 browsers.
+  hazards. 19 tests × 3 browsers.
 - **The latency targets, on named hardware** (i7-8750H, macOS, headless): preview p95 from a slider
-  gesture to fresh residuals 19–22 ms (target 100 ms); a robot's highlight drawn in at most
-  13–16 ms (target 200 ms), on all three browsers.
+  gesture to fresh residuals (the whole table) 23–39 ms (target 100 ms); a robot's highlight drawn
+  in at most 15–20 ms (target 200 ms), on all three browsers.
 - **Found by the suite:** a typed φ could be overwritten by the preview's automatic start
   (WebKit); a malformed reply crashed the store. Both fixed.
+- Round 49 returned NOT READY (six class-(A) findings: the typing guard, the reply check, the
+  harness's teardown, and three tests that did not prove their claims); all fixed and
+  mutation-checked.
 
 See [round49-m3-step4a.md](validation/round49-m3-step4a.md).
 
@@ -275,8 +278,8 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
    ```sh
    uv sync --locked && uv run pytest -q -m "not slow"   # 823 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
-   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 57 web tests
-   (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 48 browser tests
+   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 59 web tests
+   (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 57 browser tests
    ```
 
 2. **Next, as the owner chose (2026-11-13):**
@@ -288,7 +291,8 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
    - then M3 step 4b: the robot tutorial from an XYZ file (create → import couplings → confirm
      mapping → bind torsion → preview → profile fit → select the worst coupling → render → export),
      over HTTP only, compared with the same tutorial through the page; virtualised large tables;
-     a workload limit for `fit.landscape` on large projects (round 47 B). Then the M3 exit check.
+     a workload limit for `fit.landscape` on large projects (round 47 B); waking open change feeds
+     at shutdown (round 49 B). Then the M3 exit check.
    - **Use pnpm 9** (as CI): `node_modules` linked by pnpm 10 makes `pnpm add` fail.
 3. Work under the medium plan (below): at most two review rounds per step, a fresh session per
    step.
@@ -979,7 +983,7 @@ See [round35-m2-step4.md](validation/round35-m2-step4.md).
   fake clock for the feed watchdog), inbox, concurrency, preview (ordering hazards, with
   `project.describe` held back by the test), latency.
 - **Latency on named hardware** (`DIPOLAR_RECORD_LATENCY=1` → `docs/validation/data/m3-latency/`):
-  preview p95 19–22 ms; perception max 13–16 ms; looser bounds on CI.
+  preview p95 23–39 ms; perception max 15–20 ms; looser bounds on CI.
 - **Fixes:** `callOperation` returns an INTERNAL envelope for any malformed reply; the preview's
   start stands down once the user types, and its effects read the latest φ from a ref.
 

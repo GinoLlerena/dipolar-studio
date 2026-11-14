@@ -47,10 +47,7 @@ test("an agent's proposal: shown as data, chosen dependency-closed, dry-run, acc
   await expect(app.getByRole("tab", { name: "Proposals", exact: true })).toBeVisible(); // none waiting
 });
 
-test("a workspace change by another client refreshes the dry run, and acceptance is pinned to it (round 47)", async ({
-  app,
-  server,
-}) => {
+test("a workspace change by another client refreshes the dry run (round 47)", async ({ app, server }) => {
   await openExample(server);
   const id = await propose(server, [
     { operation: "project.open_example", args: { name: "biphenyl-synthetic", expected_science_revision: await server.revision() } },
@@ -60,12 +57,39 @@ test("a workspace change by another client refreshes the dry run, and acceptance
   await expect(app.locator("ul.changes")).toContainText("Nothing in the science or the view");
   await server.ok("agent", "view.select", { ids: ["cpl_000001"] }); // the science does not change
   await expect(app.locator("ul.changes")).toContainText("The selection is cleared");
-  const seen = (await server.ok("robot", "render.describe_view")).workspace_revision as number;
-  const sent = app.waitForRequest((r) => r.url().endsWith("/proposal.accept") && !r.postData()?.includes('"dry_run":true'));
   await app.getByRole("button", { name: "Accept", exact: true }).click();
-  const body = JSON.parse((await sent).postData() ?? "{}") as { args: { expected_workspace_revision?: number } };
-  expect(body.args.expected_workspace_revision).toBe(seen); // the revision the dry run saw
   await expect(app.locator(".ok-text")).toContainText("Accepted");
+});
+
+test("the acceptance carries the workspace revision its dry run saw, not the page's (round 49)", async ({ page, server }) => {
+  await openExample(server);
+  const revision = await server.revision();
+  await propose(server, [
+    { operation: "project.open_example", args: { name: "biphenyl-synthetic", expected_science_revision: revision } },
+    { operation: "fit.run", args: { expected_science_revision: revision + 1 } }, // reopening is a new revision
+  ]);
+  await page.clock.install();
+  await page.goto(await server.launchUrl());
+  await expect(page.locator(".conn-live")).toBeVisible();
+  await page.getByRole("tab", { name: /Proposals/ }).click();
+  await expect(page.locator("ul.changes")).toContainText("A fit job starts");
+  await expect(page.locator("ul.changes")).not.toContainText("selection");
+  // Cut the page off the feed: its watchdog closes the stream, and every reconnection is refused,
+  // so the page cannot learn of the next workspace change.
+  await page.route("**/api/v1/events*", (route) => route.abort());
+  await page.clock.fastForward(41_000);
+  await expect(page.locator(".conn-reconnecting")).toBeVisible();
+  const known = (await server.ok("robot", "render.describe_view")).workspace_revision as number;
+  await server.ok("agent", "view.select", { ids: ["cpl_000001"] }); // the server moves to known + 1
+  // A new choice of steps: a new dry run, planned on the server at known + 1 (the page still
+  // knows `known`), which shows the selection cleared.
+  await page.getByLabel("Accept step 1").uncheck();
+  await expect(page.locator("ul.changes")).toContainText("The selection is cleared");
+  const sent = page.waitForRequest((r) => r.url().endsWith("/proposal.accept") && !r.postData()?.includes('"dry_run":true'));
+  await page.getByRole("button", { name: "Accept 1 of 2 steps" }).click();
+  const body = JSON.parse((await sent).postData() ?? "{}") as { args: { expected_workspace_revision?: number } };
+  expect(body.args.expected_workspace_revision).toBe(known + 1); // what the dry run saw, not `known`
+  await expect(page.locator(".ok-text")).toContainText("Accepted: 1 step");
 });
 
 test("a dry run refused for the job quota is redone when a job ends (round 48)", async ({ app, server }) => {

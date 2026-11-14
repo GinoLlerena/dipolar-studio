@@ -41,15 +41,40 @@ export async function callOperation<N extends OperationName, A extends Operation
     cache: "no-store",
     credentials: "omit",
   });
-  return asEnvelope<N>(await response.json(), response.status);
+  let reply: unknown;
+  try {
+    reply = await response.json();
+  } catch {
+    reply = undefined; // not JSON (a proxy's page, a truncated body): an INTERNAL envelope below
+  }
+  return asEnvelope<N>(reply, response.status);
 }
 
 /** The reply as an envelope; anything else (a proxy's error page in JSON, a truncated body) becomes
  * an INTERNAL error envelope, so the store never reads a field that is not there (M3 step 4). */
-function asEnvelope<N extends OperationName>(body: unknown, status: number): Envelope<N> {
-  const value = body as { ok?: unknown; error?: { code?: unknown; message?: unknown } } | null;
-  if (value !== null && typeof value === "object") {
-    if (value.ok === true && "result" in value) return value as Envelope<N>;
+export function asEnvelope<N extends OperationName>(body: unknown, status: number): Envelope<N> {
+  const value = body as {
+    ok?: unknown;
+    operation?: unknown;
+    result?: unknown;
+    revisions?: { science?: unknown; workspace?: unknown } | null;
+    error?: { code?: unknown; message?: unknown };
+  } | null;
+  const isObject = (v: unknown) => typeof v === "object" && v !== null;
+  if (isObject(value) && value !== null) {
+    // Every field of a success envelope the page reads (round 49: `{"ok":true,"result":{}}`
+    // passed, and a run then stayed "loading" with no Retry).
+    if (
+      value.ok === true &&
+      typeof value.operation === "string" &&
+      isObject(value.result) &&
+      isObject(value.revisions) &&
+      Number.isSafeInteger(value.revisions?.science) &&
+      Number.isSafeInteger(value.revisions?.workspace) &&
+      "dry_run" in value
+    ) {
+      return value as Envelope<N>;
+    }
     if (value.ok === false && typeof value.error?.code === "string" && typeof value.error.message === "string") {
       return value as Envelope<N>;
     }

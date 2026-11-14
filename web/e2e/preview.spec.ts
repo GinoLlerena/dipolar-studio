@@ -13,13 +13,19 @@ const domain = (hi: number) => ({
   ],
 });
 
-/** Holds every project.describe reply for `ms`, so the view's new revision arrives first. */
-async function slowDescribe(page: Page, ms: number): Promise<void> {
+/** Holds every project.describe reply until `release()` (round 49: a fixed delay did not
+ * guarantee the order; the tests now assert the hazardous state before releasing). */
+async function holdDescribe(page: Page): Promise<{ release: () => void }> {
+  let release = () => {};
+  const gate = new Promise<void>((done) => {
+    release = done;
+  });
   await page.route("**/api/v1/ops/project.describe", async (route) => {
     const response = await route.fetch();
-    await new Promise((done) => setTimeout(done, ms));
+    await gate;
     await route.fulfill({ response });
   });
+  return { release: () => release() };
 }
 
 async function setDomain(server: Server, hi: number): Promise<void> {
@@ -35,8 +41,14 @@ test("a narrowed domain clamps the preview, even when the domain arrives last (r
   await field.fill("120");
   await field.press("Enter");
   await expect(app.locator(".meta")).toContainText("φ = 120.00°");
-  await slowDescribe(app, 1500);
+  const held = await holdDescribe(app);
   await setDomain(server, 90);
+  // The hazard: the view's new revision has arrived (and with it the preview's refresh), the
+  // domain has not.
+  const revision = await server.revision();
+  await expect(app.locator(".crumb .muted")).toContainText(`rev ${revision} `);
+  await expect(app.locator("#phi-slider")).toHaveAttribute("max", "180");
+  held.release();
   await expect(app.locator("#phi-slider")).toHaveAttribute("max", "90");
   await expect(app.locator("#phi-slider")).toHaveValue("90");
   await expect(field).toHaveValue("90.0");
@@ -72,13 +84,18 @@ test("the preview starts at the fit's φ even when the domain arrives last (roun
   await setDomain(server, 180);
   const run = await server.ok("robot", "fit.run", { expected_science_revision: await server.revision() });
   await server.ok("robot", "job.wait", { job_id: run.job.id });
-  await slowDescribe(page, 1500);
+  const held = await holdDescribe(page);
   await page.goto(await server.launchUrl());
   await page.getByRole("tab", { name: "Fit" }).click();
+  // The hazard: the fit's φ and the landscape are known, the domain is not (the default [0°, 90°]).
   const fitted = page.getByRole("button", { name: /Go to the fit/ });
   await expect(fitted).toBeVisible();
+  await expect(page.locator("figure.landscape svg")).toBeVisible();
+  await expect(page.locator("#phi-slider")).toHaveAttribute("max", "90");
   const phi = Number((/\(([0-9.]+)°\)/.exec((await fitted.textContent()) ?? "") ?? [])[1]);
   expect(phi).toBeGreaterThan(90); // beyond the default domain: a start clamped to it would be lost
+  held.release();
+  await expect(page.locator("#phi-slider")).toHaveAttribute("max", "180");
   await expect(page.getByLabel("φ in degrees")).toHaveValue(phi.toFixed(1));
 });
 
@@ -91,4 +108,27 @@ test("a typed negative angle (typographic minus) is understood (round 47)", asyn
   await field.press("Enter");
   await expect(field).toHaveValue("0.0");
   await expect(app.locator(".meta")).toContainText("φ = 0.00°");
+});
+
+test("an invalid first edit does not keep the preview from starting (round 49)", async ({ page, server }) => {
+  await openExample(server);
+  // Hold the landscape: before it, there is nothing to start from (no fit yet).
+  let release = () => {};
+  const gate = new Promise<void>((done) => {
+    release = done;
+  });
+  await page.route("**/api/v1/ops/fit.landscape", async (route) => {
+    const response = await route.fetch();
+    await gate;
+    await route.fulfill({ response });
+  });
+  await page.goto(await server.launchUrl());
+  await page.getByRole("tab", { name: "Fit" }).click();
+  const field = page.getByLabel("φ in degrees");
+  await expect(field).toHaveValue("");
+  await field.fill("-");
+  await field.blur(); // not an angle: the edit ends
+  release();
+  await expect(page.locator(".meta")).toContainText("φ = 37.00°"); // the landscape's lowest sample
+  await expect(field).toHaveValue("37.0");
 });

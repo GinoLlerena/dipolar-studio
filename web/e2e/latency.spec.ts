@@ -47,33 +47,48 @@ test("live preview: p95 from a slider gesture to fresh residuals", async ({ app,
   await openExample(server);
   await app.getByRole("tab", { name: "Fit" }).click();
   await expect(app.locator(".meta")).toContainText("φ = "); // started (warm: the first preview is done)
-  const samples = await app.evaluate(async (count) => {
-    const slider = document.getElementById("phi-slider") as HTMLInputElement;
-    const pane = (document.getElementById("pane-preview") as HTMLElement).closest("section") as HTMLElement;
-    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set as (v: string) => void;
-    const out: number[] = [];
-    for (let i = 0; i < count; i++) {
-      const value = 30 + (i % 50) * 0.3 + (i % 2) * 0.1; // a new position every time
-      const want = `φ = ${value.toFixed(2)}°`;
-      const done = new Promise<number>((resolve) => {
-        const seen = () => (pane.querySelector(".meta")?.textContent ?? "").includes(want);
-        const observer = new MutationObserver(() => {
-          if (seen()) {
-            observer.disconnect();
-            resolve(performance.now());
-          }
+  const rows = (await server.ok("robot", "project.describe")).couplings.length as number;
+  const samples = await app.evaluate(
+    async ({ count, rows }) => {
+      const slider = document.getElementById("phi-slider") as HTMLInputElement;
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set as (v: string) => void;
+      // Fresh = the preview line and the preview's residual table both show the new φ, the table
+      // with every coupling's row (round 49: the line alone could certify a stale or empty table).
+      const fresh = (value: number, want: string) => {
+        const meta = document.querySelector("#pane-preview")?.closest("section")?.querySelector(".meta");
+        const table = document.querySelector("#pane-preview-residuals")?.closest("section")?.querySelector("table[data-phi]");
+        return (
+          (meta?.textContent ?? "").includes(want) &&
+          table !== null &&
+          table !== undefined &&
+          Math.abs(Number(table.getAttribute("data-phi")) - value) < 1e-9 &&
+          table.querySelectorAll("tbody tr").length === rows
+        );
+      };
+      const out: number[] = [];
+      for (let i = 0; i < count; i++) {
+        const value = Number((30 + (i % 50) * 0.3 + (i % 2) * 0.1).toFixed(1)); // a new position every time
+        const want = `φ = ${value.toFixed(2)}°`;
+        const done = new Promise<number>((resolve) => {
+          const observer = new MutationObserver(() => {
+            if (fresh(value, want)) {
+              observer.disconnect();
+              resolve(performance.now());
+            }
+          });
+          observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
         });
-        observer.observe(pane, { subtree: true, childList: true, characterData: true });
-      });
-      const start = performance.now();
-      setValue.call(slider, value.toFixed(1));
-      slider.dispatchEvent(new Event("input", { bubbles: true }));
-      out.push((await done) - start);
-      await new Promise((r) => setTimeout(r, 120)); // about 8 gestures a second
-    }
-    return out;
-  }, 60);
-  record(info, browser.version(), "preview", samples, { fixture: "biphenyl-synthetic", gesture: "slider input event to the preview line and residuals rendered" });
+        const start = performance.now();
+        setValue.call(slider, value.toFixed(1));
+        slider.dispatchEvent(new Event("input", { bubbles: true }));
+        out.push((await done) - start);
+        await new Promise((r) => setTimeout(r, 120)); // about 8 gestures a second
+      }
+      return out;
+    },
+    { count: 60, rows },
+  );
+  record(info, browser.version(), "preview", samples, { fixture: "biphenyl-synthetic", gesture: "slider input event to the preview line and the residual table (every row) rendered at the new φ" });
   expect(percentile(samples, 0.95)).toBeLessThan(PREVIEW_P95_MS);
 });
 

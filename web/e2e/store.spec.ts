@@ -93,3 +93,15 @@ test("a failed result read is retried by itself when the feed reconnects", async
   await expect(page.locator("#panel-fit").getByRole("alert")).toHaveCount(0);
   await expect(page.locator("#panel-fit")).toContainText("χ²");
 });
+
+test("a reply that is not JSON is recorded as a failed read (round 49)", async ({ app, server }) => {
+  await openExample(server);
+  await app.route("**/api/v1/ops/run.get", (route) =>
+    route.fulfill({ status: 502, contentType: "text/html", body: "<html><body>Bad gateway</body></html>" }),
+  );
+  await server.ok("robot", "fit.run", { expected_science_revision: await server.revision() });
+  await app.getByRole("tab", { name: "Fit" }).click();
+  const failed = app.locator("#panel-fit").getByRole("alert");
+  await expect(failed).toContainText("not an operation envelope (HTTP 502)");
+  await expect(failed.getByRole("button", { name: "Retry" })).toBeVisible();
+});

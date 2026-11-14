@@ -68,33 +68,68 @@ export class Server {
     return `${this.base}/#launch=${code}`;
   }
 
+  /** Stops the server and every process under it, waits until they are gone, then removes its
+   * directory (round 49: signalling only the `uv` wrapper left the server running for seconds after
+   * its directory was deleted). */
   async stop(): Promise<void> {
-    if (this.process.exitCode === null) {
-      const exited = new Promise((done) => this.process.once("exit", done));
-      this.process.kill("SIGTERM");
-      await Promise.race([exited, new Promise((done) => setTimeout(done, 5000))]);
-      if (this.process.exitCode === null) this.process.kill("SIGKILL");
-    }
+    await stopGroup(this.process);
     rmSync(this.dir, { recursive: true, force: true });
   }
+}
+
+/** True while any process of the child's process group is alive. */
+function groupAlive(child: ChildProcess): boolean {
+  if (child.pid === undefined) return false;
+  try {
+    process.kill(-child.pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function until(done: () => boolean, ms: number): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (done()) return true;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return done();
+}
+
+/** SIGTERM to the whole group (uv and the server it runs), then SIGKILL; returns once none is left. */
+async function stopGroup(child: ChildProcess): Promise<void> {
+  if (child.pid === undefined || !groupAlive(child)) return;
+  process.kill(-child.pid, "SIGTERM");
+  // uvicorn's graceful shutdown takes 2 s; an open change feed can keep the process up to a
+  // heartbeat longer (documented, round 49), so escalate after 3 s.
+  if (await until(() => !groupAlive(child), 3000)) return;
+  process.kill(-child.pid, "SIGKILL");
+  if (!(await until(() => !groupAlive(child), 5000))) throw new Error(`process group ${child.pid} survived SIGKILL`);
 }
 
 export async function startServer(): Promise<Server> {
   if (!existsSync(join(DIST, "index.html"))) throw new Error("build the page first: pnpm run build");
   const dir = mkdtempSync(join(tmpdir(), "dipolar-e2e-"));
   const readyFile = join(dir, "ready.json");
+  // Its own process group (detached), so that stopping it reaches the server, not only `uv`.
   const child = spawn(
     "uv",
     ["run", "--no-sync", "dipolar", "serve", "--project-dir", dir, "--ready-file", readyFile, "--static-dir", DIST],
-    { cwd: ROOT, stdio: ["ignore", "ignore", "pipe"] },
+    { cwd: ROOT, stdio: ["ignore", "ignore", "pipe"], detached: true },
   );
+  const fail = async (message: string): Promise<never> => {
+    await stopGroup(child);
+    rmSync(dir, { recursive: true, force: true });
+    throw new Error(message);
+  };
   let stderr = "";
   child.stderr?.on("data", (chunk) => {
     stderr = (stderr + String(chunk)).slice(-4000);
   });
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`dipolar serve exited (${child.exitCode}): ${stderr}`);
+    if (child.exitCode !== null) return fail(`dipolar serve exited (${child.exitCode}): ${stderr}`);
     if (existsSync(readyFile)) {
       try {
         return new Server(dir, JSON.parse(readFileSync(readyFile, "utf-8")) as Ready, child);
@@ -104,8 +139,7 @@ export async function startServer(): Promise<Server> {
     }
     await new Promise((done) => setTimeout(done, 100));
   }
-  child.kill("SIGKILL");
-  throw new Error(`dipolar serve did not start: ${stderr}`);
+  return fail(`dipolar serve did not start: ${stderr}`);
 }
 
 /** Opens the page through a fresh launch link and waits for the change feed. */
