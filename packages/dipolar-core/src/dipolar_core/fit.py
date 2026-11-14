@@ -794,16 +794,16 @@ def _profile_starts(result: FitResult) -> list[Array]:
 
 
 def _continued(previous: list[Array], origins: list[Array]) -> list[Array]:
-    """Warm starts from the points each start slot reached at a neighbouring value. A slot that
-    ended where an earlier slot ended has fallen into that slot's valley; following it would lose
-    its own basin's track for good, so it restarts from its basin instead. The slots therefore
-    never collapse: every basin is still searched from its own valley or from where it last was
-    distinct."""
-    starts: list[Array] = []
+    """Warm starts from the points each start slot reached at a neighbouring value. Slots that
+    ended at the same point have fallen into one valley, which need not be any of theirs; following
+    it would lose their basins' tracks for good, so every slot of such a group restarts from its
+    own basin (round 45: restoring only the later slots kept the first in the wrong valley)."""
+    merged = [False] * len(previous)
     for slot, point in enumerate(previous):
-        merged = any(np.allclose(point, other, rtol=COLLAPSE_RTOL, atol=COLLAPSE_RTOL) for other in previous[:slot])
-        starts.append(origins[slot] if merged else point)
-    return starts
+        for other in range(slot):
+            if np.allclose(point, previous[other], rtol=COLLAPSE_RTOL, atol=COLLAPSE_RTOL):
+                merged[slot] = merged[other] = True
+    return [origins[slot] if merged[slot] else point for slot, point in enumerate(previous)]
 
 
 def _profile_chi2(
@@ -930,31 +930,36 @@ def _interval(
 
     # The search revisits some values (a segment's outer mark is also its last subsample; interior
     # checks revisit grid values). The profile is a deterministic function of the value, so each
-    # value is computed once: the interval is bit-for-bit the same, with about 4% fewer
-    # re-minimizations on the fixture.
-    computed: dict[float, float] = {}
-    # Continuation (warm starts): each start slot begins where it ended at the nearest value
-    # already computed, instead of at its basin; the profile is continuous there, so far fewer
-    # iterations are needed. The slots stay distinct, so every basin's track is still followed.
-    reached: dict[float, list[Array]] = {}
+    # value is computed once per pass: about 4% fewer re-minimizations on the fixture.
     origins = _profile_starts(result)
 
-    def excess(value: float) -> float:
-        if value in computed:
+    def evaluator(warm: bool) -> Callable[[float], float]:
+        """The excess over the threshold at a value. ``warm``: continuation (interval warm
+        starts): each start slot begins where it ended at the nearest value already computed in
+        this pass, instead of at its basin, so far fewer iterations are needed. Every χ² found is
+        that of a feasible point, so it is at least the profile; continuation can only overstate
+        it (a slot that left its basin's valley), never understate it."""
+        computed: dict[float, float] = {}
+        reached: dict[float, list[Array]] = {}
+
+        def excess(value: float) -> float:
+            if value in computed:
+                return computed[value]
+            if kind == "profile":
+                starts = None
+                if warm and reached:
+                    nearest = min(reached, key=lambda v: (abs(v - value), v))
+                    starts = _continued(reached[nearest], origins)
+                chi2, ok, xs = _profile_chi2(problem, result, index, value, settings, starts)
+                reached[value] = xs
+            else:
+                chi2, ok = _slice_chi2(problem, result, index, value)
+            if not ok:
+                raise _Unsupported(f"the constrained re-minimization at {name} = {value:.6g} did not converge")
+            computed[value] = chi2 - result.chi2 - delta_chi2
             return computed[value]
-        if kind == "profile":
-            starts = None
-            if WARM_STARTS and reached:
-                nearest = min(reached, key=lambda v: (abs(v - value), v))
-                starts = _continued(reached[nearest], origins)
-            chi2, ok, xs = _profile_chi2(problem, result, index, value, settings, starts)
-            reached[value] = xs
-        else:
-            chi2, ok = _slice_chi2(problem, result, index, value)
-        if not ok:
-            raise _Unsupported(f"the constrained re-minimization at {name} = {value:.6g} did not converge")
-        computed[value] = chi2 - result.chi2 - delta_chi2
-        return computed[value]
+
+        return excess
 
     bound_lo = float(problem.lower[index]) if index < problem.k else -math.inf
     bound_hi = float(problem.upper[index]) if index < problem.k else math.inf
@@ -968,60 +973,77 @@ def _interval(
             for pt, c in zip(result.scan.points, result.scan.chi2, strict=True)
         ]
 
-    def first_crossing(direction: float, inner_d: float, outer_d: float) -> float | None:
-        """The first point in (inner_d, outer_d] above the threshold, located by sampling: the
-        known grid values inside the segment (one geometry parameter), and its outer end."""
-        marks = {outer_d}
-        for value, _ in known:
-            d = (value - estimate) * direction
-            if inner_d < d <= outer_d:
-                marks.add(d)
-        previous = inner_d
-        for mark in sorted(marks):
-            if excess(estimate + direction * mark) > 0:
-                # Refine within (previous, mark] to the first positive subsample, then the root.
-                sub_prev = previous
-                for sub in np.linspace(previous, mark, SUBDIVISIONS + 1)[1:]:
-                    if excess(estimate + direction * float(sub)) > 0:
-                        lo, hi = sorted((estimate + direction * sub_prev, estimate + direction * float(sub)))
-                        eps = float(np.finfo(np.float64).eps)
-                        root = float(brentq(excess, lo, hi, xtol=1e-300, rtol=4 * eps, maxiter=500))
-                        # A sign change is a crossing only if the profile is continuous there:
-                        # brentq also converges onto a jump, for example where the inner rank drops
-                        # and χ² leaps past the threshold (round 21). Judge continuity at the
-                        # resolution of the floats, not by a fixed residual, because a steep but
-                        # smooth profile cannot meet any fixed residual (round 23).
-                        width = JUMP_ULPS * max(abs(float(np.spacing(root))), 1e-300)
-                        change = abs(excess(root + width) - excess(root - width))
-                        if change > JUMP_RTOL * delta_chi2:
-                            raise _Unsupported(
-                                f"the profile jumps across the threshold at {name} = {root:.10g} "
-                                f"(by {change:.3g} in χ² within {2 * JUMP_ULPS} ulps): it is discontinuous "
-                                "there, for example where the inner rank changes, or too steep to resolve"
-                            )
-                        return root
-                    sub_prev = float(sub)
-            previous = mark
-        return None
+    def beside(root: float) -> float:
+        """How far either side of a root continuity is judged: at the resolution of the floats."""
+        return JUMP_ULPS * max(abs(float(np.spacing(root))), 1e-300)
 
-    def endpoint(direction: float) -> float:
-        side = "lower" if direction < 0 else "upper"
-        bound = bound_lo if direction < 0 else bound_hi
-        inner_d = 0.0
-        for m in range(FIRST_EXPONENT, MAX_DOUBLINGS):
-            outer_d = step * 2.0**m
-            hit_bound = (estimate + direction * outer_d - bound) * direction >= 0
-            if hit_bound:
-                outer_d = abs(bound - estimate)
-            crossing = first_crossing(direction, inner_d, outer_d)
-            if crossing is not None:
-                return crossing
-            if hit_bound:
-                raise _Unsupported(f"the {side} side reaches the bound {bound:g}")
-            inner_d = outer_d
-        raise _Unsupported(f"the {side} side never crosses the threshold")
+    def probes(lower: float, upper: float) -> list[tuple[float, float]]:
+        """(endpoint, probe) beyond each endpoint, where a second component would show."""
+        width = upper - lower
+        out = []
+        for direction, end in ((-1.0, lower), (1.0, upper)):
+            for factor in COMPONENT_PROBES:
+                probe = min(max(end + direction * factor * width, bound_lo), bound_hi)
+                if probe != end:
+                    out.append((end, probe))
+        return out
 
-    try:
+    def search(excess: Callable[[float], float]) -> tuple[float, float]:
+        """The interval's endpoints, or _Unsupported."""
+
+        def first_crossing(direction: float, inner_d: float, outer_d: float) -> float | None:
+            """The first point in (inner_d, outer_d] above the threshold, located by sampling: the
+            known grid values inside the segment (one geometry parameter), and its outer end."""
+            marks = {outer_d}
+            for value, _ in known:
+                d = (value - estimate) * direction
+                if inner_d < d <= outer_d:
+                    marks.add(d)
+            previous = inner_d
+            for mark in sorted(marks):
+                if excess(estimate + direction * mark) > 0:
+                    # Refine within (previous, mark] to the first positive subsample, then the root.
+                    sub_prev = previous
+                    for sub in np.linspace(previous, mark, SUBDIVISIONS + 1)[1:]:
+                        if excess(estimate + direction * float(sub)) > 0:
+                            lo, hi = sorted((estimate + direction * sub_prev, estimate + direction * float(sub)))
+                            eps = float(np.finfo(np.float64).eps)
+                            root = float(brentq(excess, lo, hi, xtol=1e-300, rtol=4 * eps, maxiter=500))
+                            # A sign change is a crossing only if the profile is continuous there:
+                            # brentq also converges onto a jump, for example where the inner rank
+                            # drops and χ² leaps past the threshold (round 21). Judge continuity at
+                            # the resolution of the floats, not by a fixed residual, because a steep
+                            # but smooth profile cannot meet any fixed residual (round 23).
+                            width = beside(root)
+                            change = abs(excess(root + width) - excess(root - width))
+                            if change > JUMP_RTOL * delta_chi2:
+                                raise _Unsupported(
+                                    f"the profile jumps across the threshold at {name} = {root:.10g} "
+                                    f"(by {change:.3g} in χ² within {2 * JUMP_ULPS} ulps): it is discontinuous "
+                                    "there, for example where the inner rank changes, or too steep to resolve"
+                                )
+                            return root
+                        sub_prev = float(sub)
+                previous = mark
+            return None
+
+        def endpoint(direction: float) -> float:
+            side = "lower" if direction < 0 else "upper"
+            bound = bound_lo if direction < 0 else bound_hi
+            inner_d = 0.0
+            for m in range(FIRST_EXPONENT, MAX_DOUBLINGS):
+                outer_d = step * 2.0**m
+                hit_bound = (estimate + direction * outer_d - bound) * direction >= 0
+                if hit_bound:
+                    outer_d = abs(bound - estimate)
+                crossing = first_crossing(direction, inner_d, outer_d)
+                if crossing is not None:
+                    return crossing
+                if hit_bound:
+                    raise _Unsupported(f"the {side} side reaches the bound {bound:g}")
+                inner_d = outer_d
+            raise _Unsupported(f"the {side} side never crosses the threshold")
+
         lower, upper = endpoint(-1.0), endpoint(1.0)
         for value, basin in rivals:
             if not lower <= value <= upper:  # in the level set but not in this interval: a second component
@@ -1041,15 +1063,38 @@ def _interval(
                     f"the profile rises above the threshold at {name} = {point:.6g}, inside "
                     f"[{lower:.6g}, {upper:.6g}]: the region has a gap (several components)"
                 )
-        width = upper - lower
-        for direction, end in ((-1.0, lower), (1.0, upper)):
-            for factor in COMPONENT_PROBES:
-                probe = min(max(end + direction * factor * width, bound_lo), bound_hi)
-                if probe != end and excess(probe) <= 0:
-                    raise _Unsupported(f"the region continues beyond {end:.6g} (at {probe:.6g}): several components")
-    except _Unsupported as why:
-        return unsupported(str(why))
-    return Interval(name, kind, delta_chi2, label, estimate, lower, upper, True, "")
+        for end, probe in probes(lower, upper):
+            if excess(probe) <= 0:
+                raise _Unsupported(f"the region continues beyond {end:.6g} (at {probe:.6g}): several components")
+        return lower, upper
+
+    def attempt(excess: Callable[[float], float]) -> tuple[float, float] | str:
+        try:
+            return search(excess)
+        except _Unsupported as why:
+            return str(why)
+
+    cold = evaluator(warm=False)
+    if kind == "profile" and WARM_STARTS:
+        # Continuation can only overstate χ², so a warm interval can err only where a value above
+        # the threshold decides something: just outside each endpoint (too narrow), or at a
+        # component probe (a second component missed). Values below it (inside) are genuine.
+        # Those decisive values are recomputed from the basins themselves (cold), and the warm
+        # interval stands only if they agree; otherwise, or if the warm pass finds the interval
+        # unsupported, the cold pass decides (round 45).
+        found = attempt(evaluator(warm=True))
+        if not isinstance(found, str):
+            lower, upper = found
+            decisive = [lower - beside(lower), upper + beside(upper)] + [p for _, p in probes(lower, upper)]
+            try:
+                if all(cold(v) > 0 for v in decisive):
+                    return Interval(name, kind, delta_chi2, label, estimate, lower, upper, True, "")
+            except _Unsupported:
+                pass
+    found = attempt(cold)
+    if isinstance(found, str):
+        return unsupported(found)
+    return Interval(name, kind, delta_chi2, label, estimate, found[0], found[1], True, "")
 
 
 def profile_interval(

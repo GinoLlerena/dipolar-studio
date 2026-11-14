@@ -668,5 +668,121 @@ def test_warm_starts_never_let_a_basin_track_collapse_into_another() -> None:
     origins = [np.array([0.0]), np.array([10.0]), np.array([20.0])]
     previous = [np.array([1.0]), np.array([1.0 + 1e-9]), np.array([19.0])]
     starts = _continued(previous, origins)
-    assert starts[0] is previous[0] and starts[2] is previous[2]
-    assert starts[1] is origins[1]  # merged into slot 0's valley: back to its basin
+    # Slots 0 and 1 merged into one valley, which need not be slot 0's: both go back to their
+    # basins (round 45); slot 2 stayed distinct and continues.
+    assert starts[0] is origins[0] and starts[1] is origins[1]
+    assert starts[2] is previous[2]
+    distinct = [np.array([1.0]), np.array([10.0]), np.array([19.0])]
+    assert all(a is b for a, b in zip(_continued(distinct, origins), distinct, strict=True))
+
+
+def _merging_wells() -> Problem:
+    """Round 45's reproducer. Profiling x, the nuisance z has two wells (z = ±1) far from x = 0.25;
+    between x = 0.1 and 0.55 they merge and then separate again, the lower one changing side. A
+    start that continued through the merge follows the wrong well and overstates the profile."""
+
+    def smooth(x: float) -> float:
+        x = min(max(x, 0.0), 1.0)
+        return x * x * x * (10 + x * (-15 + 6 * x))
+
+    def design(theta: np.ndarray) -> np.ndarray:
+        x, z = theta
+        w = smooth((x - 0.10) / 0.10) * (1 - smooth((x - 0.35) / 0.20))
+        return np.array([100.0, x, 2 * (1 - w) * (z * z - 1), (1 - w) * 0.6 * (z + 1) + w * 0.1 * (z - 1)])[:, None]
+
+    return Problem(
+        design=design,
+        y=np.array([100.0, 0.0, 0.0, 0.0]),
+        sigma=np.ones(4),
+        lower=np.array([-2.0, -2.0]),
+        upper=np.array([2.0, 2.0]),
+        theta_names=("x", "z"),
+        order_names=("t",),
+    )
+
+
+@pytest.fixture(scope="module")
+def merging_wells() -> tuple[Problem, object]:
+    problem = _merging_wells()
+    return problem, fit(problem, Settings(n_sobol=1024, n_starts=16))
+
+
+def _counting(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
+    """Counts the profile re-minimizations by how they start: from the basins, or continued."""
+    import dipolar_core.fit as F
+
+    calls = {"cold": 0, "warm": 0}
+    original = F._profile_chi2
+
+    def counted(*args: object, **kwargs: object) -> object:
+        starts = args[5] if len(args) > 5 else kwargs.get("starts")
+        calls["cold" if starts is None else "warm"] += 1
+        return original(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(F, "_profile_chi2", counted)
+    return calls
+
+
+def test_warm_intervals_continue_and_match_the_cold_ones_through_merging_wells(
+    merging_wells: tuple[Problem, object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Round 45 (A): the warm interval was [-1.00005, 0.477], the cold one [-1.00005, 1.00005]."""
+    import dipolar_core.fit as F
+
+    problem, result = merging_wells
+    monkeypatch.setattr(F, "WARM_STARTS", False)
+    cold = profile_interval(problem, result, "x")  # type: ignore[arg-type]
+    assert cold.supported and cold.upper == pytest.approx(1.00005, abs=1e-4)
+    monkeypatch.setattr(F, "WARM_STARTS", True)
+    calls = _counting(monkeypatch)
+    warm = profile_interval(problem, result, "x")  # type: ignore[arg-type]
+    assert (warm.supported, warm.lower, warm.upper) == (True, cold.lower, cold.upper)
+    # The intervals really continue: most re-minimizations are warm, and the cold ones are the
+    # first evaluation and the verification (no fallback to a cold pass).
+    assert calls["warm"] > 5 * calls["cold"] > 0
+
+
+def test_the_cold_verification_alone_rejects_a_warm_interval_that_is_too_narrow(
+    merging_wells: tuple[Problem, object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the round-45 collapse restoration removed (only later slots of a merged group restart),
+    the warm pass follows the wrong well; the cold check just outside its upper endpoint disagrees,
+    and the cold pass decides."""
+    import dipolar_core.fit as F
+
+    problem, result = merging_wells
+
+    def later_only(previous: list[np.ndarray], origins: list[np.ndarray]) -> list[np.ndarray]:
+        return [
+            origins[s] if any(np.allclose(p, o, rtol=1e-6, atol=1e-6) for o in previous[:s]) else p
+            for s, p in enumerate(previous)
+        ]
+
+    monkeypatch.setattr(F, "_continued", later_only)
+    calls = _counting(monkeypatch)
+    interval = profile_interval(problem, result, "x")  # type: ignore[arg-type]
+    assert interval.supported and interval.upper == pytest.approx(1.00005, abs=1e-4)
+    assert calls["cold"] > 50  # a whole cold pass ran
+
+
+def test_an_unconverged_verification_never_confirms_a_warm_interval(
+    merging_wells: tuple[Problem, object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cold check that does not converge confirms nothing: the cold pass decides (here it cannot
+    converge either, so the interval is unsupported)."""
+    import dipolar_core.fit as F
+
+    problem, result = merging_wells
+    original = F._profile_chi2
+    warm_seen = False
+
+    def failing_cold(*args: object, **kwargs: object) -> object:
+        nonlocal warm_seen
+        starts = args[5] if len(args) > 5 else kwargs.get("starts")
+        chi2, ok, reached = original(*args, **kwargs)  # type: ignore[arg-type]
+        warm_seen = warm_seen or starts is not None
+        return chi2, ok and not (warm_seen and starts is None), reached
+
+    monkeypatch.setattr(F, "_profile_chi2", failing_cold)
+    interval = profile_interval(problem, result, "x")  # type: ignore[arg-type]
+    assert not interval.supported and "did not converge" in interval.note
