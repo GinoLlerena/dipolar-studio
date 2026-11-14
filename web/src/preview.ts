@@ -149,3 +149,28 @@ export function parseAngle(text: string): number | null {
   const value = Number(plain);
   return Number.isFinite(value) ? value : null;
 }
+
+/** True when the torsion domain shown is the current science's: `project.describe` and the view
+ * are read separately, and either can arrive first (round 48). */
+export function boundsCurrent(projectRevision: number | null, viewRevision: number | null): boolean {
+  return projectRevision !== null && viewRevision !== null && projectRevision === viewRevision;
+}
+
+/** Where the preview starts, or null when it should not start yet: it has started already, or
+ * the domain is not yet the current science's (a start clamped to an older domain would be lost
+ * for good, round 48). The current fit's φ first, else the lowest sample of a landscape of the
+ * same science. */
+export function startAt(o: {
+  current: number | null;
+  fitted: number | null;
+  landscape: { science_revision: number; phi: readonly number[]; chi2: readonly (number | null)[] } | null;
+  projectRevision: number | null;
+  viewRevision: number | null;
+}): number | null {
+  if (o.current !== null || !boundsCurrent(o.projectRevision, o.viewRevision)) return null;
+  if (o.fitted !== null) return o.fitted;
+  if (o.landscape && o.landscape.science_revision === o.projectRevision) {
+    return lowest(o.landscape.phi, o.landscape.chi2)?.phi ?? null;
+  }
+  return null;
+}

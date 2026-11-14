@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { callOperation, type DryRunReport, type ErrorBody, type ProposalDetailOut, type ProposalOut } from "../api";
 import {
   acceptBlocker,
+  activeJobs,
   allSteps,
   argsText,
   type ChangeLine,
   changeLines,
   decidable,
+  dryRunKey,
   expired,
   ordered,
   withDependencies,
@@ -167,7 +169,8 @@ function ProposalDetail({
   // The workspace is part of it: a selection change alters what an acceptance does to the view
   // without changing the science (round 47).
   const workspace = Math.max(state.view?.workspace_revision ?? 0, studio.newestWorkspaceRevision);
-  const key = `${p.id}|${chosen.join(",")}|${revision}|${workspace}|${p.status}|${p.stale}`;
+  const [attempt, setAttempt] = useState(0);
+  const key = dryRunKey({ proposal: p, chosen, science: revision, workspace, jobs: activeJobs(state.jobs), attempt });
   const latest = useRef(key);
   latest.current = key;
   useEffect(() => {
@@ -336,10 +339,15 @@ function ProposalDetail({
               {!checked ? (
                 <p className="muted">{strings.checking}</p>
               ) : dry.error ? (
-                <p className="warn-text" role="alert">
-                  <strong>{dry.error.code}</strong>: {dry.error.message}
-                  {dry.error.hint && <span className="help"> {dry.error.hint}</span>}
-                </p>
+                <div className="row">
+                  <p className="warn-text" role="alert">
+                    <strong>{dry.error.code}</strong>: {dry.error.message}
+                    {dry.error.hint && <span className="help"> {dry.error.hint}</span>}
+                  </p>
+                  <button type="button" className="quiet" onClick={() => setAttempt((n) => n + 1)}>
+                    {strings.checkAgain}
+                  </button>
+                </div>
               ) : (
                 dry.report && (
                   <Changes

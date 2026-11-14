@@ -1,6 +1,6 @@
 # Status
 
-**M3 step 3 (the proposal inbox, live preview, the landscape) is done (pending review).**
+**M3 step 3 (the proposal inbox, live preview, the landscape) is done: tag `m3-step3`.**
 - **The proposal inbox:** a Proposals workspace follows the feed; each proposal shows its note
   and arguments as text, a dependency-closed choice of steps, and a dry run of exactly the
   acceptance before Accept; stale, expired and decided proposals say why they cannot be accepted.
@@ -11,7 +11,9 @@
 
 Round 47 returned NOT READY (five class-(A) findings: an acceptance could differ from its dry
 run in the workspace; a narrowed domain; a landscape refused for one torsion; all-zero χ²; a
-negative φ in the field); all were fixed and mutation-checked or checked in Chromium. See
+negative φ in the field), round 48 two (a failed dry run cached across a job's end; a lost
+starting angle); all were fixed and mutation-checked or checked in Chromium, the round-48 fixes
+not reviewed again, under the cap. See
 [round47-m3-step3.md](validation/round47-m3-step3.md).
 
 **Interval warm starts are done: tag `interval-warm-starts`.** Profile intervals are first searched with
@@ -259,7 +261,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
    ```sh
    uv sync --locked && uv run pytest -q -m "not slow"   # 823 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
-   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 55 web tests
+   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 57 web tests
    ```
 
 2. **Next, as the owner chose (2026-11-13):**
@@ -946,7 +948,7 @@ See [round35-m2-step4.md](validation/round35-m2-step4.md).
 - **Landscape** (`fit.landscape`, contract 0.8.0; `LandscapePlot`): χ²(φ) at evenly spaced
   torsions on a log axis, with the previewed and fitted φ, inadmissible ticks, click to preview,
   and a table of every sample.
-- **Tests:** 53 web (inbox and preview helpers added); `fit.landscape` in the Python tests and the
+- **Tests:** 57 web (inbox and preview helpers added); `fit.landscape` in the Python tests and the
   cross-adapter contract test. Driven by hand in Chromium with an agent token proposing.
 
 ## The small batch (after M2)

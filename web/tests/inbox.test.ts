@@ -1,14 +1,16 @@
 // The proposal inbox's logic (src/inbox.ts), under Node's test runner.
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { DryRunReport, ProposalOut, StepOut } from "../src/generated/contract.ts";
+import type { DryRunReport, JobOut, ProposalOut, StepOut } from "../src/generated/contract.ts";
 import {
   acceptBlocker,
+  activeJobs,
   allSteps,
   argsText,
   changeLines,
   closed,
   decidable,
+  dryRunKey,
   expired,
   labelled,
   ordered,
@@ -159,4 +161,16 @@ test("what acceptance would change, as lines", () => {
     {},
   );
   assert.deepEqual(opened, [{ kind: "opened" }]); // opening says it all
+});
+
+test("the dry run is redone when the active jobs change, or on request (round 48)", () => {
+  const job = (id: string, status: string) => ({ id, status }) as unknown as JobOut;
+  const running = activeJobs([job("job_000002", "running"), job("job_000001", "queued"), job("job_000003", "done")]);
+  assert.equal(running, "job_000001,job_000002");
+  const after = activeJobs([job("job_000002", "cancelled"), job("job_000001", "queued")]);
+  const key = (jobs: string, attempt = 0) =>
+    dryRunKey({ proposal: proposal(), chosen: [0, 1, 2], science: 4, workspace: 2, jobs, attempt });
+  assert.notEqual(key(running), key(after)); // a cancelled job frees the quota: check again
+  assert.notEqual(key(running), key(running, 1)); // "check again"
+  assert.equal(key(running), key(running));
 });

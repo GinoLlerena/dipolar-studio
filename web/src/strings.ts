@@ -281,6 +281,7 @@ export const strings = {
   acceptedOutcome: (steps: number, revision: number, jobs: number) =>
     `Accepted: ${steps === 1 ? "1 step" : `${steps} steps`} applied as one change, now science revision ${revision}${jobs ? `; ${jobs === 1 ? "a fit job" : `${jobs} fit jobs`} started` : ""}.`,
   rejectedOutcome: "Rejected.",
+  checkAgain: "Check again",
 
   // Validity flags
   flag: {

@@ -9,7 +9,7 @@ import {
   type PreviewOut,
   type RunOut,
 } from "../api";
-import { inputText, LatestOnly, lowest, p95, parseAngle, snap } from "../preview";
+import { boundsCurrent, inputText, LatestOnly, p95, parseAngle, snap, startAt } from "../preview";
 import { atPlace, decimalsFor, fixed, hz, pValue, residualHz, scientific, signed, withUncertainty } from "../format";
 import { strings } from "../strings";
 import type { Studio, StudioState } from "../studio";
@@ -521,18 +521,23 @@ function PreviewPane({ studio, state }: Props) {
     };
   }, [studio, revision]);
 
-  // Start where the fit is, else at the landscape's lowest sample.
+  // Start where the fit is, else at the landscape's lowest sample, and clamp to the domain again
+  // after a science change: both only once the domain shown is the current science's (round 48;
+  // project.describe and the view can arrive in either order).
+  const current = boundsCurrent(project?.science_revision ?? null, view?.science_revision ?? null);
   useEffect(() => {
-    if (phi !== null) return;
-    const start = fitted ?? (land ? lowest(land.phi, land.chi2)?.phi : undefined);
-    if (start !== undefined) go(start);
-  }, [fitted, land]);
-  // After a science change, preview the same φ again; and clamp it again when the domain arrives
-  // (round 47: the view's new revision can arrive before project.describe's new domain, so the
-  // bounds are dependencies too).
+    const start = startAt({
+      current: phi,
+      fitted,
+      landscape: land,
+      projectRevision: project?.science_revision ?? null,
+      viewRevision: view?.science_revision ?? null,
+    });
+    if (start !== null) go(start);
+  }, [fitted, land, current]);
   useEffect(() => {
-    if (phi !== null) go(phi);
-  }, [revision, lo, hi]);
+    if (phi !== null && current) go(phi);
+  }, [revision, lo, hi, current]);
 
   const preview = shown?.out ?? null;
   const stale = preview !== null && view !== null && preview.science_revision !== view.science_revision;

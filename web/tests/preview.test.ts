@@ -1,7 +1,20 @@
 // Live preview helpers (src/preview.ts), under Node's test runner.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { inputText, KEPT_TIMINGS, LatestOnly, landscapePath, logRange, lowest, nearest, p95, parseAngle, snap } from "../src/preview.ts";
+import {
+  boundsCurrent,
+  inputText,
+  KEPT_TIMINGS,
+  LatestOnly,
+  landscapePath,
+  logRange,
+  lowest,
+  nearest,
+  p95,
+  parseAngle,
+  snap,
+  startAt,
+} from "../src/preview.ts";
 
 /** A fetch whose answers the test releases by hand. */
 function manual() {
@@ -117,4 +130,21 @@ test("the φ field: ASCII text that parses back, the typographic minus accepted 
   assert.equal(parseAngle(" +37 "), 37);
   assert.equal(parseAngle(".5"), 0.5);
   for (const bad of ["", "abc", "1e3", "Infinity", "1_0", "١٢", "--1", "1.2.3"]) assert.equal(parseAngle(bad), null, bad);
+});
+
+test("the preview starts only once the domain is the current science's, in either order (round 48)", () => {
+  const land = { science_revision: 5, phi: [0, 60, 120, 180], chi2: [9, 4, 1, 7] };
+  const base = { current: null, fitted: null, landscape: land, projectRevision: 5, viewRevision: 5 };
+  assert.equal(startAt(base), 120); // the landscape's lowest sample
+  assert.equal(startAt({ ...base, fitted: 121.5 }), 121.5); // the fit first
+  // The view (or the landscape) is newer than the project's domain: wait for project.describe.
+  assert.equal(startAt({ ...base, projectRevision: 4 }), null);
+  assert.equal(startAt({ ...base, projectRevision: null }), null);
+  // The project is newer than the view: wait for the view.
+  assert.equal(startAt({ ...base, viewRevision: 4 }), null);
+  // A landscape of an older science is not a start.
+  assert.equal(startAt({ ...base, landscape: { ...land, science_revision: 4 } }), null);
+  assert.equal(startAt({ ...base, current: 30 }), null); // already started
+  assert.equal(boundsCurrent(3, 3), true);
+  assert.equal(boundsCurrent(3, 4), false);
 });

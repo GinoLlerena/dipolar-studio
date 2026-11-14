@@ -8,7 +8,7 @@
 // change, and why a button is disabled. The proposer's note and the steps' arguments are data
 // written by the proposer: they are shown as text, never interpreted.
 
-import type { DryRunReport, IdChanges, ProposalOut, StepOut } from "./generated/contract";
+import type { DryRunReport, IdChanges, JobOut, ProposalOut, StepOut } from "./generated/contract";
 
 /** Pending proposals first, oldest first (the order they wait in); then the decided ones, the
  * most recent decision first. */
@@ -140,4 +140,29 @@ export function changeLines(
   if (jobs > 0) lines.push({ kind: "jobs", count: jobs });
   if (lines.length === 0) lines.push({ kind: "nothing" });
   return lines;
+}
+
+/** The queued and running jobs, as a signature: an acceptance that starts a fit depends on the
+ * caller's job quota, which changes with no revision when a job ends or is cancelled (round 48). */
+export function activeJobs(jobs: readonly JobOut[]): string {
+  return jobs
+    .filter((j) => j.status === "queued" || j.status === "running")
+    .map((j) => j.id)
+    .sort()
+    .join(",");
+}
+
+/** Everything a dry run of an acceptance depends on. When any of it changes, the shown dry run no
+ * longer describes what Accept would do, so it is run again. `attempt` is the user's "check
+ * again". */
+export function dryRunKey(o: {
+  proposal: ProposalOut;
+  chosen: readonly number[];
+  science: number;
+  workspace: number;
+  jobs: string;
+  attempt: number;
+}): string {
+  const p = o.proposal;
+  return [p.id, o.chosen.join(","), o.science, o.workspace, p.status, p.stale, o.jobs, o.attempt].join("|");
 }

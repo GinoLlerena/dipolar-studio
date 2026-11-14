@@ -109,6 +109,28 @@ cleared" and Accept sent the new revision; narrowing [0°, 180°] to [0°, 90°]
 clamped the slider, the field and the preview to 90° (the one preview sent before the new domain
 arrived was refused with OUT_OF_DOMAIN, shown nowhere, and superseded).
 
-## Round 48
+## Round 48: NOT READY (two A, one B retained), on commit 72452f4
 
-(pending)
+The reviewer's run: 823 Python and 55 web tests, TypeScript and the generated contract passed. The
+dry-run envelope's `revisions` are the pre-plan state's and the workspace guard runs under the
+commit lock; no further blocker in the structural problem, the zero landscape or the angle parser.
+
+1. **(A) A failed dry run stayed cached when a job ended.** A `fit.run` proposal dry-runs to
+   QUOTA_EXCEEDED while the human's two job slots are taken; cancelling a job changes neither
+   revision, so the key did not change and Accept stayed disabled although acceptance was valid.
+   **Fix:** the dry run's key (`dryRunKey`) includes the queued and running jobs (`activeJobs`),
+   and a failed dry run offers "Check again".
+2. **(A) The preview's starting angle could be lost.** A fit or landscape minimum at 120° arriving
+   before `project.describe` was clamped to the default [0°, 90°], and the start never ran again.
+   **Fix:** the start (`startAt`) and the re-clamp after a science change run only once the
+   project's domain is the current science's (`boundsCurrent`: `project.describe` and the view at
+   the same science revision), whichever arrives first; a landscape of an older science is not a
+   start.
+
+(B), retained: the landscape's cost on large projects (step 4).
+
+**Tests:** web tests for both orders of arrival, an older landscape, and the key changing when a
+job ends or on "check again". **Mutation checks** (each makes a test fail): starting without the
+domain check; a key without the jobs. The component wiring was checked in Chromium (the preview
+starts at the fit's φ; a fit proposal's dry run shows "A fit job starts" with Accept enabled).
+Under the cap, these fixes were not reviewed again.
