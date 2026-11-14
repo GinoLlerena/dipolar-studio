@@ -13,7 +13,7 @@ tables; a workload limit for the landscape.
 - **A Playwright suite** (`web/e2e/`, `pnpm run e2e`): the built page against a real
   `dipolar serve` on **Chromium, Firefox and WebKit**. Each test starts its own server on a fresh
   project directory (`e2e/harness.ts`); other clients (the robot, the agent, the user) act over
-  HTTP as in production, and the page sees them through the change feed. 16 tests × 3 browsers:
+  HTTP as in production, and the page sees them through the change feed. 19 tests × 3 browsers:
   - **launch:** a single-use link signs a tab in, leaves the address bar, survives a reload, and is
     refused a second time;
   - **workspaces:** open, fit and read a run; a run goes stale after another client's change and
@@ -26,13 +26,16 @@ tables; a workload limit for the landscape.
   - **the inbox (M3 step 3, rounds 47–48):** a proposal's note is text; dependency-closed choice;
     the dry run; accepting; a workspace change by another client refreshes the dry run and the
     acceptance carries the workspace revision it saw; a dry run refused for the job quota is redone
-    when the jobs end; a stale proposal says why and is rejected with a reason;
+    when the jobs end; the acceptance carries the workspace revision its dry run saw (a controlled
+    race, round 49); a stale proposal says why and is rejected with a reason;
   - **concurrency (04 §7):** the page's edit made at an older revision is refused with
     REVISION_CONFLICT and the robot's edit stays;
-  - **the preview's ordering hazards (rounds 47–48):** a narrowed domain clamps the preview when
-    `project.describe` arrives last (held 1.5 s by the test); the preview starts at the fit's φ
-    (143°, beyond the default 90°) when the domain arrives last; a typographic minus is
-    understood;
+  - **the preview's ordering hazards (rounds 47–49):** `project.describe` is held behind a barrier
+    and each test asserts the hazardous state before releasing it: a narrowed domain clamps the
+    preview; the preview starts at the fit's φ (143°, beyond the default 90°); an invalid first
+    edit does not keep the preview from starting; a typographic minus is understood;
+  - **replies that are not envelopes** (round 49): a reply that is not JSON is recorded as a
+    failed read;
   - **latency (below).**
 - **A CI job** "Browsers (Playwright on Chromium, Firefox, WebKit)" on ubuntu-latest, keeping the
   report and traces of failures.
@@ -43,17 +46,19 @@ tables; a workload limit for the landscape.
 
   | Browser | Preview: slider gesture → fresh residuals (target p95 < 100 ms) | Perception: robot `view.highlight` → arc drawn (target < 200 ms) |
   |---|---|---|
-  | Chromium 159.0 | p50 31, **p95 38.6**, max 78.7 ms (60) | p50 15, max **20** ms (20) |
-  | Firefox 159.0 | p50 21, **p95 26**, max 42 ms (60) | p50 15, max **19** ms (20) |
-  | WebKit 27.2 | p50 20, **p95 23**, max 54 ms (60) | p50 13, max **15** ms (20) |
+  | Chromium 159.0 | p50 17.7, **p95 18.7**, max 19.8 ms (60) | p50 11, max **13** ms (20) |
+  | Firefox 159.0 | p50 20, **p95 53**, max 82 ms (60) | p50 14, max **17** ms (20) |
+  | WebKit 27.2 | p50 19, **p95 33**, max 105 ms (60) | p50 12, max **15** ms (20) |
 
-  (Recorded after round 49, with the stricter completion condition below; the numbers before it
-  were 19–22 ms p95 and 13–16 ms.)
+  The target is the p95; one WebKit sample of 60 exceeded 100 ms. Recorded after round 50 with
+  the completion condition below. Earlier recordings, with weaker conditions, gave 19–39 ms p95
+  and 13–20 ms; run-to-run spread on this machine is of that order.
 
   The preview is timed in the page from the slider's input event until the preview line shows the
-  new φ *and* the preview's residual table records that φ (`data-phi`) with a row for every
-  coupling (a MutationObserver on the document; DOM updates, not painted frames), at about eight
-  gestures a second. The
+  new φ *and* the preview's residual table, marked with that φ (`data-phi`), *displays* every
+  row's D calc (to 0.1 Hz) and residual (to 0.01 Hz) as `fit.preview` gives them at that φ (read
+  from the server before the timed loop). A MutationObserver on the document times DOM updates,
+  not painted frames; about eight gestures a second. The
   perception time runs from just before the robot's HTTP call to the page's mutation (both clocks
   on one machine). CI's shared runners are not named hardware: there the tests only guard against
   regressions (p95 < 400 ms, max < 800 ms).
@@ -129,6 +134,21 @@ the JSON parse not caught (browser).
 **After the fixes:** 57 browser tests (19 × 3) passed twice in a row; 59 web unit tests; the
 boundary tests; TypeScript (app and suite).
 
-## Round 50
+## Round 50: NOT READY (two A), on commit b64ba42
 
-(pending)
+The reviewer confirmed the round-49 fixes: the typing, workspace-revision, empty-table and
+ordering mutants now fail; `asEnvelope` agrees with the server's envelope (object results, a
+required `dry_run`, bounded revisions); committing invalid text after the landscape arrives
+starts the preview. 19 Chromium tests, 59 unit tests and both TypeScript checks passed; three
+early store-test stalls did not reproduce in isolation or in five repetitions of the races.
+Process-group cleanup was checked on macOS, not on Linux (CI runs it there).
+
+1. **(A) The latency test still allowed stale residual values:** with the rows frozen at 37°
+   and the φ marker updating, it passed (p95 36.9 ms) while the first row showed −0.72 Hz instead
+   of +322.32 Hz. **Fix:** the expected D calc and residual of every row at every φ are read from
+   the server before the timed loop, and a sample completes only when the table displays them.
+   The reviewer's mutant now fails the test; the measurements were recorded again (above).
+2. **(A) This overview kept superseded claims** (16 × 3 tests; a 1.5-s delay). Updated: 19 × 3 and
+   the barriers; the earlier counts stay in the baseline section.
+
+Under the cap, these fixes were not reviewed again. After them: 57 browser tests (19 × 3) passed.

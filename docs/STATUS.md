@@ -1,19 +1,19 @@
 # Status
 
-**M3 step 4a (the browser suite, the latency targets) is done (pending review).**
+**M3 step 4a (the browser suite, the latency targets) is done: tag `m3-step4a`.**
 - **Playwright on Chromium, Firefox and WebKit** (`web/e2e/`, `pnpm run e2e`, a new CI job): the
   page against a real `dipolar serve`, with the robot and an agent acting over HTTP. It covers the
   launch, the workspaces, staleness by content, the two store fixes of step 1 that waited for a
   browser, the inbox's rounds 47–48 regressions, a REVISION_CONFLICT, and the preview's ordering
   hazards. 19 tests × 3 browsers.
 - **The latency targets, on named hardware** (i7-8750H, macOS, headless): preview p95 from a slider
-  gesture to fresh residuals (the whole table) 23–39 ms (target 100 ms); a robot's highlight drawn
-  in at most 15–20 ms (target 200 ms), on all three browsers.
+  gesture to the residual table displaying the new values 19–53 ms (target 100 ms); a robot's
+  highlight drawn in at most 13–17 ms (target 200 ms), on all three browsers.
 - **Found by the suite:** a typed φ could be overwritten by the preview's automatic start
   (WebKit); a malformed reply crashed the store. Both fixed.
-- Round 49 returned NOT READY (six class-(A) findings: the typing guard, the reply check, the
-  harness's teardown, and three tests that did not prove their claims); all fixed and
-  mutation-checked.
+- Rounds 49 and 50 returned NOT READY (six and two class-(A) findings: the typing guard, the reply
+  check, the harness's teardown, tests that did not prove their claims, stale doc claims); all
+  fixed and mutation-checked, the round-50 fixes not reviewed again, under the cap.
 
 See [round49-m3-step4a.md](validation/round49-m3-step4a.md).
 
@@ -983,7 +983,8 @@ See [round35-m2-step4.md](validation/round35-m2-step4.md).
   fake clock for the feed watchdog), inbox, concurrency, preview (ordering hazards, with
   `project.describe` held back by the test), latency.
 - **Latency on named hardware** (`DIPOLAR_RECORD_LATENCY=1` → `docs/validation/data/m3-latency/`):
-  preview p95 23–39 ms; perception max 15–20 ms; looser bounds on CI.
+  preview p95 19–53 ms (values displayed, checked against the server); perception max 13–17 ms;
+  looser bounds on CI.
 - **Fixes:** `callOperation` returns an INTERNAL envelope for any malformed reply; the preview's
   start stands down once the user types, and its effects read the latest φ from a ref.
 

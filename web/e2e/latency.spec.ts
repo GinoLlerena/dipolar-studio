@@ -47,31 +47,49 @@ test("live preview: p95 from a slider gesture to fresh residuals", async ({ app,
   await openExample(server);
   await app.getByRole("tab", { name: "Fit" }).click();
   await expect(app.locator(".meta")).toContainText("φ = "); // started (warm: the first preview is done)
-  const rows = (await server.ok("robot", "project.describe")).couplings.length as number;
+  const count = 60;
+  const angles = Array.from({ length: count }, (_, i) => Number((30 + (i % 50) * 0.3 + (i % 2) * 0.1).toFixed(1)));
+  // The values each gesture must bring, read from the server before the timed loop (round 50: a
+  // table whose φ marker updated over stale values passed): D calc and the residual of every row.
+  const expected: Record<string, [number, number][]> = {};
+  for (const phi of new Set(angles)) {
+    const out = await server.ok("robot", "fit.preview", { phi: { value: phi, unit: "deg" } });
+    expected[String(phi)] = out.couplings.map((c: { calculated: { value: number }; residual: { value: number } }) => [
+      c.calculated.value,
+      c.residual.value,
+    ]);
+  }
   const samples = await app.evaluate(
-    async ({ count, rows }) => {
+    async ({ angles, expected }) => {
       const slider = document.getElementById("phi-slider") as HTMLInputElement;
       const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set as (v: string) => void;
-      // Fresh = the preview line and the preview's residual table both show the new φ, the table
-      // with every coupling's row (round 49: the line alone could certify a stale or empty table).
-      const fresh = (value: number, want: string) => {
+      // A displayed number: the typographic minus and the thin-space thousands separator undone.
+      const number = (text: string | null | undefined) => Number((text ?? "").replace(/[\s\u2009\u202f]/g, "").replace("\u2212", "-"));
+      // Fresh = the preview line shows the new φ, and the preview's residual table is marked with
+      // it and *displays* every row's D calc (to 0.1 Hz) and residual (to 0.01 Hz) at that φ
+      // (rounds 49 and 50).
+      const fresh = (value: number, want: string, rows: [number, number][]) => {
         const meta = document.querySelector("#pane-preview")?.closest("section")?.querySelector(".meta");
+        if (!(meta?.textContent ?? "").includes(want)) return false;
         const table = document.querySelector("#pane-preview-residuals")?.closest("section")?.querySelector("table[data-phi]");
-        return (
-          (meta?.textContent ?? "").includes(want) &&
-          table !== null &&
-          table !== undefined &&
-          Math.abs(Number(table.getAttribute("data-phi")) - value) < 1e-9 &&
-          table.querySelectorAll("tbody tr").length === rows
-        );
+        if (!table || Math.abs(Number(table.getAttribute("data-phi")) - value) > 1e-9) return false;
+        const shown = table.querySelectorAll("tbody tr");
+        if (shown.length !== rows.length) return false;
+        return rows.every(([calculated, residual], i) => {
+          const cells = shown[i]?.querySelectorAll("td");
+          return (
+            Math.abs(number(cells?.[3]?.textContent) - calculated) <= 0.05 + 1e-9 &&
+            Math.abs(number(cells?.[4]?.textContent) - residual) <= 0.005 + 1e-9
+          );
+        });
       };
       const out: number[] = [];
-      for (let i = 0; i < count; i++) {
-        const value = Number((30 + (i % 50) * 0.3 + (i % 2) * 0.1).toFixed(1)); // a new position every time
+      for (const value of angles) {
         const want = `φ = ${value.toFixed(2)}°`;
+        const rows = expected[String(value)] ?? [];
         const done = new Promise<number>((resolve) => {
           const observer = new MutationObserver(() => {
-            if (fresh(value, want)) {
+            if (fresh(value, want, rows)) {
               observer.disconnect();
               resolve(performance.now());
             }
@@ -86,9 +104,9 @@ test("live preview: p95 from a slider gesture to fresh residuals", async ({ app,
       }
       return out;
     },
-    { count: 60, rows },
+    { angles, expected },
   );
-  record(info, browser.version(), "preview", samples, { fixture: "biphenyl-synthetic", gesture: "slider input event to the preview line and the residual table (every row) rendered at the new φ" });
+  record(info, browser.version(), "preview", samples, { fixture: "biphenyl-synthetic", gesture: "slider input event until the preview line and the residual table display the new φ's D calc and residual for every row" });
   expect(percentile(samples, 0.95)).toBeLessThan(PREVIEW_P95_MS);
 });
 
