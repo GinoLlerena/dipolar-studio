@@ -41,7 +41,30 @@ export async function callOperation<N extends OperationName, A extends Operation
     cache: "no-store",
     credentials: "omit",
   });
-  return (await response.json()) as Envelope<N>;
+  return asEnvelope<N>(await response.json(), response.status);
+}
+
+/** The reply as an envelope; anything else (a proxy's error page in JSON, a truncated body) becomes
+ * an INTERNAL error envelope, so the store never reads a field that is not there (M3 step 4). */
+function asEnvelope<N extends OperationName>(body: unknown, status: number): Envelope<N> {
+  const value = body as { ok?: unknown; error?: { code?: unknown; message?: unknown } } | null;
+  if (value !== null && typeof value === "object") {
+    if (value.ok === true && "result" in value) return value as Envelope<N>;
+    if (value.ok === false && typeof value.error?.code === "string" && typeof value.error.message === "string") {
+      return value as Envelope<N>;
+    }
+  }
+  return {
+    ok: false,
+    operation: null,
+    error: {
+      code: "INTERNAL",
+      message: `the server's reply was not an operation envelope (HTTP ${status})`,
+      offending_field: null,
+      hint: "check that dipolar serve is running and nothing between it and this page rewrites replies",
+      details: {},
+    },
+  } as unknown as Envelope<N>;
 }
 
 // Exchange the launch code from the URL fragment for this tab's token (D10). The code is single

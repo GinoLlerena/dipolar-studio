@@ -1,0 +1,40 @@
+{
+  "measurement": "perception",
+  "browser": "firefox",
+  "browser_version": "159.0",
+  "machine": {
+    "cpu": "Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz",
+    "cores": 12,
+    "memory_gib": 32,
+    "os": "darwin 24.6.0"
+  },
+  "fixture": "biphenyl-synthetic",
+  "from": "the robot sends view.highlight",
+  "to": "the arc is drawn highlighted",
+  "p50_ms": 14,
+  "p95_ms": 15,
+  "max_ms": 16,
+  "n": 20,
+  "samples_ms": [
+    16,
+    15,
+    15,
+    14,
+    15,
+    15,
+    15,
+    15,
+    14,
+    13,
+    13,
+    13,
+    14,
+    14,
+    13,
+    12,
+    13,
+    12,
+    13,
+    13
+  ]
+}
