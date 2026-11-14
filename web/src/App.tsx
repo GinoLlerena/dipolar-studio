@@ -5,6 +5,7 @@ import { Studio } from "./studio";
 import { StatusBar, TitleBar, type Workspace } from "./ui/Chrome";
 import { DataWorkspace } from "./ui/DataWorkspace";
 import { FitWorkspace } from "./ui/FitWorkspace";
+import { InboxWorkspace } from "./ui/InboxWorkspace";
 import { StructureWorkspace } from "./ui/StructureWorkspace";
 
 // Browser hand-off (D10, M0 spike 3). `dipolar open` opens /#launch=<code>. The fragment never
@@ -122,8 +123,10 @@ function Workbench({ token, onLostSession }: { token: string; onLostSession: (er
           <StructureWorkspace studio={studio} state={state} />
         ) : workspace === "data" ? (
           <DataWorkspace studio={studio} state={state} />
-        ) : (
+        ) : workspace === "fit" ? (
           <FitWorkspace studio={studio} state={state} />
+        ) : (
+          <InboxWorkspace studio={studio} state={state} />
         )}
         <footer className="credits">{strings.credits}</footer>
       </div>

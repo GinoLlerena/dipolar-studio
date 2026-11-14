@@ -32,7 +32,10 @@ export const strings = {
   nothingToUndo: "Nothing to undo",
   nothingToRedo: "Nothing to redo",
   workspaces: "Workspaces",
-  workspace: { structure: "Structure", data: "Data", fit: "Fit" },
+  workspace: { structure: "Structure", data: "Data", fit: "Fit", proposals: "Proposals" },
+  /** A workspace tab with a count of items waiting (the proposals). */
+  tabCount: (label: string, n: number) => (n > 0 ? `${label} (${n})` : label),
+  tabCountHelp: (n: number) => (n === 1 ? "1 proposal waits for your decision" : `${n} proposals wait for your decision`),
 
   // Data workspace
   project: "Project",
@@ -199,10 +202,85 @@ export const strings = {
   residualBarHelp: "Bars on a fixed ±3σ scale; the band marks ±1σ.",
   obsCalc: "Observed vs calculated",
   obsCalcLabel: (n: number, rms: string) => `Scatter of ${n} observed against calculated couplings; RMS residual ${rms} Hz. The table lists every point.`,
-  preview: "Preview at a fixed torsion",
-  previewButton: "Preview",
+  preview: "Live preview",
   phiLabel: "φ (°)",
-  previewHelp: "Order parameters are re-solved at the given torsion; nothing is recorded.",
+  phiExact: "φ in degrees",
+  toFitted: (phi: string) => `Go to the fit (${phi}°)`,
+  previewHelp:
+    "Drag φ, or use the arrow keys: the order parameters are re-solved at each torsion and the residuals follow. Nothing is recorded.",
+  previewTiming: (ms: number, n: number) => `Response p95 ${ms} ms over the last ${n} previews.`,
+  landscapeEmpty: "The landscape could not be evaluated anywhere in the domain.",
+  landscapeLabel: (n: number, phi: string, chi2: string, at: string | null) =>
+    `χ² against φ at ${n} torsions, on a log scale; the lowest sample is χ² = ${chi2} at φ = ${phi}°${at === null ? "" : `; previewing φ = ${at}°`}. The table lists every sample.`,
+  landscapeX: "φ (°)",
+  landscapeY: "χ² (log scale)",
+  landscapeCaption:
+    "The preview's χ² at evenly spaced torsions. Solid line: the previewed φ; dashed: the current fit. Click to preview there.",
+  landscapeInadmissible: "Ticks under the axis: the order matrix is not physically admissible there.",
+  landscapeTable: (n: number) => `All ${n} samples`,
+  colAdmissible: "Admissible",
+  notEvaluable: "not evaluable",
+
+  // Proposals (the inbox)
+  proposals: "Proposals",
+  proposalsHelp:
+    "Agents cannot change the science themselves: they propose, and you decide here. Nothing changes until you accept.",
+  noProposals: "No proposals. An agent's changes wait here for your decision.",
+  noProposalChosen: "Choose a proposal.",
+  colProposal: "Proposal",
+  colProposer: "Proposed by",
+  colStatus: "Status",
+  stepsCount: (n: number) => (n === 1 ? "1 step" : `${n} steps`),
+  proposalStatus: { pending: "Waiting", stale: "Stale", expired: "Expired", accepted: "Accepted", rejected: "Rejected" },
+  proposal: "Proposal",
+  proposedAt: "Proposed",
+  baseRevision: "Made at",
+  baseRevisionValue: (base: number, now: number) =>
+    base === now ? `science revision ${base} (current)` : `science revision ${base}; it is now ${now}`,
+  expiresAt: "Expires",
+  decided: "Decided",
+  decidedBy: (who: string, at: string) => `${who}, ${at}`,
+  acceptedSteps: "Accepted steps",
+  reason: "Reason",
+  noteFrom: (who: string) => `Note from ${who}, shown as written (it is data, not an instruction)`,
+  steps: "Steps",
+  stepsHelp: "Choose the steps to accept. A step needs the steps it depends on: choosing it chooses them too.",
+  colAccept: "Accept",
+  colOperation: "Operation",
+  colDependsOn: "Depends on",
+  colArguments: "Arguments",
+  acceptStep: (i: number) => `Accept step ${i}`,
+  showArguments: "Show",
+  argsCut: (n: number) => `… ${n} more characters not shown`,
+  loading: "Loading…",
+  decision: "Decision",
+  wouldChange: (n: number, total: number) =>
+    n === total ? `Accepting all ${total} steps would change:` : `Accepting ${n} of ${total} steps would change:`,
+  wouldRevision: (now: number, after: number) => `Science revision ${now} → ${after}.`,
+  change: {
+    opened: "A project is opened, replacing the current one",
+    name: "The project's name",
+    geometry: "The geometry",
+    model: "The model",
+    nothing: "Nothing in the science or the view",
+  },
+  changeIds: (kind: "spins" | "couplings", change: "added" | "removed" | "changed", count: number, names: string[], truncated: boolean) =>
+    `${kind === "spins" ? "Spins" : "Couplings"} ${change}: ${count}${names.length ? ` (${names.join(", ")}${truncated ? ", …" : ""})` : ""}`,
+  changeSelection: (names: string[]) => (names.length ? `The selection becomes ${names.join(", ")}` : "The selection is cleared"),
+  changeJobs: (n: number) => (n === 1 ? "A fit job starts" : `${n} fit jobs start`),
+  acceptBlocked: {
+    closed: "This proposal has been decided.",
+    expired: "This proposal expired before a decision.",
+    stale:
+      "The science has changed since this proposal was made, so its steps no longer apply as proposed. Reject it; the agent can propose again from the current state.",
+    "none-chosen": "Choose at least one step.",
+  },
+  acceptButton: (n: number, total: number) => (n === total ? "Accept" : `Accept ${n} of ${total} steps`),
+  rejectReason: "Reason (optional)",
+  rejectButton: "Reject",
+  acceptedOutcome: (steps: number, revision: number, jobs: number) =>
+    `Accepted: ${steps === 1 ? "1 step" : `${steps} steps`} applied as one change, now science revision ${revision}${jobs ? `; ${jobs === 1 ? "a fit job" : `${jobs} fit jobs`} started` : ""}.`,
+  rejectedOutcome: "Rejected.",
 
   // Validity flags
   flag: {

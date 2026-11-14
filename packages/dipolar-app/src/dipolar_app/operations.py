@@ -147,6 +147,20 @@ def build_registry() -> Registry:
     )
     registry.register(
         Operation(
+            name="fit.landscape",
+            kind="query",
+            effect="none",
+            capability=Capability.PREVIEW,
+            summary="The fit.preview χ² sampled at evenly spaced torsions over the model domain (the landscape).",
+            input_model=S.LandscapeIn,
+            output_model=S.LandscapeOut,
+            handler=S.fit_landscape,
+            idempotent=True,
+            examples=({}, {"points": 91}),
+        )
+    )
+    registry.register(
+        Operation(
             name="view.select",
             kind="command",
             effect="view",

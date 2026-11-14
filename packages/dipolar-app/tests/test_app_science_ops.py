@@ -591,3 +591,63 @@ def test_malformed_old_documents_are_structured_errors(project: object, message:
         "text",
     )
     assert message in body["message"]
+
+
+# --------------------------------------------------------------------------- fit.landscape (M3 step 3)
+def test_the_landscape_is_the_preview_sampled_over_the_domain() -> None:
+    c = opened()
+    land = ok(c.call("fit.landscape", {"points": 91}))
+    assert land["unit"] == "deg" and len(land["phi"]) == len(land["chi2"]) == 91
+    assert land["phi"][0] == 0.0 and land["phi"][-1] == 90.0  # both ends of the model's domain
+    np.testing.assert_allclose(np.diff(land["phi"]), 1.0, rtol=0, atol=1e-12)
+    for i in (0, 37, 90):
+        preview = ok(c.call("fit.preview", {"phi": deg(land["phi"][i])}))
+        assert land["chi2"][i] == pytest.approx(preview["chi2"], rel=1e-12)
+        assert land["physically_admissible"][i] == preview["validity"]["physically_admissible"]
+        assert land["n_obs"] == preview["n_obs"]
+    assert land["science_revision"] == 1 and land["estimand"] == ok(c.call("project.describe"))["estimand"]
+    # The lowest sample is next to the fitted optimum (37° on the example, within the spacing).
+    lowest = land["phi"][int(np.argmin(land["chi2"]))]
+    assert abs(lowest - 37.0) <= 1.0
+    assert len(ok(c.call("fit.landscape"))["phi"]) == 181  # the default
+
+
+def test_the_landscape_follows_the_model_domain() -> None:
+    c = opened()
+    revision = without_classes(c, 1)
+    ok(c.call("model.set", model_args("rigid", "c1", "ring-a", 0, 180, revision)))
+    land = ok(c.call("fit.landscape", {"points": 5}))
+    assert land["phi"] == [0.0, 45.0, 90.0, 135.0, 180.0]
+    assert "fixed ring-B labels" in land["estimand"]
+
+
+@pytest.mark.parametrize("points", [1, 0, -3, 1442])
+def test_the_landscape_refuses_bad_sample_counts(points: int) -> None:
+    error(opened().call("fit.landscape", {"points": points}), "INVALID_ARGUMENT", "points")
+
+
+def test_the_landscape_needs_a_project() -> None:
+    error(client(new_session()).call("fit.landscape"), "NO_PROJECT")
+
+
+def test_a_torsion_that_cannot_be_evaluated_is_a_gap_not_a_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    from dipolar_core.problem import Problem
+
+    original = Problem.inner
+
+    def inner(self: Problem, theta: np.ndarray) -> Any:
+        if abs(float(theta[0]) - 45.0) < 1e-9:
+            raise ValueError("two spins meet")
+        return original(self, theta)
+
+    monkeypatch.setattr(Problem, "inner", inner)
+    land = ok(opened().call("fit.landscape", {"points": 3}))
+    assert land["chi2"][1] is None and land["physically_admissible"][1] is None
+    assert land["chi2"][0] is not None and land["chi2"][2] is not None
+
+
+def test_readers_and_agents_may_read_the_landscape() -> None:
+    session = new_session()
+    ok(client(session).call("project.open_example", OPEN))
+    for principal in (VIEWER, AGENT):
+        assert ok(client(session, principal).call("fit.landscape", {"points": 2}))["phi"] == [0.0, 90.0]

@@ -1,12 +1,13 @@
 import type { KeyboardEvent } from "react";
 import { callOperation } from "../api";
 import { fixed } from "../format";
+import { waiting } from "../inbox";
 import { strings } from "../strings";
 import type { Studio, StudioState } from "../studio";
 import { adequacyLabel, Chip } from "./common";
 
-export type Workspace = "structure" | "data" | "fit";
-export const WORKSPACES: readonly Workspace[] = ["structure", "data", "fit"];
+export type Workspace = "structure" | "data" | "fit" | "proposals";
+export const WORKSPACES: readonly Workspace[] = ["structure", "data", "fit", "proposals"];
 
 /** The title bar: project, revisions, undo/redo, the feed's state and the workspace tabs. */
 export function TitleBar({
@@ -21,6 +22,7 @@ export function TitleBar({
   onWorkspace: (w: Workspace) => void;
 }) {
   const { view, history, busy } = state;
+  const pending = waiting(state.proposals, Date.now());
   const nextUndo = history?.undo[0];
   const nextRedo = history?.redo[0];
   const move = (name: "history.undo" | "history.redo") => {
@@ -60,10 +62,11 @@ export function TitleBar({
             aria-selected={w === workspace}
             aria-controls={`panel-${w}`}
             tabIndex={w === workspace ? 0 : -1}
-            className="tab"
+            className={w === "proposals" && pending > 0 ? "tab tab-attention" : "tab"}
+            title={w === "proposals" && pending > 0 ? strings.tabCountHelp(pending) : undefined}
             onClick={() => onWorkspace(w)}
           >
-            {strings.workspace[w]}
+            {w === "proposals" ? strings.tabCount(strings.workspace[w], pending) : strings.workspace[w]}
           </button>
         ))}
       </div>

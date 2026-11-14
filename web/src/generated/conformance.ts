@@ -6,6 +6,8 @@ import type { OperationInput } from "./contract";
 
 void ({"confirmed_mapping": {"H2": "spn_000001", "H3": "spn_000002"}, "csv": "spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H3,-1124.6,0.5\n", "expected_science_revision": 1} satisfies OperationInput<"couplings.import">); // example 0
 void ({"csv": "spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H3,-1124.6,0.5\n"} satisfies OperationInput<"couplings.reconcile">); // example 0
+void ({} satisfies OperationInput<"fit.landscape">); // example 0
+void ({"points": 91} satisfies OperationInput<"fit.landscape">); // example 1
 void ({"phi": {"unit": "deg", "value": 37.0}} satisfies OperationInput<"fit.preview">); // example 0
 void ({"expected_science_revision": 1} satisfies OperationInput<"fit.run">); // example 0
 void ({"expected_science_revision": 1, "intervals": true} satisfies OperationInput<"fit.run">); // example 1

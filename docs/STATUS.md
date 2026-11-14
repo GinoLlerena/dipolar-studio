@@ -1,5 +1,16 @@
 # Status
 
+**M3 step 3 (the proposal inbox, live preview, the landscape) is done (pending review).**
+- **The proposal inbox:** a Proposals workspace follows the feed; each proposal shows its note
+  and arguments as text, a dependency-closed choice of steps, and a dry run of exactly the
+  acceptance before Accept; stale, expired and decided proposals say why they cannot be accepted.
+- **Live preview:** a φ slider with one `fit.preview` in flight and only the newest position
+  waiting; it follows science changes and shows its response p95.
+- **The landscape:** `fit.landscape` (new; contract 0.8.0) samples the preview's χ² over the
+  torsion domain; the page draws it on a log axis with the previewed and fitted φ.
+
+See [round47-m3-step3.md](validation/round47-m3-step3.md).
+
 **Interval warm starts are done: tag `interval-warm-starts`.** Profile intervals are first searched with
 continuation: each re-minimization starts where it ended at the nearest value already computed,
 instead of at its basin (`FIT_VERSION` varpro-trf.9). Continuation can only overstate χ², so the
@@ -235,23 +246,26 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: M3 step 3 or step 4 (the owner chooses)
+## Resume here: M3 step 4 (Playwright, performance)
 
-**Stopping point: tag `interval-warm-starts`.** Earlier stopping points: `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
+**Stopping point: tag `m3-step3`.** Earlier stopping points: `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
 `m2-exit-audit`, and one tag per step before them. To resume:
 
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 806 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 820 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
-   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 37 web tests
+   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 53 web tests
    ```
 
 2. **Next, as the owner chose (2026-11-13):**
    - ~~journal compaction~~: done (tag `journal-compaction`);
    - ~~interval warm starts~~: done (tag `interval-warm-starts`);
-   - then M3 step 3 (the proposal inbox and live preview) and step 4 (Playwright, performance).
+   - ~~M3 step 3~~ (the proposal inbox, live preview, the landscape): done (tag `m3-step3`);
+   - then M3 step 4: Playwright on Chromium, Firefox and WebKit; the robot tutorial; the preview
+     p95 target on named hardware (the page already records response times); virtualised large
+     tables; the two store fixes from step 1 that need a browser test.
 3. Work under the medium plan (below): at most two review rounds per step, a fresh session per
    step.
 4. **When the registry changes,** regenerate the snapshot, then run
@@ -914,6 +928,23 @@ See [round35-m2-step4.md](validation/round35-m2-step4.md).
 - **Formats:** strict ASCII decimals in CSV values and XYZ coordinates (and the atom count).
 - **Tests:** 780 Python, 37 web (formatter, feed, camera, reconciliation). Driven by hand in
   Chromium, including a robot-set camera and import → undo making the run current again.
+
+### Step 3: the proposal inbox, live preview, the landscape
+
+- **Inbox** (`ui/InboxWorkspace.tsx`, `inbox.ts`): `proposals` is a page resource
+  (`proposal.list`), re-read on `proposal` and science feed lines; the Proposals tab counts the
+  waiting ones. Note, arguments and reasons are shown as text. Steps are chosen
+  dependency-closed. A dry run of `proposal.accept` with exactly the chosen steps
+  (`Studio.dryRun`, shown in place, never in the error banner) lists what would change, by label,
+  plus the fit jobs the steps would start. Expiry is also judged by the page's clock.
+- **Live preview** (`preview.ts` `LatestOnly`, `PreviewPane`): one request in flight, the newest
+  position waiting; it starts at the fit's φ or the landscape's lowest sample, follows science
+  changes, and shows the response p95 of the last 200 previews.
+- **Landscape** (`fit.landscape`, contract 0.8.0; `LandscapePlot`): χ²(φ) at evenly spaced
+  torsions on a log axis, with the previewed and fitted φ, inadmissible ticks, click to preview,
+  and a table of every sample.
+- **Tests:** 53 web (inbox and preview helpers added); `fit.landscape` in the Python tests and the
+  cross-adapter contract test. Driven by hand in Chromium with an agent token proposing.
 
 ## The small batch (after M2)
 

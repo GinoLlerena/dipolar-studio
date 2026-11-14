@@ -1,12 +1,12 @@
 // GENERATED FILE: do not edit. Regenerate with `uv run python tools/codegen/ts_contract.py`.
-// Source: packages/dipolar-app/registry.snapshot.json (sha256 437169ae0d35eed85a62d6e607d46716e4272248076c786dbf0f3fe606f4de3e).
+// Source: packages/dipolar-app/registry.snapshot.json (sha256 9ff3b707d2e8954aa752671be626584d544f94e45226448320a2aa85c573e2a4).
 // CI fails if this file is stale (tests/test_ts_contract.py).
 //
 // Value constraints that TypeScript cannot express (bounds, lengths, patterns) appear as doc
 // comments; the server enforces them.
 /* eslint-disable */
 
-export const CONTRACT_VERSION = "0.7.0";
+export const CONTRACT_VERSION = "0.8.0";
 
 /** Any JSON value. */
 export type JsonValue =
@@ -608,6 +608,29 @@ export type ReconcileOut = {
   unresolved_pairs: string[];
 };
 
+/** `fit.landscape` input. */
+export type LandscapeIn = {
+  /** integer, minimum 2, maximum 1441, default 181 */
+  points?: number;
+};
+
+/** `fit.landscape` output. */
+export type LandscapeOut = {
+  chi2: (number | null)[];
+  estimand: string;
+  model: ModelOut;
+  /** integer */
+  n_obs: number;
+  numerical_context: { [key: string]: string | number };
+  phi: number[];
+  physically_admissible: (boolean | null)[];
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+  statement: string;
+  unit: "deg";
+};
+
 /** `fit.preview` input. */
 export type PreviewIn = {
   phi: Degrees;
@@ -1121,6 +1144,8 @@ export interface Operations {
   "couplings.import": { input: ImportCouplingsIn; output: ImportCouplingsOut };
   /** Read a couplings CSV against the project: the proposed label mapping and the diff (no change). */
   "couplings.reconcile": { input: ReconcileIn; output: ReconcileOut };
+  /** The fit.preview χ² sampled at evenly spaced torsions over the model domain (the landscape). */
+  "fit.landscape": { input: LandscapeIn; output: LandscapeOut };
   /** Preview the fit at a fixed torsion: order parameters re-solved, predictions and residuals. */
   "fit.preview": { input: PreviewIn; output: PreviewOut };
   /** Submit the D3 fit of the current project as a job (estimates, validity, adequacy, and optional profile intervals under the reporting policy). Returns the job at once; read the run with job.wait and run.get. */
@@ -1236,6 +1261,7 @@ export type Exact<T, A> = false extends ExactOK<T, A> ? never : unknown;
 export const OPERATIONS = {
   "couplings.import": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
   "couplings.reconcile": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "fit.landscape": { kind: "query", effect: "none", capability: "preview", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "fit.preview": { kind: "query", effect: "none", capability: "preview", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "fit.run": { kind: "command", effect: "compute", capability: "compute_job", cost: "job", idempotent: false, revision_check: "expected_science_revision (required): the job computes from that state", max_request_bytes: 1048576, proposable: true },
   "history.log": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },

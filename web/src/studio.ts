@@ -19,6 +19,8 @@ import {
   type LogOut,
   type OperationName,
   type OperationOutput,
+  type ProposalOut,
+  type DryRunReport,
   type RunOut,
   type SceneOut,
   streamEvents,
@@ -38,6 +40,8 @@ export interface StudioState {
   history: LogOut | null;
   runs: RunOut[];
   jobs: JobOut[];
+  /** Every proposal of the session, pending and decided (proposal.list). */
+  proposals: ProposalOut[];
   /** Fit results by run ID. A run's result is immutable (stored by content hash). */
   results: Readonly<Record<string, FitRunOut>>;
   /** Runs whose result could not be read; retried on every (re)connection or on request. */
@@ -57,7 +61,9 @@ const MAX_LATE_RETRIES = 5;
 function readsAfter(name: OperationName): Resource[] {
   switch (OPERATIONS[name].effect) {
     case "model":
-      return ["project", "history", "view", "runs", "jobs", "scene"];
+      return ["project", "history", "view", "runs", "jobs", "scene", "proposals"];
+    case "proposal":
+      return ["proposals"];
     case "view":
       return ["view", "scene"];
     case "compute":
@@ -76,6 +82,7 @@ export class Studio {
     history: null,
     runs: [],
     jobs: [],
+    proposals: [],
     results: {},
     failedResults: {},
     error: null,
@@ -252,7 +259,56 @@ export class Studio {
         this.set({ jobs: listed.jobs });
         return true;
       }
+      case "proposals": {
+        const listed = await this.run((t) => callOperation("proposal.list", {}, t));
+        if (!listed) return true;
+        if (!this.seen.accept(listed.science_revision)) return false;
+        this.set({ proposals: listed.proposals });
+        return true;
+      }
     }
+  }
+
+  /** The newest science revision seen in any response or feed line. */
+  get newestScienceRevision(): number {
+    return this.seen.science;
+  }
+
+  /** A dry run of a command: what it would change, or the error it would fail with. Nothing is
+   * shown in the page's error banner; the caller shows the outcome where it belongs. */
+  async dryRun<N extends OperationName>(
+    call: (token: string) => Promise<Envelope<N>>,
+  ): Promise<{ report: DryRunReport; error: null } | { report: null; error: ErrorBody }> {
+    let envelope: Envelope<N>;
+    try {
+      envelope = await call(this.token);
+    } catch {
+      return {
+        report: null,
+        error: {
+          code: "INTERNAL",
+          message: "could not reach dipolar serve",
+          offending_field: null,
+          hint: "check that dipolar serve is still running",
+          details: {},
+        },
+      };
+    }
+    if (!envelope.ok) {
+      if (envelope.error.code === "UNAUTHENTICATED") {
+        this.stop();
+        this.set({ connection: "needs-launch", error: envelope.error });
+        this.onLostSession(envelope.error);
+      }
+      return { report: null, error: envelope.error };
+    }
+    if (envelope.dry_run === null) {
+      return {
+        report: null,
+        error: { code: "INTERNAL", message: "the server did not report a dry run", offending_field: null, hint: null, details: {} },
+      };
+    }
+    return { report: envelope.dry_run, error: null };
   }
 
   /** Fetches a run's result once; it never changes, so it is kept. A failed read is recorded
