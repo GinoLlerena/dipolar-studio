@@ -21,6 +21,7 @@ import {
   type OperationOutput,
   type ProposalOut,
   type DryRunReport,
+  type Revisions,
   type RunOut,
   type SceneOut,
   streamEvents,
@@ -274,17 +275,25 @@ export class Studio {
     return this.seen.science;
   }
 
+  /** The newest workspace revision seen in any response or feed line. */
+  get newestWorkspaceRevision(): number {
+    return this.seen.workspace;
+  }
+
   /** A dry run of a command: what it would change, or the error it would fail with. Nothing is
    * shown in the page's error banner; the caller shows the outcome where it belongs. */
   async dryRun<N extends OperationName>(
     call: (token: string) => Promise<Envelope<N>>,
-  ): Promise<{ report: DryRunReport; error: null } | { report: null; error: ErrorBody }> {
+  ): Promise<
+    { report: DryRunReport; revisions: Revisions; error: null } | { report: null; revisions: null; error: ErrorBody }
+  > {
     let envelope: Envelope<N>;
     try {
       envelope = await call(this.token);
     } catch {
       return {
         report: null,
+        revisions: null,
         error: {
           code: "INTERNAL",
           message: "could not reach dipolar serve",
@@ -300,15 +309,18 @@ export class Studio {
         this.set({ connection: "needs-launch", error: envelope.error });
         this.onLostSession(envelope.error);
       }
-      return { report: null, error: envelope.error };
+      return { report: null, revisions: null, error: envelope.error };
     }
     if (envelope.dry_run === null) {
       return {
         report: null,
+        revisions: null,
         error: { code: "INTERNAL", message: "the server did not report a dry run", offending_field: null, hint: null, details: {} },
       };
     }
-    return { report: envelope.dry_run, error: null };
+    // `revisions` are the state's when the dry run was planned (not the would-be ones): what an
+    // acceptance must still find for it to do what the dry run showed (round 47).
+    return { report: envelope.dry_run, revisions: envelope.revisions, error: null };
   }
 
   /** Fetches a run's result once; it never changes, so it is kept. A failed read is recorded

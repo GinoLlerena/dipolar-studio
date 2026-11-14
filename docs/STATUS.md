@@ -9,7 +9,10 @@
 - **The landscape:** `fit.landscape` (new; contract 0.8.0) samples the preview's χ² over the
   torsion domain; the page draws it on a log axis with the previewed and fitted φ.
 
-See [round47-m3-step3.md](validation/round47-m3-step3.md).
+Round 47 returned NOT READY (five class-(A) findings: an acceptance could differ from its dry
+run in the workspace; a narrowed domain; a landscape refused for one torsion; all-zero χ²; a
+negative φ in the field); all were fixed and mutation-checked or checked in Chromium. See
+[round47-m3-step3.md](validation/round47-m3-step3.md).
 
 **Interval warm starts are done: tag `interval-warm-starts`.** Profile intervals are first searched with
 continuation: each re-minimization starts where it ended at the nearest value already computed,
@@ -254,9 +257,9 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 820 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 823 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
-   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 53 web tests
+   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 55 web tests
    ```
 
 2. **Next, as the owner chose (2026-11-13):**

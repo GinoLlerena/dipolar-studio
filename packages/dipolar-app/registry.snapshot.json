@@ -4035,6 +4035,20 @@
       "input_schema": {
         "additionalProperties": false,
         "properties": {
+          "expected_workspace_revision": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expected Workspace Revision"
+          },
           "proposal_id": {
             "pattern": "^prp_[0-9]{6}$",
             "title": "Proposal Id",
@@ -4258,7 +4272,7 @@
         "type": "object"
       },
       "proposable": false,
-      "revision_check": "the proposal's base science revision must be current (else PROPOSAL_STALE)",
+      "revision_check": "the proposal's base science revision must be current (else PROPOSAL_STALE); expected_workspace_revision (optional) must be current (else REVISION_CONFLICT)",
       "summary": "Accept a pending proposal (human only): all steps, or a dependency-closed subset, applied atomically as one transaction."
     },
     {

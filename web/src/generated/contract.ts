@@ -1,5 +1,5 @@
 // GENERATED FILE: do not edit. Regenerate with `uv run python tools/codegen/ts_contract.py`.
-// Source: packages/dipolar-app/registry.snapshot.json (sha256 9ff3b707d2e8954aa752671be626584d544f94e45226448320a2aa85c573e2a4).
+// Source: packages/dipolar-app/registry.snapshot.json (sha256 38f80a54a71ab14a023cbaab8f02b71216fc1bcee701ababcf278c3b7687a65a).
 // CI fails if this file is stale (tests/test_ts_contract.py).
 //
 // Value constraints that TypeScript cannot express (bounds, lengths, patterns) appear as doc
@@ -917,6 +917,8 @@ export type OpenExampleOut = {
 
 /** `proposal.accept` input. */
 export type AcceptIn = {
+  /** default null */
+  expected_workspace_revision?: number | null;
   /** pattern "^prp_[0-9]{6}$" */
   proposal_id: string;
   /** default null */
@@ -1278,7 +1280,7 @@ export const OPERATIONS = {
   "project.import_xyz": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
   "project.load": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 34603008, proposable: true },
   "project.open_example": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
-  "proposal.accept": { kind: "command", effect: "model", capability: "approve", cost: "instant", idempotent: false, revision_check: "the proposal's base science revision must be current (else PROPOSAL_STALE)", max_request_bytes: 1048576, proposable: false },
+  "proposal.accept": { kind: "command", effect: "model", capability: "approve", cost: "instant", idempotent: false, revision_check: "the proposal's base science revision must be current (else PROPOSAL_STALE); expected_workspace_revision (optional) must be current (else REVISION_CONFLICT)", max_request_bytes: 1048576, proposable: false },
   "proposal.create": { kind: "command", effect: "proposal", capability: "propose", cost: "instant", idempotent: false, revision_check: "each step's own expected_science_revision: step i expects base + i", max_request_bytes: 35651584, proposable: false },
   "proposal.get": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "proposal.list": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },

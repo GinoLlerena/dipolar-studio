@@ -177,7 +177,21 @@ export function LandscapePlot({
       decades: Array.from({ length: range.hi - range.lo + 1 }, (_, i) => range.lo + i),
     };
   }, [xs, chi2]);
-  if (scale === null) return <p className="muted">{strings.landscapeEmpty}</p>;
+  const table = (
+    <details onToggle={(e) => setTableOpen(e.currentTarget.open)}>
+      <summary>{strings.landscapeTable(xs.length)}</summary>
+      {tableOpen && <LandscapeTable landscape={landscape} />}
+    </details>
+  );
+  if (scale === null) {
+    // Nothing to draw (no sample could be evaluated); the samples are still listed (round 47).
+    return (
+      <figure className="plot landscape">
+        <p className="muted">{strings.landscapeEmpty}</p>
+        {table}
+      </figure>
+    );
+  }
   const { lo, hi, x, y, path, best, decades } = scale;
   const inner = LAND_INNER;
   const pick = (e: MouseEvent<SVGSVGElement>) => {
@@ -251,35 +265,38 @@ export function LandscapePlot({
         {strings.landscapeCaption}
         {landscape.physically_admissible.some((ok) => ok === false) && ` ${strings.landscapeInadmissible}`}
       </figcaption>
-      <details onToggle={(e) => setTableOpen(e.currentTarget.open)}>
-        <summary>{strings.landscapeTable(xs.length)}</summary>
-        {tableOpen && <div className="scroll short">
-          <table className="grid compact">
-            <thead>
-              <tr>
-                <th className="num">φ (°)</th>
-                <th className="num">χ²</th>
-                <th>{strings.colAdmissible}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {xs.map((v, i) => (
-                <tr key={v}>
-                  <td className="num">{fixed(v, 2)}</td>
-                  <td className="num">{chi2[i] === null ? strings.notEvaluable : fixed(chi2[i] ?? 0, 2)}</td>
-                  <td>
-                    {landscape.physically_admissible[i] === null
-                      ? "–"
-                      : landscape.physically_admissible[i]
-                        ? strings.yes
-                        : strings.no}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>}
-      </details>
+      {table}
     </figure>
+  );
+}
+
+/** Every landscape sample: the chart's alternative (rendered only while its details are open). */
+function LandscapeTable({ landscape }: { landscape: LandscapeOut }) {
+  const { phi: xs, chi2, physically_admissible: admissible } = landscape;
+  return (
+    <div className="scroll short">
+      <table className="grid compact">
+        <thead>
+          <tr>
+            <th className="num">φ (°)</th>
+            <th className="num">χ²</th>
+            <th>{strings.colAdmissible}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {xs.map((v, i) => {
+            const c = chi2[i] ?? null;
+            const ok = admissible[i] ?? null;
+            return (
+              <tr key={v}>
+                <td className="num">{fixed(v, 2)}</td>
+                <td className="num">{c === null ? strings.notEvaluable : fixed(c, 2)}</td>
+                <td>{ok === null ? "–" : ok ? strings.yes : strings.no}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

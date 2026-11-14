@@ -651,3 +651,31 @@ def test_readers_and_agents_may_read_the_landscape() -> None:
     ok(client(session).call("project.open_example", OPEN))
     for principal in (VIEWER, AGENT):
         assert ok(client(session, principal).call("fit.landscape", {"points": 2}))["phi"] == [0.0, 90.0]
+
+
+def test_a_collision_at_the_domain_midpoint_is_a_gap_not_a_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 47 (A): fit.landscape built its problem through the readiness check, which evaluates
+    the domain's ends and midpoint, so one unevaluable torsion there refused the whole landscape
+    (PROJECT_NOT_READY). Only a structural problem refuses it now; the torsion is a gap, and a
+    preview elsewhere still answers."""
+    from dipolar_core.problem import Problem
+
+    original = Problem.checked_design
+
+    def checked(self: Problem, theta: np.ndarray) -> Any:
+        if abs(float(theta[0]) - 45.0) < 1e-9:
+            raise ValueError("spins 1 and 2 coincide at this torsion")
+        return original(self, theta)
+
+    monkeypatch.setattr(Problem, "checked_design", checked)
+    c = opened()
+    land = ok(c.call("fit.landscape", {"points": 3}))
+    assert land["chi2"][1] is None and None not in (land["chi2"][0], land["chi2"][2])
+    assert ok(c.call("fit.preview", {"phi": deg(30.0)}))["chi2"] > 0
+    error(c.call("fit.preview", {"phi": deg(45.0)}), "PROJECT_NOT_READY")  # that torsion, not the project
+
+
+def test_the_landscape_of_a_project_missing_its_torsion_is_refused() -> None:
+    c = client(new_session())
+    ok(c.call("project.import_xyz", {"xyz": ETHANE_XYZ, "name": "ethane", "expected_science_revision": 0}))
+    error(c.call("fit.landscape"), "PROJECT_NOT_READY")

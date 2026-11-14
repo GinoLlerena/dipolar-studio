@@ -62,6 +62,53 @@ the two processes, consistent with D11), `web/tests/inbox.test.ts` and `preview.
 expiry, blockers, dependency closure, argument text, change lines; one request in flight, the
 newest waiting, failures, bounded timings, p95, snapping, the log axis and the path's gaps).
 
-## Round 47
+## Round 47: NOT READY (five A, one B), on commit a5e5bf0
+
+The reviewer's run: 53 web tests, TypeScript, 67 targeted Python tests and the generated contract
+passed.
+
+1. **(A) Acceptance could do what the dry run did not show.** The dry run was refreshed on science
+   changes only. Reproduced: a dry run of `project.open_example` with nothing selected (no
+   selection change shown); an agent then selects a coupling (a workspace change, the science
+   unchanged); Accept stayed enabled and cleared that selection unseen.
+   **Fix:** the dry run is also refreshed on workspace changes, and `proposal.accept` takes an
+   optional `expected_workspace_revision` (refused with REVISION_CONFLICT otherwise, as
+   `view.set_camera` since round 42). The page sends the workspace revision its dry run was
+   planned at (the envelope's `revisions`), so what is accepted is what was shown: the steps
+   chosen, the science (pinned by the proposal's base revision) and the workspace.
+2. **(A) A narrowed domain could leave the preview out of bounds.** The refresh after a science
+   change ran when the view's new revision arrived, possibly before `project.describe`'s new
+   domain, and clamped to the old bounds. **Fix:** the bounds are dependencies of the refresh too,
+   so the preview is clamped again when the domain arrives.
+3. **(A) One unevaluable torsion refused the whole landscape.** The problem was built through the
+   readiness check, which evaluates the domain's ends and midpoint. **Fix:** `fit.landscape` and
+   `fit.preview` build the problem without evaluating it (`_structural_problem`); they are
+   refused only for what is structurally missing, and an unevaluable torsion is a gap in the
+   landscape or that preview's refusal. `fit.run` keeps the readiness check.
+4. **(A) An all-zero landscape was reported as unevaluable**, and its table hidden. **Fix:** only
+   zeros draw at the floor of a 10⁰–10¹ axis; when nothing can be drawn the table is still shown.
+5. **(A) Editing a negative φ silently failed:** the field showed `fixed()`'s typographic minus,
+   which `Number()` does not parse. **Fix:** the field shows plain ASCII (`inputText`), and
+   `parseAngle` accepts the typographic minus and a leading plus, and refuses anything else (no
+   exponents, separators or non-ASCII digits).
+
+**(B) Landscape cost on large projects.** 1 441 samples bound the solves, but each scales with the
+number of couplings (up to 100 000), and every tier may ask. Benchmarking large projects and a
+workload limit belong to M3 step 4's performance work.
+
+**Tests:** `test_an_acceptance_is_refused_if_the_workspace_moved_since_the_dry_run` (the
+reviewer's scenario: the stale workspace revision is refused, a fresh dry run shows the selection
+cleared, and the acceptance at its revision applies);
+`test_a_collision_at_the_domain_midpoint_is_a_gap_not_a_refusal`; a project without its torsion
+is still refused; web tests for an all-zero landscape and the φ field's text.
+**Mutation checks** (each makes a test fail): no workspace check; the landscape built through the
+readiness check; zeros not drawable; no typographic-minus normalisation. Findings 1 (the page's
+refresh) and 2 (an effect's dependencies) are React wiring without a browser test yet (M3 step 4);
+both were checked in Chromium: after an agent's selection the dry run changed to "The selection is
+cleared" and Accept sent the new revision; narrowing [0°, 180°] to [0°, 90°] while previewing 120°
+clamped the slider, the field and the preview to 90° (the one preview sent before the new domain
+arrived was refused with OUT_OF_DOMAIN, shown nowhere, and superseded).
+
+## Round 48
 
 (pending)

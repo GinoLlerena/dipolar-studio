@@ -9,7 +9,7 @@ import {
   type PreviewOut,
   type RunOut,
 } from "../api";
-import { LatestOnly, lowest, p95, snap } from "../preview";
+import { inputText, LatestOnly, lowest, p95, parseAngle, snap } from "../preview";
 import { atPlace, decimalsFor, fixed, hz, pValue, residualHz, scientific, signed, withUncertainty } from "../format";
 import { strings } from "../strings";
 import type { Studio, StudioState } from "../studio";
@@ -505,7 +505,7 @@ function PreviewPane({ studio, state }: Props) {
   const go = (value: number) => {
     const v = snap(value, lo, hi, PHI_STEP);
     setPhi(v);
-    setText(fixed(v, 1));
+    setText(inputText(v));
     live.ask(v);
   };
 
@@ -527,10 +527,12 @@ function PreviewPane({ studio, state }: Props) {
     const start = fitted ?? (land ? lowest(land.phi, land.chi2)?.phi : undefined);
     if (start !== undefined) go(start);
   }, [fitted, land]);
-  // After a science change, preview the same φ again (clamped: the domain may have changed).
+  // After a science change, preview the same φ again; and clamp it again when the domain arrives
+  // (round 47: the view's new revision can arrive before project.describe's new domain, so the
+  // bounds are dependencies too).
   useEffect(() => {
     if (phi !== null) go(phi);
-  }, [revision]);
+  }, [revision, lo, hi]);
 
   const preview = shown?.out ?? null;
   const stale = preview !== null && view !== null && preview.science_revision !== view.science_revision;
@@ -538,10 +540,9 @@ function PreviewPane({ studio, state }: Props) {
   const selected = useMemo(() => new Set(selection === "" ? [] : selection.split(" ")), [selection]);
   const timing = p95(live.timings);
   const commitText = () => {
-    const value = Number(text.trim());
-    if (text.trim() !== "" && Number.isFinite(value)) {
-      go(value);
-    } else if (phi !== null) setText(fixed(phi, 1));
+    const value = parseAngle(text);
+    if (value !== null) go(value);
+    else if (phi !== null) setText(inputText(phi));
   };
 
   return (

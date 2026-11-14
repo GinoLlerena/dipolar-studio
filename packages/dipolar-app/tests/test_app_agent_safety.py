@@ -656,3 +656,33 @@ def test_another_document_clears_the_selection() -> None:
     ok(c.call("view.select", {"ids": ["spn_000001"]}))
     ok(c.call("project.load", {"text": exported, "expected_science_revision": 4}))
     assert s.state.view.selection == ()
+
+
+def test_an_acceptance_is_refused_if_the_workspace_moved_since_the_dry_run() -> None:
+    """Round 47 (A): opening a project clears the selection. A page dry-ran the acceptance with an
+    empty selection (no selection change shown); meanwhile an agent selected a coupling without
+    changing the science. Accepting would have cleared it unseen. With the workspace revision the
+    dry run saw, the acceptance is refused; with the current one it applies."""
+    s, c = opened()
+    agent = client(s, AGENT)
+    revision = ok(c.call("render.describe_view"))["science_revision"]
+    created = ok(
+        agent.call(
+            "proposal.create",
+            {"steps": [{"operation": "project.open_example", "args": {**OPEN, "expected_science_revision": revision}}]},
+        )
+    )["proposal"]
+    dry = c.call("proposal.accept", {"proposal_id": created["id"]}, dry_run=True)
+    assert dry["ok"] and dry["dry_run"]["selection_after"] is None  # nothing selected: no change shown
+    seen = dry["revisions"]["workspace"]
+    ok(agent.call("view.select", {"ids": ["cpl_000001"]}))
+    error(
+        c.call("proposal.accept", {"proposal_id": created["id"], "expected_workspace_revision": seen}),
+        "REVISION_CONFLICT",
+        "expected_workspace_revision",
+    )
+    again = c.call("proposal.accept", {"proposal_id": created["id"]}, dry_run=True)
+    assert again["dry_run"]["selection_after"] == []  # the dry run now shows the selection cleared
+    now = again["revisions"]["workspace"]
+    accepted = ok(c.call("proposal.accept", {"proposal_id": created["id"], "expected_workspace_revision": now}))
+    assert accepted["proposal"]["status"] == "accepted"

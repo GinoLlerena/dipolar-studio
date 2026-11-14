@@ -1,7 +1,7 @@
 // Live preview helpers (src/preview.ts), under Node's test runner.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { KEPT_TIMINGS, LatestOnly, landscapePath, logRange, lowest, nearest, p95, snap } from "../src/preview.ts";
+import { inputText, KEPT_TIMINGS, LatestOnly, landscapePath, logRange, lowest, nearest, p95, parseAngle, snap } from "../src/preview.ts";
 
 /** A fetch whose answers the test releases by hand. */
 function manual() {
@@ -96,11 +96,25 @@ test("the log axis spans whole decades; zero χ² sits at the floor", () => {
   assert.deepEqual(logRange([12, 3400, null]), { lo: 1, hi: 4 });
   assert.deepEqual(logRange([100, 100]), { lo: 2, hi: 3 });
   assert.deepEqual(logRange([0, 50]), { lo: 1, hi: 2 });
-  assert.equal(logRange([0, null]), null);
+  assert.deepEqual(logRange([0, null]), { lo: 0, hi: 1 });
 });
 
 test("the landscape path breaks where χ² could not be evaluated", () => {
   const path = landscapePath([0, 1, 2, 3, 4], [1, 2, null, 4, 5], (p) => p * 10, (c) => c);
   assert.equal(path, "M0,1L10,2 M30,4L40,5");
   assert.equal(landscapePath([0], [null], (p) => p, (c) => c), "");
+});
+
+test("only zeros still draw, at the floor; only gaps do not (round 47)", () => {
+  assert.deepEqual(logRange([0, 0, 0]), { lo: 0, hi: 1 });
+  assert.equal(logRange([null, null]), null);
+});
+
+test("the φ field: ASCII text that parses back, the typographic minus accepted (round 47)", () => {
+  assert.equal(inputText(-25), "-25.0");
+  assert.equal(parseAngle(inputText(-25.1)), -25.1);
+  assert.equal(parseAngle("−25.1"), -25.1); // U+2212, as `fixed` writes it
+  assert.equal(parseAngle(" +37 "), 37);
+  assert.equal(parseAngle(".5"), 0.5);
+  for (const bad of ["", "abc", "1e3", "Infinity", "1_0", "١٢", "--1", "1.2.3"]) assert.equal(parseAngle(bad), null, bad);
 });

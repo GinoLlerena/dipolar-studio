@@ -272,6 +272,22 @@ def _problem(project: Project) -> Problem:
     return problem_for(project)
 
 
+def _structural_problem(project: Project) -> Problem:
+    """The project's problem without evaluating it anywhere: refused only when something is
+    missing (no torsion, no couplings, an unsupported domain). For the queries that evaluate one
+    torsion at a time (fit.preview, fit.landscape), a torsion where the model cannot be evaluated is
+    that torsion's problem, not the project's (round 47: a collision at the domain's midpoint used
+    to refuse the whole landscape)."""
+    try:
+        return problem_for(project)
+    except ValueError as exc:
+        raise OperationError(
+            ErrorCode.PROJECT_NOT_READY,
+            f"the project cannot be fitted yet: {exc}",
+            hint="project.describe reports what is missing",
+        ) from None
+
+
 def _not_evaluable(exc: ValueError) -> OperationError:
     """A model that fails to evaluate somewhere in its domain (for example, two spins meeting at
     one torsion): a structured error, never an internal one (round 27)."""
@@ -486,7 +502,7 @@ def fit_preview(ctx: Context, p: PreviewIn) -> PreviewOut:
             offending_field="phi.value",
             hint="the torsion domain is set by model.set; see the estimand for the equivalent angles",
         )
-    problem = _problem(project)
+    problem = _structural_problem(project)
     try:
         sol = problem.inner(np.array([p.phi.value]))
     except ValueError as exc:
@@ -547,7 +563,7 @@ def fit_landscape(ctx: Context, p: LandscapeIn) -> LandscapeOut:
     state = ctx.read()
     project = require_project(state)
     lo, hi = project.model.phi_domain_deg
-    problem = _problem(project)
+    problem = _structural_problem(project)
     phis = [float(v) for v in np.linspace(lo, hi, p.points)]
     chi2: list[float | None] = []
     admissible: list[bool | None] = []

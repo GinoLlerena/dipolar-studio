@@ -101,10 +101,14 @@ export function lowest(phi: readonly number[], chi2: readonly (number | null)[])
 }
 
 /** The landscape's vertical axis is log₁₀ χ²: χ² spans decades between the minimum and the far
- * torsions, and the minimum is what matters. A χ² of zero (noiseless data) is drawn at the floor. */
+ * torsions, and the minimum is what matters. A χ² of zero (noiseless data) is drawn at the floor;
+ * null only when no sample could be evaluated. */
 export function logRange(chi2: readonly (number | null)[]): { lo: number; hi: number } | null {
   const positive = chi2.filter((c): c is number => c !== null && c > 0);
-  if (positive.length === 0) return null;
+  if (positive.length === 0) {
+    // Only zeros (an exact fit everywhere, round 47) still draw, at the floor; only gaps do not.
+    return chi2.some((c) => c !== null) ? { lo: 0, hi: 1 } : null;
+  }
   let lo = Math.floor(Math.log10(Math.min(...positive)));
   let hi = Math.ceil(Math.log10(Math.max(...positive)));
   if (hi <= lo) hi = lo + 1;
@@ -130,4 +134,18 @@ export function landscapePath(
     pen = true;
   });
   return path;
+}
+
+/** The φ field's text: plain ASCII, so that it can be edited and parsed again (round 47: the
+ * typographic minus of `fixed` is not a number to `Number`). */
+export function inputText(phi: number): string {
+  return phi.toFixed(1);
+}
+
+/** A typed angle, accepting the typographic minus and a leading plus; null when not a number. */
+export function parseAngle(text: string): number | null {
+  const plain = text.trim().replace(/^[\u2212\u2013]/, "-");
+  if (!/^[+-]?(\d+\.?\d*|\.\d+)$/.test(plain)) return null;
+  const value = Number(plain);
+  return Number.isFinite(value) ? value : null;
 }

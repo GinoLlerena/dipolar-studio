@@ -128,7 +128,13 @@ function when(iso: string): string {
   return Number.isFinite(t) ? new Date(t).toLocaleString() : iso;
 }
 
-type DryRun = { key: string; report: DryRunReport | null; error: ErrorBody | null };
+type DryRun = {
+  key: string;
+  report: DryRunReport | null;
+  /** The workspace revision the dry run was planned at; the acceptance expects it (round 47). */
+  workspace: number | null;
+  error: ErrorBody | null;
+};
 
 function ProposalDetail({
   studio,
@@ -158,7 +164,10 @@ function ProposalDetail({
 
   // A dry run of exactly the acceptance the button would send, again whenever the choice, the
   // science or the proposal changes; only the latest answer is shown.
-  const key = `${p.id}|${chosen.join(",")}|${revision}|${p.status}|${p.stale}`;
+  // The workspace is part of it: a selection change alters what an acceptance does to the view
+  // without changing the science (round 47).
+  const workspace = Math.max(state.view?.workspace_revision ?? 0, studio.newestWorkspaceRevision);
+  const key = `${p.id}|${chosen.join(",")}|${revision}|${workspace}|${p.status}|${p.stale}`;
   const latest = useRef(key);
   latest.current = key;
   useEffect(() => {
@@ -169,7 +178,9 @@ function ProposalDetail({
     void studio
       .dryRun((t) => callOperation("proposal.accept", { proposal_id: p.id, steps: chosen }, t, { dry_run: true }))
       .then((r) => {
-        if (latest.current === key) setDry({ key, ...r });
+        if (latest.current === key) {
+          setDry({ key, report: r.report, workspace: r.revisions?.workspace ?? null, error: r.error });
+        }
       });
   }, [key]); // the key names everything the dry run depends on
 
@@ -181,8 +192,12 @@ function ProposalDetail({
   const wouldFail = checked && dry.error !== null;
 
   const accept = async () => {
+    if (!checked || dry.workspace === null) return;
+    // Exactly what the dry run showed: these steps, at the science the proposal was made for (the
+    // server requires it) and at the workspace revision the dry run saw.
+    const expected = dry.workspace;
     const done = await studio.command("proposal.accept", (t) =>
-      callOperation("proposal.accept", { proposal_id: p.id, steps: chosen }, t),
+      callOperation("proposal.accept", { proposal_id: p.id, steps: chosen, expected_workspace_revision: expected }, t),
     );
     if (done) {
       const jobs = done.results.filter((r) => r.operation === "fit.run").length;
@@ -342,7 +357,7 @@ function ProposalDetail({
             <button
               type="button"
               className="primary"
-              disabled={blocker !== null || !checked || wouldFail || state.busy !== null}
+              disabled={blocker !== null || !checked || wouldFail || dry?.workspace === null || state.busy !== null}
               onClick={() => void accept()}
             >
               {strings.acceptButton(chosen.length, p.steps.length)}

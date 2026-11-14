@@ -423,7 +423,10 @@ def _register_proposals(registry: Registry) -> None:
             input_model=P.AcceptIn,
             output_model=P.AcceptOut,
             handler=P.proposal_accept,
-            revision_check="the proposal's base science revision must be current (else PROPOSAL_STALE)",
+            revision_check=(
+                "the proposal's base science revision must be current (else PROPOSAL_STALE); "
+                "expected_workspace_revision (optional) must be current (else REVISION_CONFLICT)"
+            ),
             examples=({"proposal_id": "prp_000001"}, {"proposal_id": "prp_000001", "steps": [0]}),
         )
     )
