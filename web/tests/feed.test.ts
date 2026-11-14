@@ -32,9 +32,10 @@ test("what each feed line makes the page read again", () => {
   const commit = (domains: ("science" | "workspace" | "proposal" | "job")[]) =>
     refreshFor({ kind: "commit", cursor: 8, seq: 2, operation: "x", actor: "user", revisions, domains, jobs: [] });
   assert.deepEqual(commit(["workspace"]), ["view", "scene"]);
-  assert.deepEqual(commit(["science", "workspace"]), ["view", "project", "history", "runs", "jobs", "scene"]);
+  // A science change also makes pending proposals stale (M3 step 3).
+  assert.deepEqual(commit(["science", "workspace"]), ["view", "project", "history", "runs", "jobs", "scene", "proposals"]);
   assert.deepEqual(commit(["job"]), ["view", "runs", "jobs", "scene"]);
-  assert.deepEqual(commit(["proposal"]), []);
+  assert.deepEqual(commit(["proposal"]), ["proposals"]); // the inbox (M3 step 3)
 });
 
 test("reconnection backs off from 0.5 s to at most 10 s", () => {

@@ -1,5 +1,7 @@
-import type { FittedCoupling } from "../api";
+import { type MouseEvent, useMemo, useState } from "react";
+import type { FittedCoupling, LandscapeOut } from "../api";
 import { extent, fixed } from "../format";
+import { landscapePath, logRange, lowest, nearest } from "../preview";
 import { misfitStep } from "../scene/view";
 import { strings } from "../strings";
 
@@ -120,5 +122,181 @@ export function ObsCalcPlot({
         </text>
       </svg>
     </figure>
+  );
+}
+
+const LAND_W = 520;
+const LAND_H = 200;
+const LAND_PAD = { left: 52, right: 12, top: 10, bottom: 34 };
+const LAND_INNER = { w: LAND_W - LAND_PAD.left - LAND_PAD.right, h: LAND_H - LAND_PAD.top - LAND_PAD.bottom };
+const SUPERSCRIPT = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+
+/** 10 to an integer power, as "10³" or "10⁻²". */
+function decade(k: number): string {
+  const digits = [...String(Math.abs(k))].map((d) => SUPERSCRIPT[Number(d)]).join("");
+  return `10${k < 0 ? "⁻" : ""}${digits}`;
+}
+
+/** The χ²(φ) landscape (fit.landscape) on a log axis, with the previewed φ (solid line) and the
+ * current fit's φ (dashed). Torsions where the order matrix is not physically admissible are
+ * marked under the axis. A click moves the preview there; the slider is the keyboard control,
+ * and the table under the chart lists every sample. */
+export function LandscapePlot({
+  landscape,
+  phi,
+  fitted,
+  stale,
+  onPick,
+}: {
+  landscape: LandscapeOut;
+  phi: number | null;
+  fitted: number | null;
+  stale: boolean;
+  onPick: (phi: number) => void;
+}) {
+  const { phi: xs, chi2 } = landscape;
+  const [tableOpen, setTableOpen] = useState(false);
+  // Everything that depends only on the landscape is computed once per landscape: the slider
+  // re-renders this chart at every step, and only the cursor moves (M3 step 3).
+  const scale = useMemo(() => {
+    const range = logRange(chi2);
+    const lo = xs[0] ?? 0;
+    const hi = xs[xs.length - 1] ?? 1;
+    if (range === null || !(hi > lo)) return null;
+    const floor = 10 ** range.lo;
+    const x = (v: number) => LAND_PAD.left + ((v - lo) / (hi - lo)) * LAND_INNER.w;
+    const y = (c: number) =>
+      LAND_PAD.top + (1 - (Math.log10(Math.max(c, floor)) - range.lo) / (range.hi - range.lo)) * LAND_INNER.h;
+    return {
+      lo,
+      hi,
+      x,
+      y,
+      path: landscapePath(xs, chi2, x, y),
+      best: lowest(xs, chi2),
+      decades: Array.from({ length: range.hi - range.lo + 1 }, (_, i) => range.lo + i),
+    };
+  }, [xs, chi2]);
+  const table = (
+    <details onToggle={(e) => setTableOpen(e.currentTarget.open)}>
+      <summary>{strings.landscapeTable(xs.length)}</summary>
+      {tableOpen && <LandscapeTable landscape={landscape} />}
+    </details>
+  );
+  if (scale === null) {
+    // Nothing to draw (no sample could be evaluated); the samples are still listed (round 47).
+    return (
+      <figure className="plot landscape">
+        <p className="muted">{strings.landscapeEmpty}</p>
+        {table}
+      </figure>
+    );
+  }
+  const { lo, hi, x, y, path, best, decades } = scale;
+  const inner = LAND_INNER;
+  const pick = (e: MouseEvent<SVGSVGElement>) => {
+    const box = e.currentTarget.getBoundingClientRect();
+    const px = ((e.clientX - box.left) / box.width) * LAND_W;
+    onPick(lo + ((px - LAND_PAD.left) / inner.w) * (hi - lo));
+  };
+  const at = phi === null ? null : chi2[nearest(xs, phi)];
+  return (
+    <figure className={stale ? "plot landscape stale" : "plot landscape"}>
+      <svg
+        viewBox={`0 0 ${LAND_W} ${LAND_H}`}
+        width="100%"
+        style={{ maxWidth: LAND_W }}
+        role="img"
+        aria-label={strings.landscapeLabel(
+          xs.length,
+          best ? fixed(best.phi, 1) : "–",
+          best ? fixed(best.chi2, 2) : "–",
+          phi === null ? null : fixed(phi, 1),
+        )}
+        onClick={pick}
+      >
+        {niceTicks(lo, hi, 6).map((t) => (
+          <g key={`x${t}`} className="plot-tick">
+            <line x1={x(t)} x2={x(t)} y1={LAND_PAD.top} y2={LAND_PAD.top + inner.h} />
+            <text x={x(t)} y={LAND_H - LAND_PAD.bottom + 14} textAnchor="middle">
+              {fixed(t, 0)}
+            </text>
+          </g>
+        ))}
+        {decades.map((k) => (
+          <g key={`y${k}`} className="plot-tick">
+            <line x1={LAND_PAD.left} x2={LAND_PAD.left + inner.w} y1={y(10 ** k)} y2={y(10 ** k)} />
+            <text x={LAND_PAD.left - 4} y={y(10 ** k) + 3} textAnchor="end">
+              {decade(k)}
+            </text>
+          </g>
+        ))}
+        <rect className="plot-frame" x={LAND_PAD.left} y={LAND_PAD.top} width={inner.w} height={inner.h} />
+        {landscape.physically_admissible.map((ok, i) =>
+          ok === false ? (
+            <line
+              key={`na${i}`}
+              className="plot-inadmissible"
+              x1={x(xs[i] ?? 0)}
+              x2={x(xs[i] ?? 0)}
+              y1={LAND_PAD.top + inner.h}
+              y2={LAND_PAD.top + inner.h + 5}
+            />
+          ) : null,
+        )}
+        <path className="plot-line" d={path} />
+        {fitted !== null && fitted >= lo && fitted <= hi && (
+          <line className="plot-fit" x1={x(fitted)} x2={x(fitted)} y1={LAND_PAD.top} y2={LAND_PAD.top + inner.h} />
+        )}
+        {phi !== null && (
+          <g className="plot-cursor">
+            <line x1={x(phi)} x2={x(phi)} y1={LAND_PAD.top} y2={LAND_PAD.top + inner.h} />
+            {at !== null && at !== undefined && <circle cx={x(phi)} cy={y(at)} r={4} />}
+          </g>
+        )}
+        <text className="plot-axis" x={LAND_PAD.left + inner.w / 2} y={LAND_H - 4} textAnchor="middle">
+          {strings.landscapeX}
+        </text>
+        <text className="plot-axis" transform={`translate(11 ${LAND_PAD.top + inner.h / 2}) rotate(-90)`} textAnchor="middle">
+          {strings.landscapeY}
+        </text>
+      </svg>
+      <figcaption className="help">
+        {strings.landscapeCaption}
+        {landscape.physically_admissible.some((ok) => ok === false) && ` ${strings.landscapeInadmissible}`}
+      </figcaption>
+      {table}
+    </figure>
+  );
+}
+
+/** Every landscape sample: the chart's alternative (rendered only while its details are open). */
+function LandscapeTable({ landscape }: { landscape: LandscapeOut }) {
+  const { phi: xs, chi2, physically_admissible: admissible } = landscape;
+  return (
+    <div className="scroll short">
+      <table className="grid compact">
+        <thead>
+          <tr>
+            <th className="num">φ (°)</th>
+            <th className="num">χ²</th>
+            <th>{strings.colAdmissible}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {xs.map((v, i) => {
+            const c = chi2[i] ?? null;
+            const ok = admissible[i] ?? null;
+            return (
+              <tr key={v}>
+                <td className="num">{fixed(v, 2)}</td>
+                <td className="num">{c === null ? strings.notEvaluable : fixed(c, 2)}</td>
+                <td>{ok === null ? "–" : ok ? strings.yes : strings.no}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

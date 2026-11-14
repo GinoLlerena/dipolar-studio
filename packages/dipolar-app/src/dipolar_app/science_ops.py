@@ -12,6 +12,7 @@
   - ``couplings.import``: apply the import under a mapping the caller confirmed.
 - **Fitting:**
   - ``fit.preview``: the profile objective at a fixed torsion, for any fittable project;
+  - ``fit.landscape``: the same objective sampled over the torsion domain (M3 step 3);
   - ``fit.run``: the D3 fit, with intervals under the reporting policy (``dipolar_app.reporting``).
 
 Every science mutation is one ``project.replaced`` event carrying the whole new project, checked
@@ -271,6 +272,22 @@ def _problem(project: Project) -> Problem:
     return problem_for(project)
 
 
+def _structural_problem(project: Project) -> Problem:
+    """The project's problem without evaluating it anywhere: refused only when something is
+    missing (no torsion, no couplings, an unsupported domain). For the queries that evaluate one
+    torsion at a time (fit.preview, fit.landscape), a torsion where the model cannot be evaluated is
+    that torsion's problem, not the project's (round 47: a collision at the domain's midpoint used
+    to refuse the whole landscape)."""
+    try:
+        return problem_for(project)
+    except ValueError as exc:
+        raise OperationError(
+            ErrorCode.PROJECT_NOT_READY,
+            f"the project cannot be fitted yet: {exc}",
+            hint="project.describe reports what is missing",
+        ) from None
+
+
 def _not_evaluable(exc: ValueError) -> OperationError:
     """A model that fails to evaluate somewhere in its domain (for example, two spins meeting at
     one torsion): a structured error, never an internal one (round 27)."""
@@ -485,7 +502,7 @@ def fit_preview(ctx: Context, p: PreviewIn) -> PreviewOut:
             offending_field="phi.value",
             hint="the torsion domain is set by model.set; see the estimand for the equivalent angles",
         )
-    problem = _problem(project)
+    problem = _structural_problem(project)
     try:
         sol = problem.inner(np.array([p.phi.value]))
     except ValueError as exc:
@@ -512,6 +529,68 @@ def fit_preview(ctx: Context, p: PreviewIn) -> PreviewOut:
         statement=(
             "Profile objective at fixed φ: the order parameters are re-solved by whitened SVD "
             "(known σ, not rescaled). This is a preview, not a fit: no ν, p-value or interval is implied."
+        ),
+    )
+
+
+# --------------------------------------------------------------------------- fit.landscape
+#: Samples of the landscape by default (every 0.5° on the acute domain), and at most.
+LANDSCAPE_POINTS = 181
+MAX_LANDSCAPE_POINTS = 1441
+
+
+class LandscapeIn(Wire):
+    points: Annotated[int, Field(ge=2, le=MAX_LANDSCAPE_POINTS)] = LANDSCAPE_POINTS
+
+
+class LandscapeOut(Wire):
+    science_revision: int
+    science_hash: str
+    model: ModelOut
+    estimand: str
+    unit: Literal["deg"]
+    phi: tuple[float, ...]  # evenly spaced over the model's torsion domain, both ends included
+    chi2: tuple[float | None, ...]  # None where the model cannot be evaluated
+    physically_admissible: tuple[bool | None, ...]  # None when not assessed (or not evaluable)
+    n_obs: int
+    numerical_context: dict[str, str | float]
+    statement: str
+
+
+def fit_landscape(ctx: Context, p: LandscapeIn) -> LandscapeOut:
+    """The profile objective of fit.preview, sampled over the whole torsion domain: the χ²(φ)
+    landscape that the live preview moves along (M3 step 3)."""
+    state = ctx.read()
+    project = require_project(state)
+    lo, hi = project.model.phi_domain_deg
+    problem = _structural_problem(project)
+    phis = [float(v) for v in np.linspace(lo, hi, p.points)]
+    chi2: list[float | None] = []
+    admissible: list[bool | None] = []
+    for phi in phis:
+        try:
+            sol = problem.inner(np.array([phi]))
+        except ValueError:  # for example two spins meeting at this torsion
+            chi2.append(None)
+            admissible.append(None)
+            continue
+        chi2.append(float(sol.chi2) if math.isfinite(sol.chi2) else None)
+        admissible.append(None if problem.s5_map is None else bool(is_admissible(problem.s5_map @ sol.params)))
+    return LandscapeOut(
+        science_revision=state.science_revision,
+        science_hash=state.science_hash,
+        model=_model_out(project.model),
+        estimand=estimand_of(project),
+        unit="deg",
+        phi=tuple(phis),
+        chi2=tuple(chi2),
+        physically_admissible=tuple(admissible),
+        n_obs=int(problem.y.shape[0]),
+        numerical_context=numerical_context(),
+        statement=(
+            "The fit.preview objective (order parameters re-solved at each φ, known σ) at evenly "
+            "spaced torsions. A preview, not a fit: its lowest sample locates the minimum only to "
+            "the spacing, and no interval is implied."
         ),
     )
 

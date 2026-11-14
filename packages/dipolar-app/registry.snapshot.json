@@ -1,5 +1,5 @@
 {
-  "contract_version": "0.7.0",
+  "contract_version": "0.8.0",
   "envelopes": {
     "error": {
       "$defs": {
@@ -1011,6 +1011,210 @@
       "proposable": false,
       "revision_check": "none",
       "summary": "Read a couplings CSV against the project: the proposed label mapping and the diff (no change)."
+    },
+    {
+      "capability": "preview",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {},
+        {
+          "points": 91
+        }
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "points": {
+            "default": 181,
+            "maximum": 1441,
+            "minimum": 2,
+            "title": "Points",
+            "type": "integer"
+          }
+        },
+        "title": "LandscapeIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "max_request_bytes": 1048576,
+      "name": "fit.landscape",
+      "output_schema": {
+        "$defs": {
+          "Degrees": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "deg",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Degrees",
+            "type": "object"
+          },
+          "ModelOut": {
+            "additionalProperties": false,
+            "properties": {
+              "frame": {
+                "enum": [
+                  "bisector",
+                  "ring-a",
+                  "input"
+                ],
+                "title": "Frame",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "rigid",
+                  "jump4"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "order": {
+                "enum": [
+                  "bisector-diagonal",
+                  "c2z",
+                  "c1"
+                ],
+                "title": "Order",
+                "type": "string"
+              },
+              "phi_domain": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "$ref": "#/$defs/Degrees"
+                  },
+                  {
+                    "$ref": "#/$defs/Degrees"
+                  }
+                ],
+                "title": "Phi Domain",
+                "type": "array"
+              }
+            },
+            "required": [
+              "kind",
+              "order",
+              "frame",
+              "phi_domain"
+            ],
+            "title": "ModelOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "chi2": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Chi2",
+            "type": "array"
+          },
+          "estimand": {
+            "title": "Estimand",
+            "type": "string"
+          },
+          "model": {
+            "$ref": "#/$defs/ModelOut"
+          },
+          "n_obs": {
+            "title": "N Obs",
+            "type": "integer"
+          },
+          "numerical_context": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "title": "Numerical Context",
+            "type": "object"
+          },
+          "phi": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Phi",
+            "type": "array"
+          },
+          "physically_admissible": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Physically Admissible",
+            "type": "array"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          },
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          },
+          "unit": {
+            "const": "deg",
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "model",
+          "estimand",
+          "unit",
+          "phi",
+          "chi2",
+          "physically_admissible",
+          "n_obs",
+          "numerical_context",
+          "statement"
+        ],
+        "title": "LandscapeOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none",
+      "summary": "The fit.preview χ² sampled at evenly spaced torsions over the model domain (the landscape)."
     },
     {
       "capability": "preview",
@@ -3831,6 +4035,20 @@
       "input_schema": {
         "additionalProperties": false,
         "properties": {
+          "expected_workspace_revision": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expected Workspace Revision"
+          },
           "proposal_id": {
             "pattern": "^prp_[0-9]{6}$",
             "title": "Proposal Id",
@@ -4054,7 +4272,7 @@
         "type": "object"
       },
       "proposable": false,
-      "revision_check": "the proposal's base science revision must be current (else PROPOSAL_STALE)",
+      "revision_check": "the proposal's base science revision must be current (else PROPOSAL_STALE); expected_workspace_revision (optional) must be current (else REVISION_CONFLICT)",
       "summary": "Accept a pending proposal (human only): all steps, or a dependency-closed subset, applied atomically as one transaction."
     },
     {

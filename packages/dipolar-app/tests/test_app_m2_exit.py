@@ -25,6 +25,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 from conftest import ROBOT, ROOT, USER, Server, client, expected, new_session, start_server, stop_server
 from dipolar_app.operations import build_registry
@@ -203,6 +204,7 @@ EVERY_OPERATION: list[Step] = [
     ("project.open_example", lambda r: {"name": "biphenyl-synthetic", "expected_science_revision": r}, "robot", None),
     ("project.describe", lambda r: {}, "robot", None),
     ("fit.preview", lambda r: {"phi": {"value": 37.0, "unit": "deg"}}, "robot", None),
+    ("fit.landscape", lambda r: {"points": 19}, "robot", None),
     ("view.select", lambda r: {"ids": ["cpl_000001"]}, "robot", None),
     ("view.highlight", lambda r: {"ids": ["cpl_000002", "spn_000003"]}, "robot", None),
     ("view.set_layers", lambda r: {"labels": True, "bonds": True, "couplings": False}, "robot", None),
@@ -274,6 +276,13 @@ def test_every_operation_returns_the_same_envelope_on_both_adapters(server: Serv
         args = make(revision)
         over_http = server.call(name, args, token=token)
         in_process = py[token].call(name, args)
+        if name == "fit.landscape":
+            # The two adapters run in different processes, and a few of the 19 χ² values differ in
+            # their last bit (seen as 1 ulp; D11: byte identity only in a pinned environment, as
+            # the small batch measured). Everything else, and χ² to 1e-12, is the same.
+            for envelope in (over_http, in_process):
+                assert envelope["ok"], envelope
+            np.testing.assert_allclose(over_http["result"].pop("chi2"), in_process["result"].pop("chi2"), rtol=1e-12)
         assert normalized(over_http) == normalized(in_process), name
         if expect is None:
             assert over_http["ok"], (name, over_http)

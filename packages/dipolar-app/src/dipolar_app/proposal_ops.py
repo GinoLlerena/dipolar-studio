@@ -38,7 +38,7 @@ from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.policy import Capability, Decision, decide
 from dipolar_app.project import canonical_json, science_hash
 from dipolar_app.registry import Context, Operation, Registry, capture_plan, parse_input
-from dipolar_app.schemas import ProposalId, Wire
+from dipolar_app.schemas import ProposalId, Revision, Wire
 from dipolar_app.science_ops import LOAD_REQUEST_BYTES, Science
 from dipolar_app.session import (
     PROPOSAL,
@@ -346,6 +346,10 @@ class AcceptIn(Wire):
     #: The steps to accept (default: all). They must be dependency-closed: with each step, the
     #: steps it depends on.
     steps: Annotated[tuple[Annotated[int, Field(ge=0)], ...], Field(min_length=1, max_length=MAX_STEPS)] | None = None
+    #: Optional (M3 step 3, round 47): refuse with REVISION_CONFLICT if the workspace (the
+    #: selection, highlights, layers, camera) changed since the caller's dry run, so what is
+    #: accepted is what the caller was shown. The science is pinned by the base revision already.
+    expected_workspace_revision: Revision | None = None
 
 
 class StepResult(Wire):
@@ -435,6 +439,15 @@ def proposal_accept(ctx: Context, p: AcceptIn) -> AcceptOut:
         current = _find(state, p.proposal_id)
         if current.status != "pending" or _expired(current, now):
             raise _closed_error(current, now)
+        expected = p.expected_workspace_revision
+        if expected is not None and expected != state.workspace_revision:
+            raise OperationError(
+                ErrorCode.REVISION_CONFLICT,
+                "the shared view changed since the caller's dry run, so the acceptance may not do what it showed",
+                offending_field="expected_workspace_revision",
+                hint="run the dry run again and accept from there",
+                details={"current_workspace_revision": state.workspace_revision},
+            )
         chosen = sorted(set(p.steps)) if p.steps is not None else list(range(len(current.steps)))
         _closed(current, chosen)
         plans = _accept_plans(ctx, current, chosen)

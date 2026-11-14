@@ -38,18 +38,19 @@ export function parseFeedLine(line: string): FeedItem | null {
 }
 
 /** What the page shows, each read by one registry query. */
-export type Resource = "view" | "project" | "history" | "runs" | "jobs" | "scene";
-export const RESOURCES: readonly Resource[] = ["view", "project", "history", "runs", "jobs", "scene"];
+export type Resource = "view" | "project" | "history" | "runs" | "jobs" | "scene" | "proposals";
+export const RESOURCES: readonly Resource[] = ["view", "project", "history", "runs", "jobs", "scene", "proposals"];
 
 const BY_DOMAIN: Record<"science" | "workspace" | "proposal" | "job", readonly Resource[]> = {
-  // A science change alters the project and its history, and makes runs and jobs stale.
-  science: ["project", "history", "view", "runs", "jobs", "scene"],
+  // A science change alters the project and its history, and makes runs, jobs and pending
+  // proposals stale.
+  science: ["project", "history", "view", "runs", "jobs", "scene", "proposals"],
   // The camera, layers, selection and highlights: the view and the Structure view's scene.
   workspace: ["view", "scene"],
   // A finished job adds a run, which the view describes and whose residuals the scene shows.
   job: ["jobs", "runs", "view", "scene"],
-  // The beta page has no proposal inbox yet (a later M3 step).
-  proposal: [],
+  // A proposal was created or decided (the inbox, M3 step 3).
+  proposal: ["proposals"],
 };
 
 /** The resources to read again after a feed line. `hello` (every connection, including a

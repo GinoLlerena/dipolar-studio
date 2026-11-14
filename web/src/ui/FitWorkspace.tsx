@@ -1,12 +1,25 @@
-import { useEffect, useRef, useState } from "react";
-import { callOperation, type FitRunOut, type FittedCoupling, type NamedValue, type PreviewOut, type RunOut } from "../api";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import {
+  callOperation,
+  type ErrorBody,
+  type FitRunOut,
+  type FittedCoupling,
+  type LandscapeOut,
+  type NamedValue,
+  type PreviewOut,
+  type RunOut,
+} from "../api";
+import { boundsCurrent, inputText, LatestOnly, p95, parseAngle, snap, startAt } from "../preview";
 import { atPlace, decimalsFor, fixed, hz, pValue, residualHz, scientific, signed, withUncertainty } from "../format";
 import { strings } from "../strings";
 import type { Studio, StudioState } from "../studio";
-import { ObsCalcPlot, ResidualBar } from "./charts";
+import { LandscapePlot, ObsCalcPlot, ResidualBar } from "./charts";
 import { adequacyLabel, Chip, decimalsOf, Panel, Quantity, selectableRow, unitOf } from "./common";
 
 type Props = { studio: Studio; state: StudioState };
+
+/** The slider's resolution in degrees. */
+const PHI_STEP = 0.1;
 
 /** The Fit workspace: run the fit as a job, follow it, and read each run's diagnostics. */
 export function FitWorkspace({ studio, state }: Props) {
@@ -385,7 +398,9 @@ function RunDetail({ studio, state, run, result }: Props & { run: RunOut; result
   );
 }
 
-function ResidualsPane({
+/** Memoized: the live preview re-renders its pane at every slider step, and this table only
+ * changes when a preview answers (M3 step 3). */
+const ResidualsPane = memo(function ResidualsPane({
   studio,
   couplings,
   selected,
@@ -445,50 +460,146 @@ function ResidualsPane({
       </div>
     </Panel>
   );
-}
+});
 
-/** A preview at a fixed torsion (fit.preview, a query: nothing is recorded). Live preview from a
- * dihedral drag is a later M3 step; here a stale preview is marked when the project changes. */
+/** Answers that the preview shows in the pane instead of the page's error banner. */
+const PREVIEW_QUIET = ["OUT_OF_DOMAIN", "PROJECT_NOT_READY", "NO_PROJECT", "INVALID_ARGUMENT"] as const;
+
+type Previewed = { out: PreviewOut; error: null } | { out: null; error: ErrorBody };
+
+/** The live preview (M3 step 3): drag φ and the order parameters, χ² and residuals follow
+ * (fit.preview, a query: nothing is recorded), along the χ²(φ) landscape (fit.landscape). One
+ * request is in flight at a time and only the newest position waits (preview.ts LatestOnly);
+ * after any science change the preview and the landscape are read again. */
 function PreviewPane({ studio, state }: Props) {
-  const [phi, setPhi] = useState("37");
-  const [preview, setPreview] = useState<PreviewOut | null>(null);
-  const latest = useRef(0); // only the latest request may update the pane (D11)
-  const view = state.view;
-  const selected = new Set(view?.selection.map((s) => s.id) ?? []);
-  const stale = preview !== null && view !== null && preview.science_revision !== view.science_revision;
-  const value = Number(phi);
-  const run = async () => {
-    const mine = ++latest.current;
-    const out = await studio.run((t) => callOperation("fit.preview", { phi: { value, unit: "deg" } }, t));
-    if (out && mine === latest.current) setPreview(out);
+  const { view, project } = state;
+  const lo = project?.model.phi_domain[0].value ?? 0;
+  const hi = project?.model.phi_domain[1].value ?? 90;
+  const run = view?.run && !view.run.stale ? state.results[view.run.run_id] : undefined;
+  const fitted = run?.theta.find((t) => t.name === "phi_deg")?.value ?? null;
+
+  const [phi, setPhi] = useState<number | null>(null);
+  const [text, setText] = useState("");
+  const [shown, setShown] = useState<Previewed | null>(null);
+  const [land, setLand] = useState<LandscapeOut | null>(null);
+  const live = useMemo(
+    () =>
+      new LatestOnly<number, Previewed>(
+        async (value) => {
+          let error: ErrorBody | null = null;
+          const out = await studio.run(async (t) => {
+            const envelope = await callOperation("fit.preview", { phi: { value, unit: "deg" } }, t);
+            if (!envelope.ok) error = envelope.error;
+            return envelope;
+          }, PREVIEW_QUIET);
+          if (out) return { out, error: null };
+          return error ? { out: null, error } : null;
+        },
+        (_value, result) => setShown(result),
+        () => performance.now(),
+      ),
+    [studio],
+  );
+  useEffect(() => () => live.cancel(), [live]);
+
+  const go = (value: number) => {
+    const v = snap(value, lo, hi, PHI_STEP);
+    setPhi(v);
+    setText(inputText(v));
+    live.ask(v);
   };
+
+  // The landscape, read again after every science change (an older answer is dropped).
+  const revision = view?.science_revision;
+  useEffect(() => {
+    let current = true;
+    void studio.run((t) => callOperation("fit.landscape", {}, t), PREVIEW_QUIET).then((r) => {
+      if (current && r) setLand(r);
+    });
+    return () => {
+      current = false;
+    };
+  }, [studio, revision]);
+
+  // Start where the fit is, else at the landscape's lowest sample, and clamp to the domain again
+  // after a science change: both only once the domain shown is the current science's (round 48;
+  // project.describe and the view can arrive in either order).
+  const current = boundsCurrent(project?.science_revision ?? null, view?.science_revision ?? null);
+  useEffect(() => {
+    const start = startAt({
+      current: phi,
+      fitted,
+      landscape: land,
+      projectRevision: project?.science_revision ?? null,
+      viewRevision: view?.science_revision ?? null,
+    });
+    if (start !== null) go(start);
+  }, [fitted, land, current]);
+  useEffect(() => {
+    if (phi !== null && current) go(phi);
+  }, [revision, lo, hi, current]);
+
+  const preview = shown?.out ?? null;
+  const stale = preview !== null && view !== null && preview.science_revision !== view.science_revision;
+  const selection = view?.selection.map((s) => s.id).join(" ") ?? "";
+  const selected = useMemo(() => new Set(selection === "" ? [] : selection.split(" ")), [selection]);
+  const timing = p95(live.timings);
+  const commitText = () => {
+    const value = parseAngle(text);
+    if (value !== null) go(value);
+    else if (phi !== null) setText(inputText(phi));
+  };
+
   return (
     <>
       <Panel title={strings.preview} id="pane-preview">
         <div className="row">
-          <label htmlFor="phi">{strings.phiLabel}</label>
+          <label htmlFor="phi-slider">{strings.phiLabel}</label>
+          <input
+            id="phi-slider"
+            type="range"
+            className="slider"
+            min={lo}
+            max={hi}
+            step={PHI_STEP}
+            value={phi ?? lo}
+            aria-valuetext={phi === null ? undefined : `${fixed(phi, 1)}°`}
+            onChange={(e) => go(Number(e.target.value))}
+          />
           <input
             id="phi"
+            aria-label={strings.phiExact}
             inputMode="decimal"
             className="short"
-            value={phi}
-            onChange={(e) => setPhi(e.target.value)}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onBlur={commitText}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && Number.isFinite(value)) void run();
+              if (e.key === "Enter") commitText();
             }}
           />
-          <button type="button" disabled={phi.trim() === "" || !Number.isFinite(value)} onClick={() => void run()}>
-            {strings.previewButton}
-          </button>
+          {fitted !== null && (
+            <button type="button" className="quiet" onClick={() => go(fitted)}>
+              {strings.toFitted(fixed(fitted, 2))}
+            </button>
+          )}
           {stale && (
             <span className="badge badge-stale" title={strings.staleHelp}>
               {strings.stale}
             </span>
           )}
         </div>
-        <p className="help">{strings.previewHelp}</p>
+        <p className="help">
+          {strings.previewHelp}
+          {timing !== null && <span className="muted"> {strings.previewTiming(Math.round(timing), live.timings.length)}</span>}
+        </p>
+        {shown?.error && (
+          <p className="warn-text" role="alert">
+            <strong>{shown.error.code}</strong>: {shown.error.message}
+          </p>
+        )}
         {preview && (
-          <p className={stale ? "meta stale" : "meta"}>
+          <p className={stale ? "meta stale" : "meta"} aria-live="polite">
             <Quantity name="phi_deg" /> = {fixed(preview.phi.value, 2)}° ·{" "}
             {preview.order.map((o) => (
               <span key={o.name}>
@@ -498,6 +609,15 @@ function PreviewPane({ studio, state }: Props) {
             · χ² = {fixed(preview.chi2, 2)} (N = {preview.n_obs}) · RMS = {fixed(preview.rms_residual.value, 2)} Hz ·{" "}
             {strings.admissible(preview.validity.physically_admissible)}
           </p>
+        )}
+        {land && (
+          <LandscapePlot
+            landscape={land}
+            phi={preview?.phi.value ?? phi}
+            fitted={fitted}
+            stale={view !== null && land.science_revision !== view.science_revision}
+            onPick={go}
+          />
         )}
       </Panel>
       {preview && (
