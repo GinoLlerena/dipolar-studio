@@ -1,5 +1,17 @@
 # Status
 
+**M3 step 4b (the robot tutorial, performance) is done: tag `m3-step4b`.**
+- **The robot tutorial** (04 §7): from an XYZ file to an exported project, over HTTP only, under
+  `python -I` (`robot.py --scenario tutorial`), and the same steps through the page on three
+  browsers; the science hash, the export, the fit, its intervals and the selected coupling agree.
+- **Large projects:** tables above 400 rows render only the rows in view; the Structure view and
+  the obs/calc plot draw at most 2 000 couplings (the selection and the worst misfits first);
+  hashes and the fit problem are computed once per project. At 44 850 couplings the Data tab
+  shows in 0.2–0.6 s (14 s before), the Structure tab in 0.4 s (over 15 s).
+- **A workload limit for `fit.landscape`** (round 47 B; contract 0.9.0) and **shutdown that no
+  longer waits for open change feeds** (round 49 B).
+- Review: see [round51-m3-step4b.md](validation/round51-m3-step4b.md).
+
 **M3 step 4a (the browser suite, the latency targets) is done: tag `m3-step4a`.**
 - **Playwright on Chromium, Firefox and WebKit** (`web/e2e/`, `pnpm run e2e`, a new CI job): the
   page against a real `dipolar serve`, with the robot and an agent acting over HTTP. It covers the
@@ -268,18 +280,18 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: M3 step 4b (the robot tutorial, performance)
+## Resume here: the M3 exit check
 
-**Stopping point: tag `m3-step4a`.** Earlier stopping points: `m3-step3`, `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
+**Stopping point: tag `m3-step4b`.** Earlier stopping points: `m3-step4a`, `m3-step3`, `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
 `m2-exit-audit`, and one tag per step before them. To resume:
 
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 823 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 832 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
-   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 59 web tests
-   (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 57 browser tests
+   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 61 web tests
+   (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 66 browser tests
    ```
 
 2. **Next, as the owner chose (2026-11-13):**
@@ -288,11 +300,10 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
    - ~~M3 step 3~~ (the proposal inbox, live preview, the landscape): done (tag `m3-step3`);
    - ~~M3 step 4a~~ (Playwright on three browsers, the step-1 store fixes, the latency targets
      on named hardware): done (tag `m3-step4a`);
-   - then M3 step 4b: the robot tutorial from an XYZ file (create → import couplings → confirm
-     mapping → bind torsion → preview → profile fit → select the worst coupling → render → export),
-     over HTTP only, compared with the same tutorial through the page; virtualised large tables;
-     a workload limit for `fit.landscape` on large projects (round 47 B); waking open change feeds
-     at shutdown (round 49 B). Then the M3 exit check.
+   - ~~M3 step 4b~~ (the robot tutorial compared with the page, large tables, the landscape's
+     work limit, shutdown with open feeds): done (tag `m3-step4b`);
+   - then **the M3 exit check**: map every item of the AI-readiness checklist (04 §7 and §8.6) to
+     the tests that show it, list what has no test, and review the result.
    - **Use pnpm 9** (as CI): `node_modules` linked by pnpm 10 makes `pnpm add` fail.
 3. Work under the medium plan (below): at most two review rounds per step, a fresh session per
    step.
@@ -987,6 +998,20 @@ See [round35-m2-step4.md](validation/round35-m2-step4.md).
   looser bounds on CI.
 - **Fixes:** `callOperation` returns an INTERNAL envelope for any malformed reply; the preview's
   start stands down once the user types, and its effects read the latest φ from a ref.
+
+### Step 4b: the robot tutorial, performance
+
+- **Tutorial:** `datasets/biphenyl-synthetic/tutorial_xyz.py` writes `biphenyl.xyz` and
+  `tutorial-couplings.csv`; `robot.py --scenario tutorial` (`run_tutorial`) runs it over HTTP;
+  `web/e2e/tutorial.spec.ts` runs it through the page and compares with the robot.
+- **Large tables:** `limits.ts` (`rowWindow`, `mostRelevant`), `useRowWindow` and `Spacer` in
+  `ui/common.tsx`; `web/e2e/large.spec.ts` (2 556 couplings). `tools/bench/large_project.py`
+  writes larger projects for timing.
+- **Server:** `ByIdentity` caches (`project.py`: the hashes, keyed on the numerical context too;
+  `science.py`: `problem_for`); `LANDSCAPE_WORK` in `science_ops.py` (contract 0.9.0);
+  `Session.close_feeds`, called from `cli._Server.handle_exit`.
+- **Known limit:** at 45 000 couplings `project.describe` and `fit.preview` take 2–3 s and send
+  about 13 MB; the preview target holds for projects of the beta's size.
 
 ## The small batch (after M2)
 

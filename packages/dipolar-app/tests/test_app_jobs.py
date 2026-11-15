@@ -351,6 +351,52 @@ def test_http_event_stream(server: Server) -> None:
     assert server.request("GET", "/api/v1/events?after=abc").status == 400
 
 
+def test_closing_the_feeds_wakes_a_waiting_feed() -> None:
+    """Round 49 (B): a feed waiting for its heartbeat returns as soon as the feeds are closed."""
+    s = Session(None, contract_version=CONTRACT_VERSION)
+    returned: list[float] = []
+
+    def wait() -> None:
+        started = time.monotonic()
+        s.feed_after(s.cursor, 30)
+        returned.append(time.monotonic() - started)
+
+    waiter = threading.Thread(target=wait)
+    waiter.start()
+    time.sleep(0.2)
+    assert not returned  # still waiting
+    s.close_feeds()
+    waiter.join(timeout=5)
+    assert returned and returned[0] < 5
+    started = time.monotonic()
+    assert s.feed_after(s.cursor, 30) == ([], s.cursor, False)  # later waits do not block
+    assert time.monotonic() - started < 1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="terminate() is a hard kill on Windows")
+def test_shutdown_does_not_wait_for_open_event_streams(server: Server) -> None:
+    """Round 49 (B): with feeds open, SIGTERM ends them and the server exits well within one
+    heartbeat (15 s); they used to hold it for up to that long."""
+    streams = []
+    for _ in range(3):
+        req = urllib.request.Request(server.base_url + "/api/v1/events")
+        req.add_header("Authorization", f"Bearer {server.tokens['viewer']}")
+        resp = urllib.request.urlopen(req, timeout=30)
+        read_lines(resp, 1)  # hello: the stream is waiting in feed_after
+        streams.append(resp)
+    try:
+        started = time.monotonic()
+        server.process.terminate()
+        server.process.wait(timeout=12)
+        assert time.monotonic() - started < 5
+        for resp in streams:
+            assert resp.read() == b""  # each stream was ended, not cut
+    finally:
+        for resp in streams:
+            resp.close()
+    assert not server.ready_file.exists()
+
+
 def test_a_late_outcome_is_dropped_quietly(gate: threading.Event) -> None:
     """The runner's finish after a cancel changes nothing and raises nothing (its worker lives on)."""
     session = Session(None, contract_version=CONTRACT_VERSION)

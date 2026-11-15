@@ -14,7 +14,7 @@ import { atPlace, decimalsFor, fixed, hz, pValue, residualHz, scientific, signed
 import { strings } from "../strings";
 import type { Studio, StudioState } from "../studio";
 import { LandscapePlot, ObsCalcPlot, ResidualBar } from "./charts";
-import { adequacyLabel, Chip, decimalsOf, Panel, Quantity, selectableRow, unitOf } from "./common";
+import { adequacyLabel, Chip, decimalsOf, Panel, Quantity, selectableRow, unitOf, Spacer, useRowWindow } from "./common";
 
 type Props = { studio: Studio; state: StudioState };
 
@@ -419,10 +419,11 @@ const ResidualsPane = memo(function ResidualsPane({
   phi?: number;
 }) {
   const pick = (id: string) => selectableRow(studio, id, selected).onClick();
+  const rows = useRowWindow(couplings.length);
   return (
     <Panel title={title} id={`pane-${title === strings.residuals ? "residuals" : "preview-residuals"}`}>
       <div className={stale ? "residuals stale" : "residuals"}>
-        <div className="scroll">
+        <div className={rows.windowed ? "scroll windowed" : "scroll"} ref={rows.ref}>
           <p className="help">
             {strings.selectHint} {strings.residualBarHelp}
           </p>
@@ -440,7 +441,8 @@ const ResidualsPane = memo(function ResidualsPane({
               </tr>
             </thead>
             <tbody>
-              {couplings.map((c) => (
+              <Spacer height={rows.before} columns={7} />
+              {couplings.slice(rows.start, rows.end).map((c) => (
                 <tr key={c.id} {...selectableRow(studio, c.id, selected)}>
                   <td>{c.label}</td>
                   <td className="num">{hz(c.observed.value)}</td>
@@ -453,6 +455,7 @@ const ResidualsPane = memo(function ResidualsPane({
                   </td>
                 </tr>
               ))}
+              <Spacer height={rows.after} columns={7} />
             </tbody>
           </table>
         </div>

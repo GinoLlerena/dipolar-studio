@@ -622,6 +622,23 @@ ul.plain li + li {
   overflow-x: auto;
 }
 
+/* A windowed table (M3 step 4b): a scroll box of fixed height; only the rows in view exist. */
+.scroll.windowed {
+  max-height: 32rem;
+  overflow-y: auto;
+}
+
+.scroll.windowed thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+}
+
+tr.spacer td {
+  padding: 0;
+  border: 0;
+}
+
 table.grid {
   border-collapse: collapse;
   width: 100%;

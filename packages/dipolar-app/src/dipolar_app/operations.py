@@ -151,7 +151,10 @@ def build_registry() -> Registry:
             kind="query",
             effect="none",
             capability=Capability.PREVIEW,
-            summary="The fit.preview χ² sampled at evenly spaced torsions over the model domain (the landscape).",
+            summary=(
+                "The fit.preview χ² sampled at evenly spaced torsions over the model domain (the landscape); "
+                "the samples are bounded by a work limit (samples × observations)."
+            ),
             input_model=S.LandscapeIn,
             output_model=S.LandscapeOut,
             handler=S.fit_landscape,

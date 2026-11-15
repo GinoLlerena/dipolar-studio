@@ -3,7 +3,7 @@ import { callOperation, type DescribeProjectOut, type ModelOut, type ModelSetIn 
 import { angstrom, hz } from "../format";
 import { strings } from "../strings";
 import type { Studio, StudioState } from "../studio";
-import { download, FileButton, Panel, selectableRow } from "./common";
+import { download, FileButton, Panel, selectableRow, Spacer, useRowWindow } from "./common";
 import { ImportCouplings } from "./ImportCouplings";
 
 type Props = { studio: Studio; state: StudioState };
@@ -321,10 +321,11 @@ function ModelPane({ studio, state, project }: Props & { project: DescribeProjec
 function CouplingsPane({ studio, state, project }: Props & { project: DescribeProjectOut }) {
   const selected = new Set(state.view?.selection.map((s) => s.id) ?? []);
   const spin = new Map(project.spins.map((s) => [s.id, s.label]));
+  const rows = useRowWindow(project.couplings.length);
   return (
     <Panel title={strings.couplings} id="pane-couplings" actions={<span className="muted">{strings.couplingsCount(project.couplings.length)}</span>}>
       <p className="help">{strings.selectHint}</p>
-      <div className="scroll">
+      <div className={rows.windowed ? "scroll windowed" : "scroll"} ref={rows.ref}>
         <table className="grid">
           <thead>
             <tr>
@@ -338,7 +339,8 @@ function CouplingsPane({ studio, state, project }: Props & { project: DescribePr
             </tr>
           </thead>
           <tbody>
-            {project.couplings.map((c) => (
+            <Spacer height={rows.before} columns={7} />
+            {project.couplings.slice(rows.start, rows.end).map((c) => (
               <tr key={c.id} {...selectableRow(studio, c.id, selected)}>
                 <td>{c.label}</td>
                 <td>
@@ -355,6 +357,7 @@ function CouplingsPane({ studio, state, project }: Props & { project: DescribePr
                 </td>
               </tr>
             ))}
+            <Spacer height={rows.after} columns={7} />
           </tbody>
         </table>
       </div>
