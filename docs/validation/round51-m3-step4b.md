@@ -135,3 +135,40 @@ removed its ready file.
 **After the fixes:** 834 Python (`-m "not slow"`), 62 web unit tests, 75 browser tests (25 × 3),
 TypeScript, mypy, Ruff, the generated contract and projection parity; the preview, latency and
 store specs repeated six times on WebKit and Chromium with the Python suite running alongside.
+
+## Round 52: NOT READY (three A), on commit 103e92e
+
+The reviewer's run: 834 Python, 62 web unit tests and the 75 browser tests passed, with Ruff,
+mypy, the generated contract, TypeScript, the build and parity. Round 51's three findings were
+confirmed resolved; fifteen scratch browser checks covered the slider and the "go to the fit"
+button with the field focused, and the clamp followed by leaving the field.
+
+1. **(A) Typed torsion indices survived a geometry replacement.** Reproduced on the three
+   browsers: an XYZ without a torsion, `1 0 6 7` typed, then another XYZ with C2 and C6 swapped and
+   no torsion: the indices stayed, Set torsion enabled, now naming a dihedral of about +143°
+   instead of −37°. Both declared torsions are null, so the round-51 key never changed.
+   **Fix:** the draft is reset when the declared torsion or the geometry (the atoms) changes, and
+   kept across other science changes. Test: the reviewer's replacement.
+2. **(A) After Enter, a new edit was unprotected.** Reproduced: 120 committed with Enter (the
+   focus stays), select-all, a narrowed domain clamps to 90 before typing: the clamp replaced the
+   selection with `90.0`, and typing `60` made `90.060`, previewed as 90. **Fix:** a key other
+   than Enter (a selection, a deletion) or a pointer press in the field starts a new edit, which
+   automatic updates do not write into. Test: the reviewer's sequence.
+3. **(A) The tutorial test did not prove its interval claim:** two empty interval lists compared
+   equal, and "within the interval" checked only the angle's distance from −37°. Reproduced with a
+   backend that omits every interval. **Fix:** the test requires the model's four parameters
+   (`phi_deg`, `Szz`, `Delta`, `Sxy`), each supported with finite bounds around its estimate, and
+   −37° inside the torsion's interval ([−37.009°, −36.967°]).
+
+The reviewer's scratch checks also showed (not listed as a finding) that **focusing and leaving
+the field after a clamp undid the clamp**: with nothing typed, leaving the field committed the text
+the round-51 guard had kept (120.0) and moved the preview back from 90° to 120°. **Fix:** a commit
+with nothing typed shows the current φ and commits nothing. Test: the reviewer's sequence (a clamp
+to 90, the domain widened again, then leaving the field keeps 90).
+
+**Mutation checks** (each makes its test fail): the draft's key without the geometry; no new
+edit on a key after Enter; an unchanged commit committing its text; a backend without intervals.
+
+Under the cap, these fixes were not reviewed again. **After them:** 834 Python (`-m "not slow"`),
+62 web unit tests, 84 browser tests (28 × 3), TypeScript, mypy, Ruff, the generated contract and
+projection parity.

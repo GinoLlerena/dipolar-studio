@@ -514,7 +514,9 @@ function PreviewPane({ studio, state }: Props) {
   const asked = useRef<number | null>(null);
   // The user started typing in the φ field: the automatic start must not overwrite that text.
   const typing = useRef(false);
-  // The field is being edited: focused and not committed since (it may still be empty).
+  // The field is being edited: focused and not committed since (it may still be empty), or, after
+  // an Enter that kept the focus, touched again: a key other than Enter (a selection, a deletion)
+  // or a pointer press (round 52: select-all after Enter, then a clamp, then typing made "90.060").
   const editing = useRef(false);
   // `auto`: the automatic start or the clamp after a science change, not the user. Neither writes
   // the field during an edit: a run under load showed the start's "37.0" written into the focused,
@@ -572,8 +574,18 @@ function PreviewPane({ studio, state }: Props) {
   // field shows the current φ again, or, before any preview, the automatic start resumes (round 49:
   // an invalid first edit kept the start from ever running).
   const commitText = (typed: string) => {
+    const changed = typing.current;
     typing.current = false;
     editing.current = false;
+    // Nothing typed: the field may still show text an automatic update did not write during the
+    // edit; show the current φ, never commit that text (round 52: focusing and leaving the field
+    // after a clamp undid the clamp).
+    if (!changed) {
+      const now = asked.current ?? phi;
+      if (now !== null) setText(inputText(now));
+      else tryStart(true);
+      return;
+    }
     const value = parseAngle(typed);
     if (value !== null) go(value);
     else if (phi !== null) setText(inputText(phi));
@@ -612,9 +624,13 @@ function PreviewPane({ studio, state }: Props) {
             onFocus={() => {
               editing.current = true;
             }}
+            onPointerDown={() => {
+              editing.current = true;
+            }}
             onBlur={(e) => commitText(e.currentTarget.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") commitText(e.currentTarget.value);
+              else editing.current = true;
             }}
           />
           {fitted !== null && (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { callOperation, type DescribeProjectOut, type ModelOut, type ModelSetIn } from "../api";
 import { angstrom, hz } from "../format";
 import { strings } from "../strings";
@@ -149,10 +149,12 @@ function ImportedGeometry({ studio, state, project }: Props & { project: Describ
   const atoms = geometry.kind === "imported" ? geometry.atoms : [];
   const declared = geometry.kind === "imported" ? geometry.torsion : null;
   const [draft, setDraft] = useState<string[]>(() => (declared ?? ["", "", "", ""]).map(String));
-  // The fields follow the declared torsion when it changes (this page's Set torsion, or another
-  // client's), not every science change: one that arrives while the user types (a couplings
-  // import, another client's edit) must not wipe what was typed (CI, M3 step 4b).
-  const declaredKey = declared ? declared.join(",") : "";
+  // The fields follow the declared torsion and the geometry: when either changes (Set torsion
+  // here or by another client; another geometry imported or loaded), typed indices could name
+  // other atoms, so they are reset (round 52). Other science changes keep what was typed: one can
+  // arrive while the user types (a couplings import, another client's edit; CI, M3 step 4b).
+  const atomsKey = useMemo(() => JSON.stringify(atoms), [atoms]);
+  const declaredKey = `${declared ? declared.join(",") : ""}|${atomsKey}`;
   useEffect(() => setDraft((declared ?? ["", "", "", ""]).map(String)), [declaredKey]);
   if (geometry.kind !== "imported") return null;
   const indices = draft.map((d) => Number(d));

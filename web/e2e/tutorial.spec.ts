@@ -23,7 +23,7 @@ type Fit = {
   chi2: number;
   nu: number | null;
   stderr: Named[] | null;
-  intervals: { parameter: string; lower: number | null; upper: number | null; supported: boolean }[];
+  intervals: { parameter: string; estimate: number; lower: number | null; upper: number | null; supported: boolean }[];
 };
 
 /** The robot's tutorial on its own server: its JSON report. */
@@ -151,9 +151,19 @@ test("the tutorial through the page equals the robot's", async ({ app, server })
       expect(close(iv.lower, theirs.intervals[k]?.lower ?? null, 1e-9, 1e-9), `${iv.parameter} lower`).toBe(true);
       expect(close(iv.upper, theirs.intervals[k]?.upper ?? null, 1e-9, 1e-9), `${iv.parameter} upper`).toBe(true);
     });
-    // And the answer is the dataset's: τ = −φ, φ = 37°, within the interval.
+    // The intervals exist and are usable (round 52: two empty lists compared equal): every
+    // parameter of the model, each supported with finite bounds around its estimate.
+    expect(ours.intervals.map((i) => i.parameter)).toEqual(["phi_deg", "Szz", "Delta", "Sxy"]);
+    for (const iv of ours.intervals) {
+      expect(iv.supported, `${iv.parameter} supported`).toBe(true);
+      expect(Number.isFinite(iv.lower) && Number.isFinite(iv.upper), `${iv.parameter} bounds`).toBe(true);
+      expect((iv.lower as number) <= iv.estimate && iv.estimate <= (iv.upper as number), `${iv.parameter} estimate`).toBe(true);
+    }
+    // And the answer is the dataset's: τ = −φ, φ = 37°, within the torsion's interval.
     const tau = ours.theta[0]?.value ?? Number.NaN;
     expect(Math.abs(tau + 37)).toBeLessThan(0.1);
+    const torsion = ours.intervals[0]!;
+    expect((torsion.lower as number) < -37 && -37 < (torsion.upper as number), "−37° within the interval").toBe(true);
   } finally {
     await robotServer.stop();
   }
@@ -179,4 +189,24 @@ test("a science change while the torsion is typed keeps what was typed (CI, M3 s
   await app.getByRole("button", { name: "Set torsion" }).click();
   await expect(app.locator(".crumb .muted")).toContainText("rev 3 ");
   await expect(app.locator("fieldset.torsion .muted")).toHaveText(TORSION.join(" – "));
+});
+
+test("typed torsion indices are reset when another geometry replaces the first (round 52)", async ({ app, server }) => {
+  // The same molecule with C2 and C6 swapped: indices 1 0 6 7 now name another dihedral (+143°).
+  const xyz = readFileSync(XYZ, "utf-8");
+  await server.ok("robot", "project.import_xyz", { xyz, name: "first", expected_science_revision: 0 });
+  await openTab(app, "Data");
+  await expect(app.locator(".crumb-name")).toHaveText("first");
+  for (const [k, value] of TORSION.entries()) await app.getByLabel(["a", "i", "j", "b"][k] as string, { exact: true }).fill(value);
+  const lines = xyz.trimEnd().split("\n");
+  const atoms = lines.slice(2);
+  [atoms[1], atoms[5]] = [atoms[5]!, atoms[1]!];
+  const [head, list] = (lines[1] ?? "").split("atoms:");
+  const names = (list ?? "").trim().split(/\s+/);
+  [names[1], names[5]] = [names[5]!, names[1]!];
+  const swapped = [lines[0], `${head}atoms: ${names.join(" ")}`, ...atoms].join("\n") + "\n";
+  await server.ok("robot", "project.import_xyz", { xyz: swapped, name: "second", expected_science_revision: 1 });
+  await expect(app.locator(".crumb-name")).toHaveText("second");
+  for (const k of [0, 1, 2, 3]) await expect(app.getByLabel(["a", "i", "j", "b"][k] as string, { exact: true })).toHaveValue("");
+  await expect(app.getByRole("button", { name: "Set torsion" })).toBeDisabled();
 });

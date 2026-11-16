@@ -13,8 +13,11 @@
 - Round 51 returned NOT READY (three class-(A) findings: a windowed table replaced by a shorter one
   could hide its last rows; the documented tutorial command failed; a false size claim); CI and
   repeated runs found two more (typed torsion indices wiped by a science change; a typed φ joined
-  to the automatic start's). All fixed with tests that fail without the fix. See
-  [round51-m3-step4b.md](validation/round51-m3-step4b.md).
+  to the automatic start's). Round 52 returned NOT READY (three class-(A) findings: torsion indices
+  kept across a geometry replacement; an edit after Enter unprotected from automatic updates; the
+  tutorial test's interval claim unproven) and showed a clamp undone by leaving the field. All
+  fixed with tests that fail without the fix; the round-52 fixes not reviewed again, under the cap.
+  See [round51-m3-step4b.md](validation/round51-m3-step4b.md).
 
 **M3 step 4a (the browser suite, the latency targets) is done: tag `m3-step4a`.**
 - **Playwright on Chromium, Firefox and WebKit** (`web/e2e/`, `pnpm run e2e`, a new CI job): the
@@ -295,7 +298,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
    uv sync --locked && uv run pytest -q -m "not slow"   # 834 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
    (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 62 web tests
-   (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 75 browser tests
+   (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 84 browser tests
    ```
 
 2. **Next, as the owner chose (2026-11-13):**
