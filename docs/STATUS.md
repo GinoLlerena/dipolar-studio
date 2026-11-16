@@ -1,5 +1,21 @@
 # Status
 
+**M3, the browser beta UI, is complete: tags `m3-exit-audit` and `m3-complete`.** The exit
+audit ([m3-exit-audit.md](validation/m3-exit-audit.md)) maps every M3 exit criterion and every
+04 §7 and §8.6 check to the tests that prove it:
+- **The AI-readiness checklist is green**, including the robot's biphenyl tutorial in a clean
+  process over HTTP only, equal to the page's path: the whole run compared field by field with
+  the frozen quantity-specific tolerances, on three browsers.
+- **UI coverage by effect:** `web/e2e/coverage.spec.ts` uses every page control that sends a
+  command and reads the change back from the server; the audit maps each control.
+- **Latency on named hardware** (i7-8750H; recorded with the commit and a verified clean tree):
+  preview p95 10.7–15 ms (target 100 ms), perception at most 14–18 ms (target 200 ms).
+- Rounds 53 and 54 returned NOT READY (five and three class-(A) findings: partial comparisons,
+  an arc not checked by ID, coverage not shown by effect, a clean-tree flag in the wrong
+  directories, tolerances misdescribed, a result read with the wrong credential, a hidden absolute
+  floor in the M2 comparison). All fixed and mutation-checked; the round-54 fixes not reviewed
+  again, under the cap.
+
 **M3 step 4b (the robot tutorial, performance) is done: tag `m3-step4b`.**
 - **The robot tutorial** (04 §7): from an XYZ file to an exported project, over HTTP only, under
   `python -I` (`robot.py --scenario tutorial`), and the same steps through the page on three
@@ -287,9 +303,9 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: the M3 exit check
+## Resume here: after M3 (the owner chooses)
 
-**Stopping point: tag `m3-step4b`.** Earlier stopping points: `m3-step4a`, `m3-step3`, `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
+**Stopping point: tag `m3-complete`.** Earlier stopping points: `m3-exit-audit`, `m3-step4b`, `m3-step4a`, `m3-step3`, `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
 `m2-exit-audit`, and one tag per step before them. To resume:
 
 1. Check the baseline:
@@ -297,20 +313,20 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
    ```sh
    uv sync --locked && uv run pytest -q -m "not slow"   # 834 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
-   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 62 web tests
-   (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 84 browser tests
+   (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 65 web tests
+   (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 108 browser tests
    ```
 
-2. **Next, as the owner chose (2026-11-13):**
-   - ~~journal compaction~~: done (tag `journal-compaction`);
-   - ~~interval warm starts~~: done (tag `interval-warm-starts`);
-   - ~~M3 step 3~~ (the proposal inbox, live preview, the landscape): done (tag `m3-step3`);
-   - ~~M3 step 4a~~ (Playwright on three browsers, the step-1 store fixes, the latency targets
-     on named hardware): done (tag `m3-step4a`);
-   - ~~M3 step 4b~~ (the robot tutorial compared with the page, large tables, the landscape's
-     work limit, shutdown with open feeds): done (tag `m3-step4b`);
-   - then **the M3 exit check**: map every item of the AI-readiness checklist (04 §7 and §8.6) to
-     the tests that show it, list what has no test, and review the result.
+2. **Next: the owner chooses.** Phase 1's next milestone in the plan (03 §8) is the **beta
+   release**: docs with executed notebooks, a summary report, `pip install` + `dipolar serve`;
+   its exit is two or more external users reproducing the 8CB dataset on their own, with no open
+   S1 issue. Points to settle first:
+   - the 8CB couplings are third-party (Di Pietro 2013): the beta's reproduction exercise needs
+     the owner's decision on redistribution (the open item below), or users bring the data;
+   - the known limits recorded in the M3 audit (no PNG renderer; the live preview's target holds
+     for projects of the beta's size; the import-only dependency boundary) and whether any is in
+     the beta's scope;
+   - the M-L legacy import spike stays gated (plan).
    - **Use pnpm 9** (as CI): `node_modules` linked by pnpm 10 makes `pnpm add` fail.
 3. Work under the medium plan (below): at most two review rounds per step, a fresh session per
    step.
@@ -927,7 +943,7 @@ fixed and mutation-checked; the round-36 fixes were not reviewed again, under th
 
 See [round35-m2-step4.md](validation/round35-m2-step4.md).
 
-## M3, the browser beta: in progress
+## M3, the browser beta: done
 
 ### Step 1: the Data and Fit workspaces
 
@@ -1019,6 +1035,16 @@ See [round35-m2-step4.md](validation/round35-m2-step4.md).
   `Session.close_feeds`, called from `cli._Server.handle_exit`.
 - **Known limit:** at 45 000 couplings `project.describe` and `fit.preview` take 2–3 s and send
   about 13 MB; the preview target holds for projects of the beta's size.
+
+### The M3 exit audit
+
+- [validation/m3-exit-audit.md](validation/m3-exit-audit.md): the three exit criteria, the §7 and
+  §8.6 checks, the M3 deliverables, a map of every page control to its operation and test, the
+  deviations (no PNG; perception timed on DOM updates) and limits, the latency on named hardware.
+- **Tests added:** `web/e2e/coverage.spec.ts` (UI coverage by effect), `web/e2e/compare.ts` with
+  `web/tests/compare.test.ts` (the whole-run comparison), the tutorial reading the robot's run
+  with the robot's credential and checking the selected arc by ID; latency records name the
+  commit and a clean-tree flag; the M2 comparison's relative tolerances lost their absolute floor.
 
 ## The small batch (after M2)
 

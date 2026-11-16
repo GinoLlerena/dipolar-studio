@@ -65,13 +65,15 @@ def python_path() -> dict[str, Any]:
 
 
 def assert_same_science(a: dict[str, Any], b: dict[str, Any]) -> None:
-    """Equal within the frozen, quantity-specific regression tolerances (§8.6)."""
+    """Equal within the frozen, quantity-specific regression tolerances (§8.6). Relative
+    tolerances have no absolute floor (`abs=0`; round 54: pytest.approx's default 1e-12 floor
+    accepted p-values of 1e-14 and 5e-13)."""
     tol = expected("spec.json")["tolerances"]["regression"]
     atol = {"phi_deg": tol["phi_atol_deg"], "Szz": tol["S_atol"], "Delta": tol["S_atol"]}
     for key in ("theta", "order"):
         for x, y in zip(a[key], b[key], strict=True):
             assert x["name"] == y["name"] and x["value"] == pytest.approx(y["value"], abs=atol[x["name"]])
-    assert a["chi2"] == pytest.approx(b["chi2"], rel=tol["objective_rtol"])
+    assert a["chi2"] == pytest.approx(b["chi2"], rel=tol["objective_rtol"], abs=0)
     for x, y in zip(a["couplings"], b["couplings"], strict=True):
         assert x["id"] == y["id"]
         assert x["calculated"]["value"] == pytest.approx(y["calculated"]["value"], abs=tol["predictions_atol_Hz"])
@@ -79,11 +81,11 @@ def assert_same_science(a: dict[str, Any], b: dict[str, Any]) -> None:
     assert (a["stderr"] is None) == (b["stderr"] is None)
     if a["stderr"] is not None:
         for x, y in zip(a["stderr"], b["stderr"], strict=True):
-            assert x["name"] == y["name"] and x["value"] == pytest.approx(y["value"], rel=tol["stderr_rtol"])
+            assert x["name"] == y["name"] and x["value"] == pytest.approx(y["value"], rel=tol["stderr_rtol"], abs=0)
     assert a["validity"] == b["validity"] and (a["nu"], a["adequate"]) == (b["nu"], b["adequate"])
     assert (a["p_value"] is None) == (b["p_value"] is None)
     if a["p_value"] is not None:
-        assert a["p_value"] == pytest.approx(b["p_value"], rel=tol["objective_rtol"])
+        assert a["p_value"] == pytest.approx(b["p_value"], rel=tol["objective_rtol"], abs=0)
     endpoint = {"phi_deg": tol["phi_interval_endpoint_atol_deg"], "Szz": tol["S_interval_endpoint_atol"]}
     endpoint["Delta"] = endpoint["Szz"]
     for x, y in zip(a["intervals"], b["intervals"], strict=True):
@@ -111,6 +113,11 @@ def test_the_comparison_rejects_a_changed_result() -> None:
         mutate(changed)
         with pytest.raises(AssertionError):
             assert_same_science(changed, fit)
+    # Tiny values are compared relatively too, with no absolute floor (round 54).
+    tiny, tinier = copy.deepcopy(fit), copy.deepcopy(fit)
+    tiny["p_value"], tinier["p_value"] = 5e-13, 1e-14
+    with pytest.raises(AssertionError):
+        assert_same_science(tiny, tinier)
 
 
 def test_the_robot_completes_the_m2_scenario_over_http_only(tmp_path: Path, clean_env: dict[str, str]) -> None:

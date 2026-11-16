@@ -13,6 +13,14 @@ import { test as base, expect, type Page } from "@playwright/test";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 const DIST = join(ROOT, "web", "dist");
+/** The registry's queries (no side effects), from the committed snapshot. */
+const QUERIES = new Set(
+  (JSON.parse(readFileSync(join(ROOT, "packages", "dipolar-app", "registry.snapshot.json"), "utf-8")) as {
+    operations: { name: string; kind: string }[];
+  }).operations
+    .filter((o) => o.kind === "query")
+    .map((o) => o.name),
+);
 
 type Ready = { base_url: string; instance_id: string; tokens: Record<"user" | "robot" | "viewer" | "agent", string> };
 export type Who = keyof Ready["tokens"];
@@ -36,13 +44,26 @@ export class Server {
     return this.ready.base_url;
   }
 
-  /** One registry call over HTTP. */
+  /** One registry call over HTTP. A query is sent once more, and the retry logged, only when its
+   * connection was reset: Node's fetch reuses a kept-alive connection that the server may have
+   * closed while idle (ECONNRESET, seen after the robot's seconds-long run, M3 exit audit). Any
+   * other failure, a second reset, and any failure of a command are errors. */
   async call(who: Who, operation: string, args: object = {}, options: object = {}): Promise<Envelope> {
-    const response = await fetch(`${this.base}/api/v1/ops/${operation}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.ready.tokens[who]}` },
-      body: JSON.stringify({ args, ...options }),
-    });
+    const send = () =>
+      fetch(`${this.base}/api/v1/ops/${operation}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.ready.tokens[who]}` },
+        body: JSON.stringify({ args, ...options }),
+      });
+    let response: Response;
+    try {
+      response = await send();
+    } catch (error) {
+      const code = (error as { cause?: { code?: string } }).cause?.code;
+      if (!QUERIES.has(operation) || code !== "ECONNRESET") throw error;
+      console.warn(`harness: ${operation} resent once after ECONNRESET on a reused connection`);
+      response = await send();
+    }
     return (await response.json()) as Envelope;
   }
 
