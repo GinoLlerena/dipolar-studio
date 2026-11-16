@@ -1054,7 +1054,6 @@ the new Windows job could be brought to green before merging.
 
 - Log your hours per M1 step in the table above. The re-baseline needs them for a first date
   estimate.
-- Approve plan v0.6 formally (the "go" started M0).
 - Supply the thesis PDF. It is needed for B55/D4, the ρ formula and Phase 2 V3/V6.
 - Get Di Pietro's permission to redistribute the 8CB couplings. This is needed only for packaged
   redistribution. The data are used for validation only and are removable at any time
@@ -1063,6 +1062,8 @@ the new Windows job could be brought to green before merging.
 
 ## Decisions recorded
 
+- 2026-11-16: the owner approved plan v0.6 (`03-redesign-plan.md`) formally as the Phase-1
+  execution baseline. Work had started under it with the owner's "go" for M0.
 - 2026-11-10: Marco Idrogo is **not** a co-author of the new implementation. `CITATION.cff`
   lists Gino Llerena as the only author of Dipolar Studio. Marco Idrogo stays credited as
   co-author of the original 1998 thesis and *Proyecto* application: in the README credits and in
