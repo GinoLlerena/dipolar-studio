@@ -132,3 +132,31 @@ test("an invalid first edit does not keep the preview from starting (round 49)",
   await expect(page.locator(".meta")).toContainText("φ = 37.00°"); // the landscape's lowest sample
   await expect(field).toHaveValue("37.0");
 });
+
+test("the automatic start does not write into the field the user is in (M3 step 4b)", async ({ page, server }) => {
+  // Seen under load: the start's "37.0" written into the focused, empty field between the
+  // selection and the typing made "37.0120", previewed as 37.0. (Here: "37.060" before the fix.)
+  await openExample(server);
+  let release = () => {};
+  const gate = new Promise<void>((done) => {
+    release = done;
+  });
+  await page.route("**/api/v1/ops/fit.landscape", async (route) => {
+    const response = await route.fetch();
+    await gate;
+    await route.fulfill({ response });
+  });
+  await page.goto(await server.launchUrl());
+  await openTab(page, "Fit");
+  const field = page.getByLabel("φ in degrees");
+  await expect(field).toHaveValue("");
+  await field.focus(); // the user is in the field, has not typed yet
+  release();
+  await expect(page.locator(".meta")).toContainText("φ = 37.00°"); // the start previews...
+  await expect(field).toHaveValue(""); // ...without writing into the field
+  await expect(field).toBeFocused();
+  await page.keyboard.type("60");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".meta")).toContainText("φ = 60.00°");
+  await expect(field).toHaveValue("60.0");
+});

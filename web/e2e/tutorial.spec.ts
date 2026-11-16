@@ -83,6 +83,7 @@ test("the tutorial through the page equals the robot's", async ({ app, server })
 
   // 3. Bind the torsion; the model for imported geometry.
   for (const [k, value] of TORSION.entries()) await app.getByLabel(["a", "i", "j", "b"][k] as string, { exact: true }).fill(value);
+  await expect(app.getByRole("button", { name: "Set torsion" })).toBeEnabled();
   await app.getByRole("button", { name: "Set torsion" }).click();
   await expect(app.locator(".crumb .muted")).toContainText("rev 3 ");
   await app.locator("#model-kind").selectOption("rigid");
@@ -156,4 +157,26 @@ test("the tutorial through the page equals the robot's", async ({ app, server })
   } finally {
     await robotServer.stop();
   }
+});
+
+test("a science change while the torsion is typed keeps what was typed (CI, M3 step 4b)", async ({ app, server }) => {
+  // On CI's Firefox the couplings import's new project description arrived after the torsion was
+  // typed, and the fields were reset to the (undeclared) torsion: Set torsion stayed disabled.
+  const xyz = readFileSync(XYZ, "utf-8");
+  await server.ok("robot", "project.import_xyz", { xyz, name: "biphenyl", expected_science_revision: 0 });
+  await openTab(app, "Data");
+  await expect(app.locator(".crumb .muted")).toContainText("rev 1 ");
+  for (const [k, value] of TORSION.entries()) await app.getByLabel(["a", "i", "j", "b"][k] as string, { exact: true }).fill(value);
+  // Another client imports the couplings (a science change) while the fields hold the typing.
+  const csv = readFileSync(CSV, "utf-8");
+  const mapping = await confirmedMapping(server);
+  await server.ok("robot", "couplings.import", { csv, confirmed_mapping: mapping, expected_science_revision: 1 });
+  await expect(app.getByText("14 couplings").first()).toBeVisible(); // the new description is shown
+  for (const [k, value] of TORSION.entries()) {
+    await expect(app.getByLabel(["a", "i", "j", "b"][k] as string, { exact: true })).toHaveValue(value);
+  }
+  await expect(app.getByRole("button", { name: "Set torsion" })).toBeEnabled();
+  await app.getByRole("button", { name: "Set torsion" }).click();
+  await expect(app.locator(".crumb .muted")).toContainText("rev 3 ");
+  await expect(app.locator("fieldset.torsion .muted")).toHaveText(TORSION.join(" – "));
 });

@@ -21,8 +21,9 @@ items left for it (rounds 47 and 49).
   shows it → export. Its inputs come from `datasets/biphenyl-synthetic/tutorial_xyz.py` (the
   generator's own geometry as a user's file: element symbols only; and the 14 measured values
   without the D2 symmetry classes, which an imported geometry under c2z or c1 rightly refuses).
-  Result: τ = −36.99° (φ = 37° in the template's convention, IUPAC τ = −φ), χ² 12.4 with ν 10,
-  every interval supported, worst coupling at −1.94σ, about 7 s.
+  The preview is at `--phi`, by default the domain's midpoint (a φ outside the domain is refused
+  before any change). Result: τ = −36.99° (φ = 37° in the template's convention, IUPAC τ = −φ),
+  χ² 12.4 with ν 10, every interval supported, worst coupling at −1.94σ, about 7 s.
 - **The same tutorial through the page** (`web/e2e/tutorial.spec.ts`): the XYZ and CSV through the
   Data tab's file buttons, the mapping chosen in its selects, the torsion and model in their
   fields, the fit with intervals, the worst row selected in the residual table, the Structure view
@@ -42,8 +43,8 @@ items left for it (rounds 47 and 49).
     immutable project's identity and, for the hashes, the numerical context): the science and
     content hashes and the problem `problem_for` builds. At 45 000 couplings they cost 0.6 s and
     0.85 s on every call before.
-  - **Measured** (i7-8750H; `tools/bench/large_project.py --protons 300`: 44 850 couplings, the
-    most a 1 MiB CSV holds):
+  - **Measured** (i7-8750H; the benchmark project, `tools/bench/large_project.py --protons 300`:
+    44 850 couplings in a CSV of about 0.8 MB):
 
     | | before | after |
     |---|---|---|
@@ -84,3 +85,53 @@ feeds not closed at exit (`test_shutdown_does_not_wait_for_open_event_streams`: 
 
 **Baseline (before review):** 66 browser tests (22 × 3), 832 Python (`-m "not slow"`), 61 web
 unit tests, TypeScript (app and suite), mypy, Ruff, the generated contract and projection parity.
+
+## Round 51: NOT READY (three A), on commit 9aae306
+
+The reviewer's run: 832 Python, Ruff, mypy, the generated contract, 61 web unit tests and 22
+Chromium tests passed. Scratch browser checks confirmed the preview's windowing, the plot's cap,
+the selection kept, and the Structure table's windowing; the default landscape at 51 040
+couplings took 19 samples (969 760 work units); with SIGINT the server exited in 0.23 s and
+removed its ready file.
+
+1. **(A) A windowed table replaced by a shorter one could hide its last rows.** Reproduced:
+   2 556 couplings, the Data table scrolled to the bottom, then another client loads the project
+   with its first 500: the table oscillated between no rows and an earlier subset, and scrolling
+   to the bottom did not show coupling 500. The old scroll position was beyond the new rows, so
+   the window was empty; with no row to measure the row height fell back to a guess (23 px against
+   21 px), which moved the window again. **Fix:** a scroll position beyond the rows' end shows the
+   last rows (`rowWindow` never returns an empty window for rows that exist); the last measured row
+   height is kept when no row is rendered; the table is measured again when its row count changes.
+   Tests: `web/tests/limits.test.ts` (positions beyond the end) and the reviewer's scenario in
+   `web/e2e/large.spec.ts`, which fails against the step's first version.
+2. **(A) The documented tutorial command failed before fitting.** Without `--phi` the robot
+   previewed at 37°, outside the tutorial's domain [−90°, 0°], and stopped at OUT_OF_DOMAIN; the
+   browser test passed `--phi -37` and so hid it. **Fix:** the tutorial previews by default at the
+   domain's midpoint, and a `--phi` outside the domain is refused before any change. Tests:
+   `test_robot_tutorial_as_documented` runs the docstring's command as written (and fails with the
+   old default); `test_robot_tutorial_refuses_a_phi_outside_its_domain`.
+3. **(A) The benchmark was described as the largest CSV the server accepts.** The reviewer
+   imported 51 040 couplings (320 protons, 953 198 bytes) over HTTP. **Fix:** 44 850 is described
+   as the benchmark's size only.
+
+**Found by CI and by repeated runs under load, on the same commit** (not by the reviewer):
+
+4. **Typed torsion indices were wiped by a science change.** CI's Firefox: the tutorial filled
+   the four indices, then the couplings import's new project description arrived and the fields
+   were reset to the (undeclared) torsion, so Set torsion stayed disabled. The fields were reset
+   on every science change; a user typing while another client edits the project lost the typing
+   the same way. **Fix:** they follow the declared torsion only when it changes. Test: another
+   client imports the couplings while the indices are typed (fails with the old reset).
+5. **A typed φ could become another number.** The preview test "a narrowed domain clamps the
+   preview" failed under load, on WebKit and Chromium (five failures in about 590 runs); its trace shows the field
+   holding `37.0120`: the automatic start wrote `37.0` into the focused, still empty field between
+   the selection and the typing, and Enter previewed 37.012, snapped to 37.0. The round-49 guard
+   began only with the first keystroke. **Fix:** neither the automatic start nor the clamp after a
+   science change writes the field during an edit (from focus to Enter or leaving the field); they
+   still move the slider and preview, and after a commit they write the field again. Test: the
+   landscape held, the field focused, the start released (the preview starts, the field stays
+   empty), then `60` typed is previewed as 60 (fails without the guard: `37.060`).
+
+**After the fixes:** 834 Python (`-m "not slow"`), 62 web unit tests, 75 browser tests (25 × 3),
+TypeScript, mypy, Ruff, the generated contract and projection parity; the preview, latency and
+store specs repeated six times on WebKit and Chromium with the Python suite running alongside.

@@ -13,12 +13,15 @@ export const OVERSCAN = 20;
 export type RowWindow = { start: number; end: number; before: number; after: number };
 
 /** The rows [start, end) to render for a scroll position, with the heights (px) of the spacers
- * that stand in for the rows above and below. */
+ * that stand in for the rows above and below. A position beyond the rows' end (a scroll position
+ * left from a longer table, round 51) shows the last rows, never an empty window. */
 export function rowWindow(count: number, top: number, height: number, row: number, overscan = OVERSCAN): RowWindow {
   if (count <= 0 || !(row > 0)) return { start: 0, end: 0, before: 0, after: 0 };
-  const first = Math.floor(Math.max(top, 0) / row);
-  const start = Math.min(count, Math.max(0, first - overscan));
-  const end = Math.min(count, Math.max(start, Math.ceil((Math.max(top, 0) + Math.max(height, 0)) / row) + overscan));
+  const view = Math.max(height, 0);
+  const at = Math.min(Math.max(top, 0), Math.max(0, count * row - view));
+  const first = Math.floor(at / row);
+  const start = Math.min(count - 1, Math.max(0, first - overscan));
+  const end = Math.min(count, Math.max(start + 1, Math.ceil((at + view) / row) + overscan));
   return { start, end, before: start * row, after: (count - end) * row };
 }
 

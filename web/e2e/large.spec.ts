@@ -70,6 +70,34 @@ test("a large couplings table renders only the rows in view", async ({ app, serv
   await expect(rows.last()).toHaveAttribute("aria-selected", "true");
 });
 
+test("a table replaced by a shorter one, still windowed, shows its last rows (round 51)", async ({ app, server }) => {
+  const couplings = await importLarge(server);
+  await openTab(app, "Data");
+  const box = app.locator("#pane-couplings").locator("xpath=ancestor::section").locator(".scroll.windowed");
+  const rows = bodyRows(box.locator("table"));
+  await box.evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+  });
+  await expect(rows.last()).toContainText(couplings[COUPLINGS - 1]!.label);
+  // Another client loads the same project with only its first 500 couplings.
+  const exported = JSON.parse((await server.ok("robot", "project.export")).text as string);
+  exported.project.couplings = exported.project.couplings.slice(0, 500);
+  const revision = await server.revision();
+  await server.ok("robot", "project.load", { text: JSON.stringify(exported), expected_science_revision: revision });
+  await expect(app.getByText("500 couplings").first()).toBeVisible();
+  // The rows shown are the last ones, and stay shown (no oscillation between windows).
+  await expect(rows.last()).toContainText(couplings[499]!.label);
+  for (let i = 0; i < 5; i++) {
+    await app.waitForTimeout(100);
+    await expect(rows.last()).toContainText(couplings[499]!.label, { timeout: 100 });
+    expect(await rows.count()).toBeGreaterThan(10);
+  }
+  await box.evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+  });
+  await expect(rows.last()).toContainText(couplings[499]!.label);
+});
+
 test("the Structure view draws a bounded subset of the arcs and keeps the selection", async ({ app, server }) => {
   const couplings = await importLarge(server);
   const last = couplings[COUPLINGS - 1]!;

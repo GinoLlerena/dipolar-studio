@@ -143,11 +143,16 @@ export function useRowWindow(count: number): RowWindow & { ref: RefObject<HTMLDi
   const ref = useRef<HTMLDivElement | null>(null);
   const windowed = count > WINDOW_FROM;
   const [view, setView] = useState({ top: 0, height: 600, row: 23 });
+  // The last row height measured: with no row rendered there is nothing to measure, and a guess
+  // would move the window, which changes what is rendered, and so on (round 51).
+  const measured = useRef(23);
   useEffect(() => {
     const box = ref.current;
     if (!box || !windowed) return;
     const update = () => {
-      const row = (box.querySelector("tbody tr:not(.spacer)") as HTMLElement | null)?.offsetHeight || 23;
+      const height = (box.querySelector("tbody tr:not(.spacer)") as HTMLElement | null)?.offsetHeight;
+      if (height) measured.current = height;
+      const row = measured.current;
       setView((v) => (v.top === box.scrollTop && v.height === box.clientHeight && v.row === row ? v : { top: box.scrollTop, height: box.clientHeight, row }));
     };
     update();
@@ -158,7 +163,9 @@ export function useRowWindow(count: number): RowWindow & { ref: RefObject<HTMLDi
       box.removeEventListener("scroll", update);
       resized.disconnect();
     };
-  }, [windowed]);
+    // `count`: a table replaced by a shorter one is measured again (the browser may clamp the
+    // scroll position without a scroll event).
+  }, [windowed, count]);
   if (!windowed) return { ref, windowed, start: 0, end: count, before: 0, after: 0 };
   return { ref, windowed, ...rowWindow(count, view.top, view.height, view.row) };
 }

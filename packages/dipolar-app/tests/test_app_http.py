@@ -198,6 +198,41 @@ def test_robot_is_standard_library_only() -> None:
     assert roots - {"__future__"} <= set(sys.stdlib_module_names), roots
 
 
+def _robot(server: Server, env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-I", str(ROBOT_SCRIPT), "--ready-file", str(server.ready_file), *args],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env=env,
+        cwd=ROOT,
+        check=False,
+    )
+
+
+def test_robot_tutorial_as_documented(server: Server, clean_env: dict[str, str]) -> None:
+    """Round 51: the tutorial command of robot.py's docstring, as written (no --phi), completes:
+    the preview is inside the tutorial's domain, the fit recovers the torsion, and it exports."""
+    doc = ROBOT_SCRIPT.read_text(encoding="utf-8")
+    command = doc.split("--scenario tutorial \\\n", 1)[1].split("\n", 1)[0].split()
+    assert command[:1] == ["--xyz"] and "--phi" not in command, command
+    proc = _robot(server, clean_env, "--scenario", "tutorial", *command)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    report = json.loads(proc.stdout)
+    assert report["ok"] and report["preview"]["phi"]["value"] == pytest.approx(-45.0)
+    assert report["fit"]["theta"][0]["value"] == pytest.approx(-37.0, abs=0.1)  # τ = −φ, φ = 37°
+    assert report["exported"]["filename"].endswith(".json")
+
+
+def test_robot_tutorial_refuses_a_phi_outside_its_domain(server: Server, clean_env: dict[str, str]) -> None:
+    data = ROOT / "datasets" / "biphenyl-synthetic"
+    files = ["--xyz", str(data / "biphenyl.xyz"), "--csv", str(data / "tutorial-couplings.csv")]
+    proc = _robot(server, clean_env, "--scenario", "tutorial", *files, "--phi", "37")
+    assert proc.returncode == 1
+    assert "outside the tutorial's domain" in json.loads(proc.stdout)["error"]
+    assert server.call("render.describe_view")["result"]["science_revision"] == 0  # nothing was changed
+
+
 def test_robot_completes_the_slice_in_a_clean_process(server: Server, clean_env: dict[str, str]) -> None:
     e = expected("noisy_fixture.json")["expected"]
     tol = expected("spec.json")["tolerances"]["regression"]

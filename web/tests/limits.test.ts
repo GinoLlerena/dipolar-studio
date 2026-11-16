@@ -16,6 +16,19 @@ test("the window covers the view plus the overscan, with spacers for the rest", 
   assert.deepEqual(rowWindow(100, 0, 460, 0), { start: 0, end: 0, before: 0, after: 0 }); // not measured yet
 });
 
+test("a scroll position left from a longer table shows the last rows (round 51)", () => {
+  // 2 556 rows scrolled to the bottom, then replaced by 500 rows: the old position is far beyond.
+  const w = rowWindow(500, 2_556 * 21, 512, 21);
+  assert.equal(w.end, 500);
+  assert.ok(w.end - w.start >= Math.ceil(512 / 21));
+  assert.equal(w.before + (w.end - w.start) * 21 + w.after, 500 * 21);
+  for (const top of [0, 1e9, 500 * 21, 499 * 21]) {
+    const v = rowWindow(500, top, 512, 21);
+    assert.ok(v.end > v.start, `empty window at ${top}`);
+  }
+  assert.deepEqual(rowWindow(1, 1e6, 512, 21), { start: 0, end: 1, before: 0, after: 0 });
+});
+
 test("the most relevant items: everything kept, then the highest scores, in order", () => {
   const items = Array.from({ length: 10 }, (_, i) => ({ id: i, z: [5, 1, 9, 3, 7, 2, 8, 0, 6, 4][i] as number }));
   const picked = mostRelevant(items, (t) => t.z, (t) => t.id === 7, 4);

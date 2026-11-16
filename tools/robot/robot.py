@@ -36,7 +36,8 @@ tutorial, through HTTP registry calls only, from the user's files):
    ``couplings.import``s exactly that mapping at the diff's revision;
 3. **binds the torsion** (``molecule.set_torsion``, ``--torsion``) and sets the model for imported
    geometry (rigid, order c2z, the input frame, the domain ``--domain``);
-4. ``fit.preview`` at φ; the **profile fit** (``fit.run`` with intervals, a job, then ``run.get``);
+4. ``fit.preview`` at φ (``--phi``; by default the domain's midpoint); the **profile fit**
+   (``fit.run`` with intervals, a job, then ``run.get``);
 5. **selects the worst coupling** (largest |residual/σ|), renders the view (``render.view_svg``;
    SVG, the M2 audit's recorded deviation from "PNG") and ``project.export``s the project.
 
@@ -369,7 +370,9 @@ def run_tutorial(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--ready-file", type=Path, required=True)
-    parser.add_argument("--phi", type=float, default=37.0, help="torsion for fit.preview, degrees")
+    parser.add_argument(
+        "--phi", type=float, help="torsion for fit.preview, degrees (default 37; the tutorial: the domain's midpoint)"
+    )
     parser.add_argument("--scenario", choices=("m0", "m2", "tutorial"), default="m0")
     parser.add_argument("--xyz", type=Path, help="tutorial: the user's geometry")
     parser.add_argument("--csv", type=Path, help="tutorial: the user's couplings")
@@ -380,11 +383,15 @@ def main() -> int:
         if ns.scenario == "tutorial":
             if ns.xyz is None or ns.csv is None:
                 raise RobotError("the tutorial needs --xyz and --csv")
-            report = run_tutorial(ns.ready_file, ns.xyz, ns.csv, ns.torsion, tuple(ns.domain), ns.phi)
+            lo, hi = sorted(ns.domain)
+            phi = (lo + hi) / 2 if ns.phi is None else ns.phi
+            if not lo <= phi <= hi:  # round 51: say so before any change, not at the preview
+                raise RobotError(f"--phi {phi} is outside the tutorial's domain [{lo}, {hi}] (--domain)")
+            report = run_tutorial(ns.ready_file, ns.xyz, ns.csv, ns.torsion, (ns.domain[0], ns.domain[1]), phi)
         elif ns.scenario == "m2":
-            report = run_m2(ns.ready_file, ns.phi)
+            report = run_m2(ns.ready_file, 37.0 if ns.phi is None else ns.phi)
         else:
-            report = run(ns.ready_file, ns.phi)
+            report = run(ns.ready_file, 37.0 if ns.phi is None else ns.phi)
     except (RobotError, OSError, KeyError, ValueError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}))
         return 1

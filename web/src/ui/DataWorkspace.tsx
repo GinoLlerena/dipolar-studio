@@ -149,7 +149,11 @@ function ImportedGeometry({ studio, state, project }: Props & { project: Describ
   const atoms = geometry.kind === "imported" ? geometry.atoms : [];
   const declared = geometry.kind === "imported" ? geometry.torsion : null;
   const [draft, setDraft] = useState<string[]>(() => (declared ?? ["", "", "", ""]).map(String));
-  useEffect(() => setDraft((declared ?? ["", "", "", ""]).map(String)), [project.science_hash]);
+  // The fields follow the declared torsion when it changes (this page's Set torsion, or another
+  // client's), not every science change: one that arrives while the user types (a couplings
+  // import, another client's edit) must not wipe what was typed (CI, M3 step 4b).
+  const declaredKey = declared ? declared.join(",") : "";
+  useEffect(() => setDraft((declared ?? ["", "", "", ""]).map(String)), [declaredKey]);
   if (geometry.kind !== "imported") return null;
   const indices = draft.map((d) => Number(d));
   const valid = draft.every((d) => /^\d+$/.test(d.trim())) && indices.every((i) => i < atoms.length);
