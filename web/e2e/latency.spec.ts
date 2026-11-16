@@ -17,7 +17,8 @@ import { expect, openExample, openTab, test } from "./harness";
 const RECORD = process.env.DIPOLAR_RECORD_LATENCY === "1";
 const PREVIEW_P95_MS = RECORD ? 100 : 400;
 const PERCEPTION_MAX_MS = RECORD ? 200 : 800;
-const OUT = resolve(import.meta.dirname, "../../docs/validation/data/m3-latency");
+const ROOT = resolve(import.meta.dirname, "../..");
+const OUT = join(ROOT, "docs", "validation", "data", "m3-latency");
 
 function percentile(samples: number[], q: number): number {
   const sorted = [...samples].sort((a, b) => a - b);
@@ -39,8 +40,10 @@ function record(info: TestInfo, version: string, name: string, samples: number[]
   const file = join(OUT, `${info.project.name}-${name}.json`);
   const machine = { cpu: cpus()[0]?.model ?? "unknown", cores: cpus().length, memory_gib: totalmem() / 2 ** 30, os: `${platform()} ${release()}` };
   // The code measured (the M3 exit check cites it): the commit, and whether the tree differed from it.
-  const git = (...args: string[]) => execFileSync("git", args, { cwd: OUT, encoding: "utf-8" }).trim();
-  const code = { commit: git("rev-parse", "HEAD"), modified: git("status", "--porcelain", "--", "../../../web", "../../../packages") !== "" };
+  // Paths from the repository's root (round 53: relative to the records' directory they named
+  // docs/web and docs/packages, so a modified tree was recorded as unmodified).
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: ROOT, encoding: "utf-8" }).trim();
+  const code = { commit: git("rev-parse", "HEAD"), modified: git("status", "--porcelain", "--", "web", "packages", "tools") !== "" };
   writeFileSync(
     file,
     `${JSON.stringify({ measurement: name, browser: info.project.name, browser_version: version, machine, code, ...extra, ...summary, samples_ms: samples.map(tenth) }, null, 2)}\n`,

@@ -2,11 +2,13 @@
 // (tools/robot/robot.py --scenario tutorial: HTTP registry calls only, in a clean `python -I`
 // process with no frontend, browser or dipolar packages), each on its own server. "The final
 // project and results equal those of the UI path": the science hash, the exported project, the
-// fit and the selected coupling are compared.
+// whole run (every field, with the frozen quantity-specific tolerances: e2e/compare.ts), the run's
+// inputs and the selected coupling are compared.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { resultDifferences, type Tolerances } from "./compare";
 import { expect, openTab, type Server, startServer, test } from "./harness";
 
 const ROOT = resolve(import.meta.dirname, "../..");
@@ -15,6 +17,9 @@ const XYZ = join(DATA, "biphenyl.xyz");
 const CSV = join(DATA, "tutorial-couplings.csv");
 const TORSION = ["1", "0", "6", "7"]; // C2–C1–C1'–C2'
 const PYTHON = process.env.DIPOLAR_ROBOT_PYTHON ?? "python3";
+/** The frozen regression tolerances (04 §8.6: quantity-specific). */
+const TOLERANCES = (JSON.parse(readFileSync(join(DATA, "expected", "spec.json"), "utf-8")) as { tolerances: { regression: Tolerances } })
+  .tolerances.regression;
 
 type Named = { name: string; value: number };
 type Fit = {
@@ -58,11 +63,6 @@ async function confirmedMapping(server: Server): Promise<Record<string, string>>
   const spins = (await server.ok("user", "project.describe")).spins as { id: string; atom: number }[];
   const labels = ["H2", "H3", "H4", "H5", "H6", "H2'", "H3'", "H4'", "H5'", "H6'"];
   return Object.fromEntries(labels.map((l) => [l, spins.find((s) => s.atom === names.indexOf(l))?.id ?? ""]));
-}
-
-function close(a: number | null, b: number | null, rtol = 1e-9, atol = 1e-12): boolean {
-  if (a === null || b === null) return a === b;
-  return Math.abs(a - b) <= atol + rtol * Math.max(Math.abs(a), Math.abs(b));
 }
 
 test("the tutorial through the page equals the robot's", async ({ app, server }) => {
@@ -117,8 +117,13 @@ test("the tutorial through the page equals the robot's", async ({ app, server })
   });
   await table.locator("tbody tr", { hasText: worst }).first().click();
   await expect(table.locator("tbody tr.selected")).toHaveCount(1);
+  // The shared view selects that coupling, and the Structure view draws exactly its arc selected
+  // (round 53: one selected arc, whichever, passed).
+  await expect.poll(async () => (await server.ok("user", "render.describe_view")).selection.map((s: { label: string }) => s.label)).toEqual([worst]);
+  const worstId = (await server.ok("user", "render.describe_view")).selection[0].id as string;
   await openTab(app, "Structure"); // the rendered view, with the selection
   await expect(app.locator("path.arc.is-selected")).toHaveCount(1);
+  await expect(app.locator(`path.arc.is-selected[data-id="${worstId}"]`)).toHaveCount(1);
   await openTab(app, "Data");
   const download = app.waitForEvent("download");
   await app.getByRole("button", { name: "Export" }).click();
@@ -133,24 +138,16 @@ test("the tutorial through the page equals the robot's", async ({ app, server })
     expect(JSON.parse(exported)).toEqual(JSON.parse(robot.exported.text));
     const view = await server.ok("user", "render.describe_view");
     expect(view.selection.map((s: { label: string }) => s.label)).toEqual([robot.worst_coupling.label]);
+    expect(view.selection.map((s: { id: string }) => s.id)).toEqual([robot.worst_coupling.id]);
+    // The whole run, every field (round 53): the page's and the robot's, each read with run.get.
     const run = await server.ok("user", "run.get", { run_id: view.run.run_id });
-    const ours = run.result as Fit;
-    const theirs = robot.fit as Fit;
-    // Quantity-specific tolerances (04 §8.6): the same inputs on the same engine; the last bits may
-    // differ between processes (D11).
-    for (const key of ["theta", "order", "stderr"] as const) {
-      const a = ours[key] ?? [];
-      const b = theirs[key] ?? [];
-      expect(a.map((v) => v.name)).toEqual(b.map((v) => v.name));
-      a.forEach((v, i) => expect(close(v.value, b[i]?.value ?? Number.NaN), `${key} ${v.name}`).toBe(true));
+    const robotView = await robotServer.ok("user", "render.describe_view");
+    const robotRun = await robotServer.ok("user", "run.get", { run_id: robotView.run.run_id });
+    expect(resultDifferences(run.result, robotRun.result, TOLERANCES)).toEqual([]);
+    for (const key of ["kind", "input_hash", "science_hash", "science_revision", "stale"]) {
+      expect(run.run[key], `run.${key}`).toEqual(robotRun.run[key]);
     }
-    expect(close(ours.chi2, theirs.chi2)).toBe(true);
-    expect(ours.nu).toBe(theirs.nu);
-    expect(ours.intervals.map((i) => [i.parameter, i.supported])).toEqual(theirs.intervals.map((i) => [i.parameter, i.supported]));
-    ours.intervals.forEach((iv, k) => {
-      expect(close(iv.lower, theirs.intervals[k]?.lower ?? null, 1e-9, 1e-9), `${iv.parameter} lower`).toBe(true);
-      expect(close(iv.upper, theirs.intervals[k]?.upper ?? null, 1e-9, 1e-9), `${iv.parameter} upper`).toBe(true);
-    });
+    const ours = run.result as Fit;
     // The intervals exist and are usable (round 52: two empty lists compared equal): every
     // parameter of the model, each supported with finite bounds around its estimate.
     expect(ours.intervals.map((i) => i.parameter)).toEqual(["phi_deg", "Szz", "Delta", "Sxy"]);
