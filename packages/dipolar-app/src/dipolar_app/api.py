@@ -25,8 +25,10 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Mapping
 from pathlib import Path
@@ -53,6 +55,8 @@ class OperationFailed(Exception):
         self.offending_field: str | None = error.get("offending_field")
         self.hint: str | None = error.get("hint")
         self.details: Mapping[str, Any] = error.get("details") or {}
+        #: The HTTP status, when the reply over HTTP was not an operation envelope (code NOT_AN_ENVELOPE).
+        self.http_status: int | None = None
         text = f"{operation}: {self.code}: {self.message}"
         if self.hint:
             text += f" (hint: {self.hint})"
@@ -66,6 +70,10 @@ class _Transport(Protocol):
 
 
 class _Local:
+    """A session in this process. Closing it (round 55) refuses further calls, waits for a call in
+    progress, stops the session's commits (so a fit still running in a worker thread publishes
+    nothing), stops the workers, and only then releases the project's lock."""
+
     def __init__(self, project_dir: Path | None) -> None:
         from dipolar_app.client import LocalClient
         from dipolar_app.jobs import JobRunner
@@ -75,32 +83,49 @@ class _Local:
         from dipolar_app.session import Session
 
         self._lock_fd: int | None = None
-        journal = None
+        self._calls = threading.Lock()  # one call at a time, and close() waits for it
+        self._closed = False
+        self._session: Session | None = None
+        self._runner: JobRunner | None = None
         if project_dir is not None:
             from dipolar_app.instance import lock_project
 
             make_durable_dirs(project_dir)
             self._lock_fd = lock_project(project_dir)
-            journal = Journal(project_dir / "project.events.jsonl")
-        try:
+        try:  # everything after the lock: a failure releases it (round 55)
+            journal = None if project_dir is None else Journal(project_dir / "project.events.jsonl")
             self._session = Session(journal, contract_version=CONTRACT_VERSION)
             self._runner = JobRunner(self._session, mode="thread")
+            self._client = LocalClient(build_registry(), self._session, USER)
         except BaseException:
-            self._release()
+            self._shut_down()
             raise
-        self._client = LocalClient(build_registry(), self._session, USER)
 
     def envelope(self, operation: str, args: Mapping[str, Any]) -> dict[str, Any]:
-        return self._client.call(operation, dict(args))
+        with self._calls:
+            if self._closed:
+                raise RuntimeError("this Studio is closed")
+            return self._client.call(operation, dict(args))
 
     def close(self) -> None:
-        self._runner.close()
-        self._release()
+        with self._calls:  # a call in progress ends first; later calls are refused
+            if self._closed:
+                return
+            self._closed = True
+        self._shut_down()
 
-    def _release(self) -> None:
-        if self._lock_fd is not None:
-            os.close(self._lock_fd)
-            self._lock_fd = None
+    def _shut_down(self) -> None:
+        try:
+            if self._session is not None:
+                self._session.stop()  # no commit after this, from a call or a worker
+            if self._runner is not None:
+                self._runner.close()
+            if self._session is not None:
+                self._session.close_feeds()
+        finally:
+            if self._lock_fd is not None:
+                os.close(self._lock_fd)
+                self._lock_fd = None
 
 
 class _Remote:
@@ -111,24 +136,53 @@ class _Remote:
             raise ValueError(f"the ready file has no {who!r} credential (it has: {', '.join(sorted(tokens))})")
         self._base = str(ready["base_url"])
         self._token = str(tokens[who])
+        self._closed = False
 
     def envelope(self, operation: str, args: Mapping[str, Any]) -> dict[str, Any]:
+        if self._closed:
+            raise RuntimeError("this Studio is closed")
         request = urllib.request.Request(
-            f"{self._base}/api/v1/ops/{operation}",
+            f"{self._base}/api/v1/ops/{urllib.parse.quote(operation, safe='.')}",
             data=json.dumps({"args": dict(args)}, allow_nan=False).encode(),
             method="POST",
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {self._token}"},
         )
+        status, reason = 200, "OK"
+        failure: urllib.error.HTTPError | None = None
         try:
             with urllib.request.urlopen(request, timeout=120) as response:
                 body = response.read()
-        except urllib.error.HTTPError as exc:  # refusals come with an error envelope
+        except urllib.error.HTTPError as exc:  # a refusal comes with an error envelope; check it
+            failure, status, reason = exc, exc.code, str(exc.reason)
             body = exc.read()
-        data: dict[str, Any] = json.loads(body)
-        return data
+        envelope = _as_envelope(body)
+        if envelope is None:  # not an operation envelope: report the HTTP reply itself (round 55)
+            snippet = body[:200].decode("utf-8", "replace").strip()
+            error = OperationFailed(
+                operation,
+                {"code": "NOT_AN_ENVELOPE", "message": f"HTTP {status} {reason}: {snippet or '(empty body)'}"},
+            )
+            error.http_status = status
+            raise error from failure
+        return envelope
 
     def close(self) -> None:
-        pass
+        self._closed = True
+
+
+def _as_envelope(body: bytes) -> dict[str, Any] | None:
+    """The reply as an operation envelope, or None when it is not one."""
+    try:
+        data = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("ok"), bool):
+        return None
+    if data["ok"] and not isinstance(data.get("result"), dict):
+        return None
+    if not data["ok"] and not isinstance(data.get("error"), dict):
+        return None
+    return data
 
 
 class Studio:

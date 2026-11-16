@@ -40,9 +40,20 @@ current couplings. You confirm or change the mapping before anything is applied.
 - On **imported geometry**, each hydrogen is named by its atom number in the XYZ file (`H13` is
   the 13th atom), unless you map your own labels to them.
 
-**Equivalent pairs** describe symmetry classes of a model (for example the template's D2 symmetry).
-They are refused where the model does not make those pairs equivalent: on imported geometry
-(order c2z or c1), give each measured coupling for one pair only.
+**Equivalent pairs** let one measured value stand for a class of pairs that are equivalent by
+symmetry. The rules:
+
+- the class lists the coupling's own pair, and `multiplicity` is the number of pairs in it;
+- no pair belongs to two couplings (each pair is observed once);
+- every pair of the class must be **equivalent under the model you fit**: the app checks that each
+  gives the same calculated coupling as the coupling's own pair, whatever the order parameters,
+  at several torsions, and refuses the class otherwise.
+
+So whether a class is accepted depends on the geometry and the model. The template's D2 classes
+(as in `datasets/biphenyl-synthetic/couplings.csv`) hold under the template's models, but not
+under c2z or c1 on imported coordinates, where those pairs are no longer equivalent; a class that
+does hold for your geometry and order model is accepted. When unsure, give each measured coupling
+for one pair: that is always accepted.
 
 Limits: up to 100 000 couplings in a project, and a couplings file of up to 1 MiB.
 

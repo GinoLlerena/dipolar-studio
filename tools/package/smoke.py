@@ -72,8 +72,18 @@ def main() -> int:
                 time.sleep(0.1)
             base = json.loads(ready.read_text(encoding="utf-8"))["base_url"]
             with urllib.request.urlopen(base + "/", timeout=30) as page:
-                assert page.status == 200 and b'<div id="root"' in page.read(), "the bundled page is not served"
-            print("ok  dipolar serve serves the bundled page")
+                html = page.read().decode("utf-8")
+            assert '<div id="root"' in html, "the bundled page is not served"
+            # Every script and stylesheet the page loads must be served, non-empty, with its type
+            # (round 55: an installation without its assets passed).
+            assets = re.findall(r'(?:src|href)="(/assets/[^"]+)"', html)
+            assert any(a.endswith(".js") for a in assets), f"the page loads no script: {assets}"
+            for asset in assets:
+                with urllib.request.urlopen(base + asset, timeout=30) as reply:
+                    body, kind = reply.read(), reply.headers.get("Content-Type", "")
+                expected = "javascript" if asset.endswith(".js") else "css" if asset.endswith(".css") else ""
+                assert reply.status == 200 and body and expected in kind, (asset, reply.status, kind, len(body))
+            print(f"ok  dipolar serve serves the bundled page and its {len(assets)} assets")
             with Studio.connect(ready) as studio:
                 studio.call("project.open_example", name="biphenyl-synthetic", expected_science_revision=0)
                 run = studio.fit()

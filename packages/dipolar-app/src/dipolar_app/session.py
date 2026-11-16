@@ -599,6 +599,7 @@ class Session:
         self._cursor = 0
         self._live: dict[str, str] = {}  # job ID -> "running" (not journaled)
         self._feeds_closed = False  # set at shutdown: waiting feeds return at once (round 49 B)
+        self._stopped = False  # set by stop(): no commit is accepted any more (round 55)
         #: Names this process's session for event-stream clients (a restart starts a new feed).
         self.boot_id = uuid.uuid4().hex
         self.blobs = BlobStore(journal.path.parent / "runs" if journal is not None else None)
@@ -667,6 +668,17 @@ class Session:
                 return [], self._cursor, cursor != self._cursor
             return [(c, item) for c, item in self._feed if c > cursor], self._cursor, False
 
+    def stop(self) -> None:
+        """Accept no commit any more (round 55). Taken under the commit lock, so when it returns no
+        commit is in progress and none can start: the journal will not be written again by this
+        session, and the project's lock can be released for another one."""
+        with self._lock:
+            self._stopped = True
+
+    @property
+    def stopped(self) -> bool:
+        return self._stopped
+
     def close_feeds(self) -> None:
         """Wake every waiting feed and keep later waits from blocking: the server is shutting
         down, and a feed waiting for its heartbeat would hold a worker thread (and the process)
@@ -724,6 +736,8 @@ class Session:
         if dry_run and request_id is not None:
             raise ValueError("a dry run is never recorded, so it takes no request_id")
         with self._lock:
+            if self._stopped:
+                raise OperationError(ErrorCode.INTERNAL, "the session is closed")
             if self._failure is not None:
                 raise OperationError(
                     ErrorCode.JOURNAL_FAILED,

@@ -198,6 +198,8 @@ class JobRunner:
         error: tuple[str, str] | None = None,
     ) -> bool:
         """Commit the job's terminal state, unless it already has one. Returns whether it did."""
+        if self.session.stopped:
+            return False  # the session was closed: it writes nothing more, not even a result blob
         digest = self.session.blobs.put(result) if result is not None else None  # durable first
 
         def plan(state: SessionState) -> tuple[list[Event], None]:

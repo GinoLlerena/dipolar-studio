@@ -60,3 +60,39 @@ the fit (the repository keeps its copy for validation only, as before).
   `tests/test_boundaries.py::test_the_versions_agree_with_the_package_metadata`.
 
 **Baseline (before review):** 841 Python (`-m "not slow"`), 65 web unit and 108 browser tests (unchanged web code), mypy, Ruff, the generated contract; the smoke test against wheels built from this branch, in a clean virtualenv.
+
+## Round 55: NOT READY (five A), on commit 8bbc852
+
+The reviewer's run: 841 Python and 65 web unit tests, Ruff, mypy, the contract; the wheels built
+and the smoke test passed in a clean virtualenv (φ = 36.985°); the smoke test rejected a
+misspelt guide operation and a missing page; `wait`'s slicing and timeout and failed or cancelled
+fits behaved. All five findings were reproduced.
+
+1. **(A) A closed local session could still write.** Closing A and opening B on one directory,
+   then writing through both, left a journal that no longer replayed; and a fit still computing
+   in A's worker thread published after `close()` returned (its join gave up after 10 s) and B had
+   reopened. **Fix:** `close()` refuses later calls and waits for a call in progress; then
+   `Session.stop()` (new) refuses every commit, under the commit lock, so neither a call nor a
+   worker writes again (a late result writes no blob either); then the workers stop; only then is
+   the project's lock released. Tests: a closed Studio refuses calls and the next one owns the
+   journal; a result after `stop()` writes no record and no blob; a fit computing at `close()`,
+   and one held after its "closed?" check while publishing, are both recorded as interrupted at
+   reopening, with no run (the second fails when `close()` does not stop the session).
+2. **(A) A failure after taking the lock kept it.** Opening the journal outside the cleanup (a
+   dangling `project.events.jsonl` symlink) left the directory locked for the process. **Fix:**
+   everything after the lock (journal, session, runner, client) is inside the cleanup. Test: the
+   reviewer's symlink, then a successful open (fails without the cleanup).
+3. **(A) A reply that was not an envelope lost its diagnosis** (a plain-text 404 raised
+   `JSONDecodeError`). **Fix:** replies are checked as operation envelopes; anything else raises
+   `OperationFailed` with code `NOT_AN_ENVELOPE`, the HTTP status (`http_status`) and the start of
+   the body, chained to the HTTP error. Tests: the reviewer's `project/describe` (404), and seven
+   bodies that are not envelopes.
+4. **(A) The guide's rule for equivalent pairs was wrong** (a class that holds on imported
+   geometry is accepted). **Fix:** the guide states the actual rules: the class includes the
+   coupling's own pair, the multiplicity counts it, no pair is in two couplings, and every pair
+   must give the same calculated coupling under the fitted model at several torsions.
+5. **(A) The smoke test passed an installation without its scripts and styles.** **Fix:** it reads
+   the page's `/assets/` references and requires each to be served, non-empty, with a script or
+   stylesheet content type. With the installed assets removed it now fails (404).
+
+**After the fixes:** 854 Python tests; the smoke test against wheels rebuilt from this branch.
