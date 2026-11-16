@@ -1,12 +1,12 @@
 // GENERATED FILE: do not edit. Regenerate with `uv run python tools/codegen/ts_contract.py`.
-// Source: packages/dipolar-app/registry.snapshot.json (sha256 38f80a54a71ab14a023cbaab8f02b71216fc1bcee701ababcf278c3b7687a65a).
+// Source: packages/dipolar-app/registry.snapshot.json (sha256 915aa347e111465e86178532b6f0afb3a85fa154f3eba319cbd6519c0eaff7f1).
 // CI fails if this file is stale (tests/test_ts_contract.py).
 //
 // Value constraints that TypeScript cannot express (bounds, lengths, patterns) appear as doc
 // comments; the server enforces them.
 /* eslint-disable */
 
-export const CONTRACT_VERSION = "0.8.0";
+export const CONTRACT_VERSION = "0.9.0";
 
 /** Any JSON value. */
 export type JsonValue =
@@ -610,8 +610,8 @@ export type ReconcileOut = {
 
 /** `fit.landscape` input. */
 export type LandscapeIn = {
-  /** integer, minimum 2, maximum 1441, default 181 */
-  points?: number;
+  /** default null */
+  points?: number | null;
 };
 
 /** `fit.landscape` output. */
@@ -1146,7 +1146,7 @@ export interface Operations {
   "couplings.import": { input: ImportCouplingsIn; output: ImportCouplingsOut };
   /** Read a couplings CSV against the project: the proposed label mapping and the diff (no change). */
   "couplings.reconcile": { input: ReconcileIn; output: ReconcileOut };
-  /** The fit.preview χ² sampled at evenly spaced torsions over the model domain (the landscape). */
+  /** The fit.preview χ² sampled at evenly spaced torsions over the model domain (the landscape); the samples are bounded by a work limit (samples × observations). */
   "fit.landscape": { input: LandscapeIn; output: LandscapeOut };
   /** Preview the fit at a fixed torsion: order parameters re-solved, predictions and residuals. */
   "fit.preview": { input: PreviewIn; output: PreviewOut };

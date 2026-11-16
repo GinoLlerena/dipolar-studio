@@ -1,5 +1,5 @@
 {
-  "contract_version": "0.8.0",
+  "contract_version": "0.9.0",
   "envelopes": {
     "error": {
       "$defs": {
@@ -1027,11 +1027,18 @@
         "additionalProperties": false,
         "properties": {
           "points": {
-            "default": 181,
-            "maximum": 1441,
-            "minimum": 2,
-            "title": "Points",
-            "type": "integer"
+            "anyOf": [
+              {
+                "maximum": 1441,
+                "minimum": 2,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Points"
           }
         },
         "title": "LandscapeIn",
@@ -1214,7 +1221,7 @@
       },
       "proposable": false,
       "revision_check": "none",
-      "summary": "The fit.preview χ² sampled at evenly spaced torsions over the model domain (the landscape)."
+      "summary": "The fit.preview χ² sampled at evenly spaced torsions over the model domain (the landscape); the samples are bounded by a work limit (samples × observations)."
     },
     {
       "capability": "preview",

@@ -1,6 +1,7 @@
-import type { KeyboardEvent, ReactNode } from "react";
+import { type KeyboardEvent, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import { callOperation } from "../api";
 import { pValue } from "../format";
+import { type RowWindow, rowWindow, WINDOW_FROM } from "../limits";
 import { strings } from "../strings";
 import type { Studio } from "../studio";
 
@@ -132,5 +133,49 @@ export function FileButton({
         }}
       />
     </label>
+  );
+}
+
+/** Windowing for long tables (M3 step 4b): beyond WINDOW_FROM rows only the rows in view (and an
+ * overscan) are rendered, inside a scroll box of fixed height, with spacer rows keeping the scroll
+ * height. `ref` goes on the scroll box; render `rows.slice(start, end)` between `<Spacer>`s. */
+export function useRowWindow(count: number): RowWindow & { ref: RefObject<HTMLDivElement | null>; windowed: boolean } {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const windowed = count > WINDOW_FROM;
+  const [view, setView] = useState({ top: 0, height: 600, row: 23 });
+  // The last row height measured: with no row rendered there is nothing to measure, and a guess
+  // would move the window, which changes what is rendered, and so on (round 51).
+  const measured = useRef(23);
+  useEffect(() => {
+    const box = ref.current;
+    if (!box || !windowed) return;
+    const update = () => {
+      const height = (box.querySelector("tbody tr:not(.spacer)") as HTMLElement | null)?.offsetHeight;
+      if (height) measured.current = height;
+      const row = measured.current;
+      setView((v) => (v.top === box.scrollTop && v.height === box.clientHeight && v.row === row ? v : { top: box.scrollTop, height: box.clientHeight, row }));
+    };
+    update();
+    box.addEventListener("scroll", update, { passive: true });
+    const resized = new ResizeObserver(update);
+    resized.observe(box);
+    return () => {
+      box.removeEventListener("scroll", update);
+      resized.disconnect();
+    };
+    // `count`: a table replaced by a shorter one is measured again (the browser may clamp the
+    // scroll position without a scroll event).
+  }, [windowed, count]);
+  if (!windowed) return { ref, windowed, start: 0, end: count, before: 0, after: 0 };
+  return { ref, windowed, ...rowWindow(count, view.top, view.height, view.row) };
+}
+
+/** A row standing in for `height` px of rows that are not rendered. */
+export function Spacer({ height, columns }: { height: number; columns: number }) {
+  if (height <= 0) return null;
+  return (
+    <tr className="spacer" aria-hidden="true" style={{ height }}>
+      <td colSpan={columns} />
+    </tr>
   );
 }

@@ -40,3 +40,7 @@ product depends on it.
   V0 corpus takes the role.
 
 The prototype scripts need only Python 3 and NumPy: `python3 generate.py`, `python3 check_fit.py`.
+`python3 tutorial_xyz.py` writes the robot tutorial's inputs (M3 step 4b): `biphenyl.xyz`, the
+generator's own geometry as a user's XYZ file, and `tutorial-couplings.csv`, the 14 measured
+values without the D2 symmetry classes (each on the first pair of its class), since an imported
+geometry is fitted with order c2z or c1.

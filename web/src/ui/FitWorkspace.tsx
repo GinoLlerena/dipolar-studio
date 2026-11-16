@@ -14,7 +14,7 @@ import { atPlace, decimalsFor, fixed, hz, pValue, residualHz, scientific, signed
 import { strings } from "../strings";
 import type { Studio, StudioState } from "../studio";
 import { LandscapePlot, ObsCalcPlot, ResidualBar } from "./charts";
-import { adequacyLabel, Chip, decimalsOf, Panel, Quantity, selectableRow, unitOf } from "./common";
+import { adequacyLabel, Chip, decimalsOf, Panel, Quantity, selectableRow, unitOf, Spacer, useRowWindow } from "./common";
 
 type Props = { studio: Studio; state: StudioState };
 
@@ -419,10 +419,11 @@ const ResidualsPane = memo(function ResidualsPane({
   phi?: number;
 }) {
   const pick = (id: string) => selectableRow(studio, id, selected).onClick();
+  const rows = useRowWindow(couplings.length);
   return (
     <Panel title={title} id={`pane-${title === strings.residuals ? "residuals" : "preview-residuals"}`}>
       <div className={stale ? "residuals stale" : "residuals"}>
-        <div className="scroll">
+        <div className={rows.windowed ? "scroll windowed" : "scroll"} ref={rows.ref}>
           <p className="help">
             {strings.selectHint} {strings.residualBarHelp}
           </p>
@@ -440,7 +441,8 @@ const ResidualsPane = memo(function ResidualsPane({
               </tr>
             </thead>
             <tbody>
-              {couplings.map((c) => (
+              <Spacer height={rows.before} columns={7} />
+              {couplings.slice(rows.start, rows.end).map((c) => (
                 <tr key={c.id} {...selectableRow(studio, c.id, selected)}>
                   <td>{c.label}</td>
                   <td className="num">{hz(c.observed.value)}</td>
@@ -453,6 +455,7 @@ const ResidualsPane = memo(function ResidualsPane({
                   </td>
                 </tr>
               ))}
+              <Spacer height={rows.after} columns={7} />
             </tbody>
           </table>
         </div>
@@ -511,11 +514,19 @@ function PreviewPane({ studio, state }: Props) {
   const asked = useRef<number | null>(null);
   // The user started typing in the φ field: the automatic start must not overwrite that text.
   const typing = useRef(false);
-  const go = (value: number) => {
+  // The field is being edited: focused and not committed since (it may still be empty), or, after
+  // an Enter that kept the focus, touched again: a key other than Enter (a selection, a deletion)
+  // or a pointer press (round 52: select-all after Enter, then a clamp, then typing made "90.060").
+  const editing = useRef(false);
+  // `auto`: the automatic start or the clamp after a science change, not the user. Neither writes
+  // the field during an edit: a run under load showed the start's "37.0" written into the focused,
+  // empty field between the selection and the typing, which made "37.0120" (M3 step 4b). After a
+  // commit (Enter, leaving the field) they write it again, focused or not.
+  const go = (value: number, auto = false) => {
     const v = snap(value, lo, hi, PHI_STEP);
     asked.current = v;
     setPhi(v);
-    setText(inputText(v));
+    if (!(auto && (typing.current || editing.current))) setText(inputText(v));
     live.ask(v);
   };
 
@@ -535,7 +546,8 @@ function PreviewPane({ studio, state }: Props) {
   // after a science change: both only once the domain shown is the current science's (round 48;
   // project.describe and the view can arrive in either order).
   const current = boundsCurrent(project?.science_revision ?? null, view?.science_revision ?? null);
-  const tryStart = () => {
+  // `committed`: resumed by committing the field (round 49), which then shows the value.
+  const tryStart = (committed = false) => {
     if (typing.current) return;
     const start = startAt({
       current: asked.current,
@@ -544,11 +556,11 @@ function PreviewPane({ studio, state }: Props) {
       projectRevision: project?.science_revision ?? null,
       viewRevision: view?.science_revision ?? null,
     });
-    if (start !== null) go(start);
+    if (start !== null) go(start, !committed);
   };
-  useEffect(tryStart, [fitted, land, current]);
+  useEffect(() => tryStart(), [fitted, land, current]);
   useEffect(() => {
-    if (asked.current !== null && current) go(asked.current);
+    if (asked.current !== null && current) go(asked.current, true);
   }, [revision, lo, hi, current]);
 
   const preview = shown?.out ?? null;
@@ -562,13 +574,24 @@ function PreviewPane({ studio, state }: Props) {
   // field shows the current φ again, or, before any preview, the automatic start resumes (round 49:
   // an invalid first edit kept the start from ever running).
   const commitText = (typed: string) => {
+    const changed = typing.current;
     typing.current = false;
+    editing.current = false;
+    // Nothing typed: the field may still show text an automatic update did not write during the
+    // edit; show the current φ, never commit that text (round 52: focusing and leaving the field
+    // after a clamp undid the clamp).
+    if (!changed) {
+      const now = asked.current ?? phi;
+      if (now !== null) setText(inputText(now));
+      else tryStart(true);
+      return;
+    }
     const value = parseAngle(typed);
     if (value !== null) go(value);
     else if (phi !== null) setText(inputText(phi));
     else {
       setText("");
-      tryStart();
+      tryStart(true);
     }
   };
 
@@ -598,9 +621,16 @@ function PreviewPane({ studio, state }: Props) {
               typing.current = true;
               setText(e.target.value);
             }}
+            onFocus={() => {
+              editing.current = true;
+            }}
+            onPointerDown={() => {
+              editing.current = true;
+            }}
             onBlur={(e) => commitText(e.currentTarget.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") commitText(e.currentTarget.value);
+              else editing.current = true;
             }}
           />
           {fitted !== null && (

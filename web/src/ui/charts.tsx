@@ -1,6 +1,7 @@
 import { type MouseEvent, useMemo, useState } from "react";
 import type { FittedCoupling, LandscapeOut } from "../api";
 import { extent, fixed } from "../format";
+import { mostRelevant } from "../limits";
 import { landscapePath, logRange, lowest, nearest } from "../preview";
 import { misfitStep } from "../scene/view";
 import { strings } from "../strings";
@@ -63,6 +64,9 @@ export function ObsCalcPlot({
   onPick: (id: string) => void;
 }) {
   if (couplings.length === 0) return null;
+  // At most MAX_DRAWN points: the largest misfits and the selection (M3 step 4b); the axes still
+  // span every coupling.
+  const drawn = mostRelevant(couplings, (c) => Math.abs(c.normalized_residual), (c) => selected.has(c.id));
   const range = extent(couplings.flatMap((c) => [c.observed.value, c.calculated.value]));
   if (range === null) return null;
   let [lo, hi] = range;
@@ -97,7 +101,7 @@ export function ObsCalcPlot({
         ))}
         <rect className="plot-frame" x={PAD.left} y={PAD.top} width={inner} height={inner} />
         <line className="plot-identity" x1={sx(lo)} y1={sy(lo)} x2={sx(hi)} y2={sy(hi)} />
-        {couplings.map((c) => (
+        {drawn.map((c) => (
           <circle
             key={c.id}
             className={`plot-point m${misfitStep(c.normalized_residual)}`}
@@ -121,6 +125,7 @@ export function ObsCalcPlot({
           {strings.colObserved}
         </text>
       </svg>
+      {drawn.length < couplings.length && <figcaption className="help">{strings.drawnSubset(drawn.length, couplings.length)}</figcaption>}
     </figure>
   );
 }

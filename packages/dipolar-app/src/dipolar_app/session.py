@@ -598,6 +598,7 @@ class Session:
         self._feed: deque[tuple[int, dict[str, Any]]] = deque(maxlen=FEED_SIZE)
         self._cursor = 0
         self._live: dict[str, str] = {}  # job ID -> "running" (not journaled)
+        self._feeds_closed = False  # set at shutdown: waiting feeds return at once (round 49 B)
         #: Names this process's session for event-stream clients (a restart starts a new feed).
         self.boot_id = uuid.uuid4().hex
         self.blobs = BlobStore(journal.path.parent / "runs" if journal is not None else None)
@@ -656,14 +657,27 @@ class Session:
         self._changed.notify_all()
 
     def feed_after(self, cursor: int, timeout: float) -> tuple[list[tuple[int, dict[str, Any]]], int, bool]:
-        """Feed entries after ``cursor`` (waiting up to ``timeout`` for one), the latest cursor,
-        and whether the client must resync because entries it missed were dropped."""
+        """Feed entries after ``cursor`` (waiting up to ``timeout`` for one, or until the feeds are
+        closed), the latest cursor, and whether the client must resync because entries it missed
+        were dropped."""
         with self._changed:
-            self._changed.wait_for(lambda: self._cursor > cursor, timeout=max(0.0, timeout))
+            self._changed.wait_for(lambda: self._cursor > cursor or self._feeds_closed, timeout=max(0.0, timeout))
             oldest = self._feed[0][0] if self._feed else self._cursor + 1
             if cursor > self._cursor or cursor + 1 < oldest:
                 return [], self._cursor, cursor != self._cursor
             return [(c, item) for c, item in self._feed if c > cursor], self._cursor, False
+
+    def close_feeds(self) -> None:
+        """Wake every waiting feed and keep later waits from blocking: the server is shutting
+        down, and a feed waiting for its heartbeat would hold a worker thread (and the process)
+        for up to that long (round 49 B). Event streams end when they see it."""
+        with self._changed:
+            self._feeds_closed = True
+            self._changed.notify_all()
+
+    @property
+    def feeds_closed(self) -> bool:
+        return self._feeds_closed
 
     @property
     def cursor(self) -> int:

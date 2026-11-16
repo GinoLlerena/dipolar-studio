@@ -679,3 +679,21 @@ def test_the_landscape_of_a_project_missing_its_torsion_is_refused() -> None:
     c = client(new_session())
     ok(c.call("project.import_xyz", {"xyz": ETHANE_XYZ, "name": "ethane", "expected_science_revision": 0}))
     error(c.call("fit.landscape"), "PROJECT_NOT_READY")
+
+
+def test_the_landscape_is_bounded_by_its_work_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 47 (B), M3 step 4b: samples × observations at most LANDSCAPE_WORK. By default the
+    server takes as many samples as the limit allows (at most 181); more, asked for explicitly, are
+    refused with the largest count allowed."""
+    from dipolar_app import science_ops
+
+    c = opened()
+    n_obs = ok(c.call("fit.preview", {"phi": deg(37.0)}))["n_obs"]
+    monkeypatch.setattr(science_ops, "LANDSCAPE_WORK", n_obs * 10)
+    assert len(ok(c.call("fit.landscape"))["phi"]) == 10
+    assert len(ok(c.call("fit.landscape", {"points": 10}))["phi"]) == 10
+    refused = error(c.call("fit.landscape", {"points": 11}), "QUOTA_EXCEEDED", "points")
+    assert refused["details"] == {"max_points": 10, "observations": n_obs}
+    monkeypatch.setattr(science_ops, "LANDSCAPE_WORK", n_obs)  # less than two samples' worth
+    assert len(ok(c.call("fit.landscape"))["phi"]) == 2  # the least that is a landscape
+    assert len(ok(c.call("fit.landscape", {"points": 2}))["phi"]) == 2  # and it may be asked for

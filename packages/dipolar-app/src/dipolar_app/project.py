@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Collection
+import threading
+from collections.abc import Callable, Collection
 from importlib import resources
 from typing import Annotated, Any, Literal
 
@@ -158,9 +159,42 @@ def canonical_json(data: Any) -> str:
     return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
+class ByIdentity:
+    """A small cache keyed by object identity, for values derived from an immutable object (a
+    frozen project). It holds the objects it has seen, so their ids are never reused while cached.
+    Large projects pay for these values on every call otherwise (M3 step 4b: 0.6 s for the hash
+    and 0.85 s for validation at 45 000 couplings, per call). ``tag`` is anything else the value
+    depends on, compared by equality (the hashes cover the numerical context too)."""
+
+    def __init__(self, size: int = 4) -> None:
+        self._size = size
+        self._entries: list[tuple[object, object, Any]] = []
+        self._lock = threading.Lock()
+
+    def get(self, key: object, compute: Callable[[], Any], tag: object = None) -> Any:
+        with self._lock:
+            for seen, seen_tag, value in self._entries:
+                if seen is key and seen_tag == tag:
+                    return value
+        value = compute()  # outside the lock; a race only computes the same value twice
+        with self._lock:
+            self._entries.insert(0, (key, tag, value))
+            del self._entries[self._size :]
+        return value
+
+
+_SCIENCE_HASHES = ByIdentity()
+_CONTENT_HASHES = ByIdentity()
+
+
 def science_hash(project: Project | None) -> str:
     """Canonical science identity: the project plus the core's numerical context (D11)."""
-    return payload_hash(None if project is None else project.model_dump(mode="json"))
+    if project is None:
+        return payload_hash(None)
+    value: str = _SCIENCE_HASHES.get(
+        project, lambda: payload_hash(project.model_dump(mode="json")), tag=numerical_context()
+    )
+    return value
 
 
 def content_hash(project: Project | None) -> str:
@@ -170,9 +204,14 @@ def content_hash(project: Project | None) -> str:
     input restores this hash, though not ``science_hash`` (M3 step 2, the owner's decision)."""
     if project is None:
         return payload_hash(None)
-    payload = project.model_dump(mode="json")
-    payload.pop("next_coupling_id", None)
-    return payload_hash(payload)
+
+    def compute() -> str:
+        payload = project.model_dump(mode="json")
+        payload.pop("next_coupling_id", None)
+        return payload_hash(payload)
+
+    value: str = _CONTENT_HASHES.get(project, compute, tag=numerical_context())
+    return value
 
 
 def payload_hash(project_payload: dict[str, Any] | None) -> str:

@@ -23,7 +23,7 @@ from dipolar_core.biphenyl import (
 from dipolar_core.problem import Problem
 from dipolar_core.torsion import TorsionGeometry, imported_problem
 
-from dipolar_app.project import BiphenylTemplate, Coupling, ImportedGeometry, Project, split_pair_label
+from dipolar_app.project import BiphenylTemplate, ByIdentity, Coupling, ImportedGeometry, Project, split_pair_label
 
 #: Torsions at which a declared equivalence class must give identical design rows.
 _PROBE_FRACTIONS = (0.137, 0.5, 0.861)
@@ -192,8 +192,18 @@ def _design_function(project: Project) -> Callable[[tuple[tuple[int, int], ...],
     return design
 
 
+_PROBLEMS = ByIdentity()
+
+
 def problem_for(project: Project) -> Problem:
-    """The D3 problem of a project that is ready to fit; ValueError says what is missing."""
+    """The D3 problem of a project that is ready to fit; ValueError says what is missing. A project
+    is immutable, so its problem is built (and the project validated) once while it is current
+    (M3 step 4b); a failure is not cached."""
+    problem: Problem = _PROBLEMS.get(project, lambda: _problem_for(project))
+    return problem
+
+
+def _problem_for(project: Project) -> Problem:
     validate_project(project)
     g, m = project.molecule.geometry, project.model
     if isinstance(g, ImportedGeometry) and g.torsion is None:

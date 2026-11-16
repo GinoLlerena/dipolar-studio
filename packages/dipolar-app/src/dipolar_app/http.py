@@ -321,8 +321,10 @@ def create_app(
                     "revisions": {"science": state.science_revision, "workspace": state.workspace_revision},
                 }
             )
-            while not await request.is_disconnected():
+            while not session.feeds_closed and not await request.is_disconnected():
                 items, latest, resync = await run_in_threadpool(session.feed_after, cursor, heartbeat_s)
+                if session.feeds_closed:
+                    return  # shutting down: end the stream; the page reconnects to the next server
                 if resync:
                     yield line({"kind": "resync", "cursor": latest})
                     cursor = latest

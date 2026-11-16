@@ -132,3 +132,75 @@ test("an invalid first edit does not keep the preview from starting (round 49)",
   await expect(page.locator(".meta")).toContainText("φ = 37.00°"); // the landscape's lowest sample
   await expect(field).toHaveValue("37.0");
 });
+
+test("the automatic start does not write into the field the user is in (M3 step 4b)", async ({ page, server }) => {
+  // Seen under load: the start's "37.0" written into the focused, empty field between the
+  // selection and the typing made "37.0120", previewed as 37.0. (Here: "37.060" before the fix.)
+  await openExample(server);
+  let release = () => {};
+  const gate = new Promise<void>((done) => {
+    release = done;
+  });
+  await page.route("**/api/v1/ops/fit.landscape", async (route) => {
+    const response = await route.fetch();
+    await gate;
+    await route.fulfill({ response });
+  });
+  await page.goto(await server.launchUrl());
+  await openTab(page, "Fit");
+  const field = page.getByLabel("φ in degrees");
+  await expect(field).toHaveValue("");
+  await field.focus(); // the user is in the field, has not typed yet
+  release();
+  await expect(page.locator(".meta")).toContainText("φ = 37.00°"); // the start previews...
+  await expect(field).toHaveValue(""); // ...without writing into the field
+  await expect(field).toBeFocused();
+  await page.keyboard.type("60");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".meta")).toContainText("φ = 60.00°");
+  await expect(field).toHaveValue("60.0");
+});
+
+test("after Enter, a new edit in the field is protected too (round 52)", async ({ app, server }) => {
+  await openExample(server);
+  await setDomain(server, 180);
+  await openTab(app, "Fit");
+  const field = app.getByLabel("φ in degrees");
+  const slider = app.locator("#phi-slider");
+  await expect(field).not.toHaveValue("");
+  await field.fill("120");
+  await field.press("Enter");
+  await expect(app.locator(".meta")).toContainText("φ = 120.00°");
+  await expect(field).toBeFocused();
+  await field.press("ControlOrMeta+A"); // a new edit begins with a selection, before any character
+  await setDomain(server, 90); // a clamp lands between the selection and the typing
+  await expect(slider).toHaveValue("90");
+  await expect(app.locator(".meta")).toContainText("φ = 90.00°");
+  await expect(field).toHaveValue("120.0"); // the selected text is left alone
+  await app.keyboard.type("60");
+  await field.press("Enter");
+  await expect(app.locator(".meta")).toContainText("φ = 60.00°");
+  await expect(field).toHaveValue("60.0");
+});
+
+test("focusing and leaving the field after a clamp keeps the clamp (round 52)", async ({ app, server }) => {
+  await openExample(server);
+  await setDomain(server, 180);
+  await openTab(app, "Fit");
+  const field = app.getByLabel("φ in degrees");
+  const slider = app.locator("#phi-slider");
+  await expect(field).not.toHaveValue("");
+  await field.fill("120");
+  await field.press("Enter");
+  await expect(app.locator(".meta")).toContainText("φ = 120.00°");
+  await field.blur();
+  await field.focus();
+  await setDomain(server, 90);
+  await expect(slider).toHaveValue("90");
+  await setDomain(server, 180); // widened again: the preview stays at 90
+  await expect(slider).toHaveAttribute("max", "180");
+  await field.blur(); // nothing typed: the field shows φ, and does not re-commit its old text
+  await expect(field).toHaveValue("90.0");
+  await expect(slider).toHaveValue("90");
+  await expect(app.locator(".meta")).toContainText("φ = 90.00°");
+});

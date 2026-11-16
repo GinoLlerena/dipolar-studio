@@ -537,10 +537,16 @@ def fit_preview(ctx: Context, p: PreviewIn) -> PreviewOut:
 #: Samples of the landscape by default (every 0.5° on the acute domain), and at most.
 LANDSCAPE_POINTS = 181
 MAX_LANDSCAPE_POINTS = 1441
+#: The work one landscape may take, in samples × observations (M3 step 4b, round 47 B): each sample
+#: re-solves the order parameters over every observation, about 75 ms at 45 000 couplings on the
+#: named hardware (i7-8750H), so this bounds a call to about 2 s whatever the project's size; the
+#: beta fixture (14 couplings) keeps its 181 samples.
+LANDSCAPE_WORK = 1_000_000
 
 
 class LandscapeIn(Wire):
-    points: Annotated[int, Field(ge=2, le=MAX_LANDSCAPE_POINTS)] = LANDSCAPE_POINTS
+    #: Samples; by default as many as the work budget allows, at most LANDSCAPE_POINTS.
+    points: Annotated[int, Field(ge=2, le=MAX_LANDSCAPE_POINTS)] | None = None
 
 
 class LandscapeOut(Wire):
@@ -549,7 +555,8 @@ class LandscapeOut(Wire):
     model: ModelOut
     estimand: str
     unit: Literal["deg"]
-    phi: tuple[float, ...]  # evenly spaced over the model's torsion domain, both ends included
+    phi: tuple[float, ...]  # evenly spaced over the model's torsion domain, both ends included (the
+    # samples asked for, or by default as many as the work limit allows, at most 181)
     chi2: tuple[float | None, ...]  # None where the model cannot be evaluated
     physically_admissible: tuple[bool | None, ...]  # None when not assessed (or not evaluable)
     n_obs: int
@@ -564,7 +571,19 @@ def fit_landscape(ctx: Context, p: LandscapeIn) -> LandscapeOut:
     project = require_project(state)
     lo, hi = project.model.phi_domain_deg
     problem = _structural_problem(project)
-    phis = [float(v) for v in np.linspace(lo, hi, p.points)]
+    n_obs = max(int(problem.y.shape[0]), 1)
+    affordable = LANDSCAPE_WORK // n_obs
+    if p.points is not None and p.points > max(affordable, 2):
+        raise OperationError(
+            ErrorCode.QUOTA_EXCEEDED,
+            f"{p.points} samples of {n_obs} observations exceed the landscape's work limit; "
+            f"at most {max(affordable, 2)} samples for this project",
+            offending_field="points",
+            hint="ask for fewer samples, or omit points to get as many as the limit allows",
+            details={"max_points": max(affordable, 2), "observations": n_obs},
+        )
+    points = p.points if p.points is not None else max(2, min(LANDSCAPE_POINTS, affordable))
+    phis = [float(v) for v in np.linspace(lo, hi, points)]
     chi2: list[float | None] = []
     admissible: list[bool | None] = []
     for phi in phis:

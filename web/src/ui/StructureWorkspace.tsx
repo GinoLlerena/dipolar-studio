@@ -17,9 +17,10 @@ import {
   radiusAbout,
   ZOOM_STEP,
 } from "../scene/view";
+import { mostRelevant } from "../limits";
 import { strings } from "../strings";
 import type { Studio, StudioState } from "../studio";
-import { Panel, selectableRow } from "./common";
+import { Panel, selectableRow, Spacer, useRowWindow } from "./common";
 
 // The minimal Structure view (03 §5; M3 step 2): the molecule as the shared scene describes it,
 // with couplings drawn as misfit arcs whose colour and width encode |residual|/σ. Every action
@@ -236,8 +237,18 @@ function ScenePane({
   const depths = projected.filter((p) => p.visible).map((p) => p.depth);
   const reference = depths.length ? depths.reduce((a, b) => a + b, 0) / depths.length : 1;
   const atoms = new Map(scene.atoms.map((a) => [a.id, a]));
-  const normalized = normalizedResiduals(scene, prj);
-  const labelOf = new Map(prj.couplings.map((c) => [c.id, c.label]));
+  const normalized = useMemo(() => normalizedResiduals(scene, prj), [scene, prj]);
+  const labelOf = useMemo(() => new Map(prj.couplings.map((c) => [c.id, c.label])), [prj]);
+  // At most MAX_DRAWN arcs: the largest misfits, and everything selected or highlighted (M3 step 4b).
+  const drawn = useMemo(
+    () =>
+      mostRelevant(
+        scene.couplings,
+        (c) => Math.abs(normalized.get(c.id) ?? 0),
+        (c) => scene.selection.includes(c.id) || scene.highlights.includes(c.id),
+      ),
+    [scene, normalized],
+  );
 
   return (
     <Panel
@@ -281,7 +292,7 @@ function ScenePane({
               return <line key={`${b.a}-${b.b}`} className="scene-bond" x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y} />;
             })}
           {scene.layers.couplings &&
-            scene.couplings.map((c) => {
+            drawn.map((c) => {
               const pa = at.get(c.spin_a);
               const pb = at.get(c.spin_b);
               if (!pa?.visible || !pb?.visible) return null;
@@ -342,6 +353,9 @@ function ScenePane({
       </div>
       <p className="help">{strings.viewHelp}</p>
       {normalized.size === 0 && <p className="help">{strings.noResiduals}</p>}
+      {scene.layers.couplings && drawn.length < scene.couplings.length && (
+        <p className="help">{strings.drawnSubset(drawn.length, scene.couplings.length)}</p>
+      )}
     </Panel>
   );
 }
@@ -432,9 +446,10 @@ function ResidualTable({ studio, scene, project: prj }: { studio: Studio; scene:
   const selected = new Set(scene.selection);
   const normalized = normalizedResiduals(scene, prj);
   const residual = new Map(scene.couplings.map((c) => [c.id, c.residual]));
+  const rows = useRowWindow(prj.couplings.length);
   return (
     <Panel title={strings.couplings} id="pane-structure-couplings" actions={<span className="muted">{strings.couplingsCount(prj.couplings.length)}</span>}>
-      <div className="scroll">
+      <div className={rows.windowed ? "scroll windowed" : "scroll"} ref={rows.ref}>
         <table className="grid">
           <thead>
             <tr>
@@ -446,7 +461,8 @@ function ResidualTable({ studio, scene, project: prj }: { studio: Studio; scene:
             </tr>
           </thead>
           <tbody>
-            {prj.couplings.map((c) => {
+            <Spacer height={rows.before} columns={5} />
+            {prj.couplings.slice(rows.start, rows.end).map((c) => {
               const r = residual.get(c.id);
               const z = normalized.get(c.id);
               return (
@@ -461,6 +477,7 @@ function ResidualTable({ studio, scene, project: prj }: { studio: Studio; scene:
                 </tr>
               );
             })}
+            <Spacer height={rows.after} columns={5} />
           </tbody>
         </table>
       </div>

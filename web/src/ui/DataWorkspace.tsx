@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { callOperation, type DescribeProjectOut, type ModelOut, type ModelSetIn } from "../api";
 import { angstrom, hz } from "../format";
 import { strings } from "../strings";
 import type { Studio, StudioState } from "../studio";
-import { download, FileButton, Panel, selectableRow } from "./common";
+import { download, FileButton, Panel, selectableRow, Spacer, useRowWindow } from "./common";
 import { ImportCouplings } from "./ImportCouplings";
 
 type Props = { studio: Studio; state: StudioState };
@@ -149,7 +149,13 @@ function ImportedGeometry({ studio, state, project }: Props & { project: Describ
   const atoms = geometry.kind === "imported" ? geometry.atoms : [];
   const declared = geometry.kind === "imported" ? geometry.torsion : null;
   const [draft, setDraft] = useState<string[]>(() => (declared ?? ["", "", "", ""]).map(String));
-  useEffect(() => setDraft((declared ?? ["", "", "", ""]).map(String)), [project.science_hash]);
+  // The fields follow the declared torsion and the geometry: when either changes (Set torsion
+  // here or by another client; another geometry imported or loaded), typed indices could name
+  // other atoms, so they are reset (round 52). Other science changes keep what was typed: one can
+  // arrive while the user types (a couplings import, another client's edit; CI, M3 step 4b).
+  const atomsKey = useMemo(() => JSON.stringify(atoms), [atoms]);
+  const declaredKey = `${declared ? declared.join(",") : ""}|${atomsKey}`;
+  useEffect(() => setDraft((declared ?? ["", "", "", ""]).map(String)), [declaredKey]);
   if (geometry.kind !== "imported") return null;
   const indices = draft.map((d) => Number(d));
   const valid = draft.every((d) => /^\d+$/.test(d.trim())) && indices.every((i) => i < atoms.length);
@@ -321,10 +327,11 @@ function ModelPane({ studio, state, project }: Props & { project: DescribeProjec
 function CouplingsPane({ studio, state, project }: Props & { project: DescribeProjectOut }) {
   const selected = new Set(state.view?.selection.map((s) => s.id) ?? []);
   const spin = new Map(project.spins.map((s) => [s.id, s.label]));
+  const rows = useRowWindow(project.couplings.length);
   return (
     <Panel title={strings.couplings} id="pane-couplings" actions={<span className="muted">{strings.couplingsCount(project.couplings.length)}</span>}>
       <p className="help">{strings.selectHint}</p>
-      <div className="scroll">
+      <div className={rows.windowed ? "scroll windowed" : "scroll"} ref={rows.ref}>
         <table className="grid">
           <thead>
             <tr>
@@ -338,7 +345,8 @@ function CouplingsPane({ studio, state, project }: Props & { project: DescribePr
             </tr>
           </thead>
           <tbody>
-            {project.couplings.map((c) => (
+            <Spacer height={rows.before} columns={7} />
+            {project.couplings.slice(rows.start, rows.end).map((c) => (
               <tr key={c.id} {...selectableRow(studio, c.id, selected)}>
                 <td>{c.label}</td>
                 <td>
@@ -355,6 +363,7 @@ function CouplingsPane({ studio, state, project }: Props & { project: DescribePr
                 </td>
               </tr>
             ))}
+            <Spacer height={rows.after} columns={7} />
           </tbody>
         </table>
       </div>

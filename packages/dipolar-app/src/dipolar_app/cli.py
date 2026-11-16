@@ -180,6 +180,19 @@ def _exit_on_sigterm(signum: int, frame: object) -> None:
     raise SystemExit(128 + signum)
 
 
+class _Server(uvicorn.Server):
+    """uvicorn's server, which also ends the open event streams when asked to exit: each waits in
+    a worker thread for up to a heartbeat, and graceful shutdown would wait for them (round 49 B)."""
+
+    def __init__(self, config: uvicorn.Config, session: Session) -> None:
+        super().__init__(config)
+        self._session = session
+
+    def handle_exit(self, sig: int, frame: Any) -> None:
+        self._session.close_feeds()
+        super().handle_exit(sig, frame)
+
+
 def serve(project_dir: Path, ready_file: Path, static_dir: Path | None, *, open_browser: bool = False) -> None:
     make_durable_dirs(project_dir)  # every new directory is fsynced into its parent (round 34)
     lock_fd = lock_project(project_dir)  # before anything that touches the journal or the ready file
@@ -207,9 +220,9 @@ def serve(project_dir: Path, ready_file: Path, static_dir: Path | None, *, open_
     app = create_app(
         registry, session, credentials, port=port, instance_id=instance_id, pid=os.getpid(), static_dir=static_dir
     )
-    # Event streams stay open; shutdown does not wait for them for long.
+    # Event streams end when the server is asked to exit (_Server); graceful shutdown is short.
     config = uvicorn.Config(app, log_level="warning", access_log=False, lifespan="off", timeout_graceful_shutdown=2)
-    server = uvicorn.Server(config)
+    server = _Server(config, session)
 
     # uvicorn shuts down gracefully, then re-raises SIGTERM; turn it into SystemExit so that the
     # ready file is still removed below.

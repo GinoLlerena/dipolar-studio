@@ -282,6 +282,8 @@ export const strings = {
     `Accepted: ${steps === 1 ? "1 step" : `${steps} steps`} applied as one change, now science revision ${revision}${jobs ? `; ${jobs === 1 ? "a fit job" : `${jobs} fit jobs`} started` : ""}.`,
   rejectedOutcome: "Rejected.",
   checkAgain: "Check again",
+  drawnSubset: (shown: number, total: number) =>
+    `Showing ${shown.toLocaleString("en")} of ${total.toLocaleString("en")} couplings: the largest misfits, and everything selected or highlighted. The table lists them all.`,
 
   // Validity flags
   flag: {
