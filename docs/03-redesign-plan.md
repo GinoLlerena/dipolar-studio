@@ -1,6 +1,6 @@
 # Dipolar Studio — consolidated redesign plan
 
-**Version 0.6** · 2026-11-07 · Status: **draft for the owner's approval as the Phase-1
+**Version 0.6** · 2026-11-07 · Status: **approved by the owner on 2026-11-16 as the Phase-1
 execution baseline.**
 
 Changes in v0.6: the owner added a **verification phase**, so the roadmap now has three phases:
