@@ -95,6 +95,14 @@ test("rotating and fitting the camera in the page moves the shared camera", asyn
   const dragged = await camera();
   await view.press("0"); // fit the molecule: the automatic camera again
   await expect.poll(camera, { timeout: 10_000 }).not.toBe(dragged);
+  const fitted = await camera();
+  // The wheel zooms (round 54: it was untested).
+  await app.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await app.mouse.wheel(0, -240);
+  await expect.poll(camera, { timeout: 10_000 }).not.toBe(fitted);
+  // The "Fit to view" button: the automatic camera again.
+  await app.getByRole("button", { name: "Fit to view" }).click();
+  await expect.poll(camera, { timeout: 10_000 }).toBe(fitted);
 });
 
 test("selecting in the Structure view and clearing it change the shared selection", async ({ app, server }) => {
@@ -114,6 +122,36 @@ test("selecting in the Structure view and clearing it change the shared selectio
   const spin = (await server.ok("robot", "project.describe")).spins[0] as { id: string };
   await app.locator(`g[data-id="${spin.id}"] circle`).dispatchEvent("click");
   await expect.poll(selection).toEqual([spin.id]);
+});
+
+test("every other selecting control selects on the server (round 54)", async ({ app, server }) => {
+  await server.ok("robot", "project.open_example", OPEN);
+  const job = (await server.ok("robot", "fit.run", { expected_science_revision: 1 })).job.id as string;
+  await expect.poll(async () => (await server.ok("robot", "job.status", { job_id: job })).job.status, { timeout: 30_000 }).toBe("succeeded");
+  const project = await server.ok("robot", "project.describe");
+  const c = project.couplings as { id: string; label: string }[];
+  const spins = project.spins as { id: string; label: string }[];
+  const selection = async () => (await server.ok("robot", "render.describe_view")).selection.map((s: { id: string }) => s.id);
+  // The Data tab's couplings and spins tables, by click and by keyboard.
+  await openTab(app, "Data");
+  const section = (id: string) => app.locator(`#${id}`).locator("xpath=ancestor::section");
+  await section("pane-couplings").locator("tbody tr:not(.spacer)", { hasText: c[0]!.label }).first().click();
+  await expect.poll(selection).toEqual([c[0]!.id]);
+  await section("pane-spins").locator("tbody tr", { hasText: spins[0]!.label }).first().click();
+  await expect.poll(selection).toEqual([spins[0]!.id]);
+  const row = section("pane-couplings").locator("tbody tr:not(.spacer)", { hasText: c[1]!.label }).first();
+  await row.focus();
+  await row.press("Enter");
+  await expect.poll(selection).toEqual([c[1]!.id]);
+  // Shift-click adds an arc to the selection.
+  await openTab(app, "Structure");
+  await app.locator(`path.arc[data-id="${c[2]!.id}"]`).dispatchEvent("click", { shiftKey: true });
+  await expect.poll(selection).toEqual([c[1]!.id, c[2]!.id]);
+  // A point of the run's observed-against-calculated plot.
+  await openTab(app, "Fit");
+  const point = app.locator("#pane-residuals").locator("xpath=ancestor::section").locator("circle.plot-point").filter({ hasText: c[3]!.label });
+  await point.first().dispatchEvent("click");
+  await expect.poll(selection).toEqual([c[3]!.id]);
 });
 
 test("cancelling a job in the page cancels it on the server", async ({ app, server }) => {

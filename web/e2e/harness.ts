@@ -44,9 +44,10 @@ export class Server {
     return this.ready.base_url;
   }
 
-  /** One registry call over HTTP. A query is sent once more if the connection failed: Node's
-   * fetch reuses a kept-alive connection that the server may have closed while idle (ECONNRESET,
-   * seen after the robot's seconds-long run, M3 exit audit). A command is never resent. */
+  /** One registry call over HTTP. A query is sent once more, and the retry logged, only when its
+   * connection was reset: Node's fetch reuses a kept-alive connection that the server may have
+   * closed while idle (ECONNRESET, seen after the robot's seconds-long run, M3 exit audit). Any
+   * other failure, a second reset, and any failure of a command are errors. */
   async call(who: Who, operation: string, args: object = {}, options: object = {}): Promise<Envelope> {
     const send = () =>
       fetch(`${this.base}/api/v1/ops/${operation}`, {
@@ -58,7 +59,9 @@ export class Server {
     try {
       response = await send();
     } catch (error) {
-      if (!QUERIES.has(operation)) throw error;
+      const code = (error as { cause?: { code?: string } }).cause?.code;
+      if (!QUERIES.has(operation) || code !== "ECONNRESET") throw error;
+      console.warn(`harness: ${operation} resent once after ECONNRESET on a reused connection`);
       response = await send();
     }
     return (await response.json()) as Envelope;

@@ -141,8 +141,10 @@ test("the tutorial through the page equals the robot's", async ({ app, server })
     expect(view.selection.map((s: { id: string }) => s.id)).toEqual([robot.worst_coupling.id]);
     // The whole run, every field (round 53): the page's and the robot's, each read with run.get.
     const run = await server.ok("user", "run.get", { run_id: view.run.run_id });
-    const robotView = await robotServer.ok("user", "render.describe_view");
-    const robotRun = await robotServer.ok("user", "run.get", { run_id: robotView.run.run_id });
+    // Read with the robot's own credential (round 54: read as the user, a server that answered
+    // the user differently corrupted both sides alike and the comparison passed).
+    const robotView = await robotServer.ok("robot", "render.describe_view");
+    const robotRun = await robotServer.ok("robot", "run.get", { run_id: robotView.run.run_id });
     expect(resultDifferences(run.result, robotRun.result, TOLERANCES)).toEqual([]);
     for (const key of ["kind", "input_hash", "science_hash", "science_revision", "stale"]) {
       expect(run.run[key], `run.${key}`).toEqual(robotRun.run[key]);
