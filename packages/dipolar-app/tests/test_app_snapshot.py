@@ -324,6 +324,11 @@ def test_deduplication_expires_with_the_bounded_request_table(tmp_path: Path, mo
     ok(c.call("project.open_example", OPEN))
     fit = {"expected_science_revision": 1}
     first = ok(c.call("fit.run", fit, request_id="fit-1"))
+    # The job ends before the directory is reopened: a session opens under the project lock, with no
+    # other writer (BlobStore.collect); a job still writing its result here made the reopening's
+    # sweep of temporary files fail on Windows (WinError 32, CI on M3 step 4b).
+    waited = ok(c.call("job.wait", {"job_id": first["job"]["id"], "timeout_s": 30}))
+    assert waited["job"]["status"] == "succeeded"
     ok(c.call("view.select", {"ids": []}, request_id="later"))  # evicts fit-1 at compaction
     s.compact()
     reopened = new_session(tmp_path)

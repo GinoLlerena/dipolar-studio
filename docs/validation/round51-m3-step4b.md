@@ -172,3 +172,10 @@ edit on a key after Enter; an unchanged commit committing its text; a backend wi
 Under the cap, these fixes were not reviewed again. **After them:** 834 Python (`-m "not slow"`),
 62 web unit tests, 84 browser tests (28 × 3), TypeScript, mypy, Ruff, the generated contract and
 projection parity.
+
+**CI after round 52.** The Windows Python job failed once in
+`test_deduplication_expires_with_the_bounded_request_table` (journal compaction, unchanged by
+this step): the test reopened the project directory while the first session's fit job was still
+writing its result, and the reopening's sweep of temporary run files could not delete that open
+file (WinError 32). A session opens under the project lock with no other writer
+(`BlobStore.collect`), which the test did not respect; it now waits for the job before reopening.
