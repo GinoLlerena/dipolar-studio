@@ -341,6 +341,8 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
    - **B4, beta readiness:** the testers' 8CB guide, issue templates with S1–S3 severities,
      release notes, the tag. **The owner's:** publishing the wheels (a GitHub release, PyPI) and
      recruiting two or more external testers (the beta's exit).
+   - **(B, CI after round 56)** a camera gesture made within the round trip of the page's previous
+     camera commit is refused as superseded and reverted (rounds 41–42 rule); worth revisiting.
    - **Use pnpm 9** (as CI): `node_modules` linked by pnpm 10 makes `pnpm add` fail.
 3. Work under the medium plan (below): at most two review rounds per step, a fresh session per
    step.

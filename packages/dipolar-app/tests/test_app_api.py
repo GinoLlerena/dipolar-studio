@@ -161,14 +161,21 @@ def test_a_fit_running_when_the_studio_closes_publishes_nothing(
         assert third.call("job.status", job_id=job)["job"]["status"] == "interrupted"
 
 
-def test_a_failed_start_releases_the_project_lock(tmp_path: Path) -> None:
+def test_a_failed_start_releases_the_project_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A step after the lock fails (round 55: a dangling journal symlink; here the journal's
+    constructor raises, which works on every platform: CI's Windows does not fail on the symlink)."""
+    from dipolar_app import journal as journal_module
+
+    real = journal_module.Journal
+
+    def broken(*args: object, **kwargs: object) -> object:
+        raise OSError("the journal cannot be opened")
+
     project = tmp_path / "project"
-    project.mkdir()
-    journal = project / "project.events.jsonl"
-    journal.symlink_to(tmp_path / "nowhere")  # a dangling symlink: opening the journal fails
-    with pytest.raises(OSError):
+    monkeypatch.setattr(journal_module, "Journal", broken)
+    with pytest.raises(OSError, match="cannot be opened"):
         Studio.local(project)
-    journal.unlink()
+    monkeypatch.setattr(journal_module, "Journal", real)
     with Studio.local(project) as studio:  # not InstanceRunning: the lock was released
         assert studio.science_revision == 0
 

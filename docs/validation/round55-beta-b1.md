@@ -125,3 +125,16 @@ cap, these fixes were **not reviewed again**.
    with `http_status`.
 
 **After the fixes:** 858 Python tests; the smoke test against wheels rebuilt from this branch.
+
+**CI after round 56.** Two jobs failed on the first run:
+- **Windows:** the failed-start test's dangling symlink does not make opening the journal fail
+  there. The test now makes the journal's constructor raise, on every platform (and still fails
+  without the cleanup).
+- **Firefox:** `coverage.spec.ts`'s camera test (M3 exit audit) zoomed with the wheel right after
+  "0" fitted the view; the page had not yet received the view revision of its own "0", so the
+  zoom named the older revision and the server refused it as superseded (the rounds 41–42 rule),
+  and the page showed the shared camera again. The test now waits, before each gesture, until the
+  page shows the server's current view revision (`data-workspace-revision` on the scene, added
+  for this); 15 repetitions on the three browsers passed. **(B), recorded:** a camera gesture
+  made within the round trip of the page's previous camera commit is refused and reverted, so it
+  is lost; a user who zooms immediately after "Fit to view" may need to zoom again.
