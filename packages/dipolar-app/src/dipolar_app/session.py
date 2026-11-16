@@ -41,7 +41,8 @@ import os
 import threading
 import uuid
 from collections import deque
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, TypeVar
@@ -600,6 +601,7 @@ class Session:
         self._live: dict[str, str] = {}  # job ID -> "running" (not journaled)
         self._feeds_closed = False  # set at shutdown: waiting feeds return at once (round 49 B)
         self._stopped = False  # set by stop(): no commit is accepted any more (round 55)
+        self._publishing = threading.Lock()  # a job's publication (blob, then commit); stop() waits for it
         #: Names this process's session for event-stream clients (a restart starts a new feed).
         self.boot_id = uuid.uuid4().hex
         self.blobs = BlobStore(journal.path.parent / "runs" if journal is not None else None)
@@ -669,11 +671,19 @@ class Session:
             return [(c, item) for c, item in self._feed if c > cursor], self._cursor, False
 
     def stop(self) -> None:
-        """Accept no commit any more (round 55). Taken under the commit lock, so when it returns no
-        commit is in progress and none can start: the journal will not be written again by this
-        session, and the project's lock can be released for another one."""
-        with self._lock:
+        """Accept no commit and no publication any more (rounds 55–56). It waits for a job's
+        publication in progress (its result blob, then its commit) and takes the commit lock, so when
+        it returns nothing is being written and nothing can be: neither the journal nor the result
+        store will be written again by this session, and the project's lock can be released."""
+        with self._publishing, self._lock:
             self._stopped = True
+
+    @contextmanager
+    def publication(self) -> Iterator[bool]:
+        """Hold off stop() while a job publishes its result (round 56): yields False if the session
+        is already stopped, in which case nothing may be written."""
+        with self._publishing:
+            yield not self._stopped
 
     @property
     def stopped(self) -> bool:

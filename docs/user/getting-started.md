@@ -34,8 +34,8 @@ pnpm 9): `tools/package/build.sh` builds the same wheels into `dist/packages/`.
 
 ## Start the app
 
-Choose a directory for your project (it holds the project's history, so every change is kept and
-can be undone), then:
+Choose a directory for your project (it holds the project's history: every change is recorded
+there, and the app resumes from it), then:
 
 ```bash
 dipolar serve --project-dir ~/dipolar/my-project --open
@@ -68,8 +68,11 @@ The app has four workspaces, as tabs: **Data**, **Fit**, **Structure** and **Pro
 4. **Data → Export** saves the project as a `.dipolar.json` file, which **Load a project file…**
    reads back.
 
-Every change can be undone (**Undo** and **Redo** in the title bar). A fit made before a change
-is marked **stale** until the data are as they were.
+Changes to the science (the geometry, the couplings, the torsion, the model, or another project
+opened or loaded over the current one) can be undone, the **last 100** of them, with **Undo** and
+**Redo** in the title bar. Opening the first project, the view (selection, camera, layers) and
+fits are not undone. A fit made before a change is marked **stale** until the data are as they
+were.
 
 ## Your own data
 
@@ -112,7 +115,11 @@ with Studio.local() as studio:                      # a session in this process
 - `Studio.connect(".../serve.ready.json")` drives a **running** `dipolar serve`: the browser shows
   what your script does.
 - `studio.call(name, ...)` returns the operation's result; a refused operation raises
-  `OperationFailed` with the server's code, message and hint.
+  `OperationFailed` with the server's code, message and hint. Over HTTP, a reply that is not an
+  operation's at all (a proxy's error page, say) raises it with the code `NOT_AN_ENVELOPE` and the
+  reply's `http_status`.
+- A local `Studio` serves one call at a time, and closing it waits for a call in progress
+  (`studio.fit()` waits for its job in slices of up to 25 s).
 
 The operations, with their arguments and results, are listed in
 `packages/dipolar-app/registry.snapshot.json` in the repository, and by `GET /api/v1/registry` on

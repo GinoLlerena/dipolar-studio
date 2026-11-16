@@ -46,7 +46,12 @@ USER = Principal(actor="user", tier=Tier.APPLY, human=True)
 
 
 class OperationFailed(Exception):
-    """A refused operation: the server's error, with its code, message and hint."""
+    """A refused operation: the server's error, with its code, message and hint.
+
+    `code` is one of the server's error codes (the registry's `ErrorCode`), with one exception
+    made by this client: `NOT_AN_ENVELOPE`, when a reply over HTTP was not an operation envelope
+    at all (a proxy's page, an empty or truncated body). Then `http_status` is the reply's HTTP
+    status and `message` starts with it; for every server error `http_status` is None."""
 
     def __init__(self, operation: str, error: Mapping[str, Any]) -> None:
         self.operation = operation
@@ -70,9 +75,10 @@ class _Transport(Protocol):
 
 
 class _Local:
-    """A session in this process. Closing it (round 55) refuses further calls, waits for a call in
-    progress, stops the session's commits (so a fit still running in a worker thread publishes
-    nothing), stops the workers, and only then releases the project's lock."""
+    """A session in this process. Calls are served one at a time (a `job.wait` in progress, up to
+    25 s per slice, holds the others and `close()` back). Closing it (rounds 55–56) refuses further
+    calls, waits for a call in progress, stops the session (waiting for a result being published,
+    then refusing every write), stops the workers, and only then releases the project's lock."""
 
     def __init__(self, project_dir: Path | None) -> None:
         from dipolar_app.client import LocalClient
@@ -147,10 +153,10 @@ class _Remote:
             method="POST",
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {self._token}"},
         )
-        status, reason = 200, "OK"
         failure: urllib.error.HTTPError | None = None
         try:
             with urllib.request.urlopen(request, timeout=120) as response:
+                status, reason = response.status, str(response.reason)  # round 56: 201, 204… as sent
                 body = response.read()
         except urllib.error.HTTPError as exc:  # a refusal comes with an error envelope; check it
             failure, status, reason = exc, exc.code, str(exc.reason)

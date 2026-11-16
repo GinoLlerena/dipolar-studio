@@ -231,3 +231,74 @@ def test_a_result_already_being_published_at_close_is_refused(tmp_path: Path, mo
     with Studio.local(project) as second:
         assert second.call("job.status", job_id=job)["job"]["status"] == "interrupted"
         assert second.call("run.list")["runs"] == []
+
+
+def test_close_waits_for_a_result_being_written(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 56: a result blob being written when the Studio closed was finished after close()
+    returned and another Studio had reopened the directory. close() now waits for the publication
+    (the blob, then its commit) to end, and only then releases the project."""
+    import threading
+
+    from dipolar_app.session import BlobStore
+
+    entered, gate = threading.Event(), threading.Event()
+    real = BlobStore.put
+
+    def held(self: BlobStore, data: dict[str, object]) -> str:
+        entered.set()
+        gate.wait(30)
+        return real(self, data)
+
+    monkeypatch.setattr(BlobStore, "put", held)
+    project = tmp_path / "project"
+    first = Studio.local(project)
+    first.call("project.open_example", OPEN)
+    job = first.call("fit.run", expected_science_revision=1)["job"]["id"]
+    assert entered.wait(60)  # past the stopped check, writing the blob
+    closing = threading.Thread(target=first.close)
+    closing.start()
+    closing.join(0.5)
+    assert closing.is_alive(), "close() returned while a result was being written"
+    gate.set()
+    closing.join(30)
+    assert not closing.is_alive()
+    monkeypatch.setattr(BlobStore, "put", real)
+    with Studio.local(project) as second:  # the publication completed before the project was released
+        assert second.call("job.status", job_id=job)["job"]["status"] == "succeeded"
+        assert len(second.call("run.list")["runs"]) == 1
+    assert not list((project / "runs").glob(".*.tmp"))
+
+
+@pytest.mark.parametrize("status", [201, 202, 204])
+def test_a_successful_reply_that_is_not_an_envelope_keeps_its_status(tmp_path: Path, status: int) -> None:
+    """Round 56: a 201, 202 or 204 that was not an envelope was reported as HTTP 200."""
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            self.send_response(status)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        ready = tmp_path / "ready.json"
+        ready.write_text(
+            json.dumps({"base_url": f"http://127.0.0.1:{httpd.server_port}", "tokens": {"user": "t"}}),
+            encoding="utf-8",
+        )
+        with Studio.connect(ready) as studio, pytest.raises(OperationFailed) as caught:
+            studio.call("render.describe_view")
+        assert caught.value.code == "NOT_AN_ENVELOPE" and caught.value.http_status == status
+        assert f"HTTP {status}" in caught.value.message
+    finally:
+        httpd.shutdown()
+        httpd.server_close()

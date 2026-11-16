@@ -4,7 +4,11 @@
 run; B2 the summary report; B3 executed notebooks; B4 beta readiness. Users bring the 8CB data
 (the owner's choice): the beta ships no 8CB couplings. See
 [round55-beta-b1.md](validation/round55-beta-b1.md).
-- **B1 (install and run), under review:** versions 0.1.0b1 and `dipolar --version`; a Python API
+- **B1 (install and run) is done: tag `beta-b1`.** Rounds 55 and 56 returned NOT READY (five and
+  three class-(A) findings: closing a local session while a fit published, a lock kept after a
+  failed start, replies that were not envelopes, the guide's equivalence and undo rules, assets
+  unchecked by the smoke test), all fixed; the round-56 fixes not reviewed again, under the cap.
+  Versions 0.1.0b1 and `dipolar --version`; a Python API
   for users (`dipolar_app.api.Studio`: `local`, `connect`, `call`, `fit`); the user guide
   (`docs/user/`); the README; the user's path checked in CI against the installed wheels
   (`tools/package/smoke.py`).
@@ -312,15 +316,15 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: the beta release, step B1 (under review)
+## Resume here: the beta release, step B2 (the summary report)
 
-**Stopping point: tag `m3-complete`.** Earlier stopping points: `m3-exit-audit`, `m3-step4b`, `m3-step4a`, `m3-step3`, `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
+**Stopping point: tag `beta-b1`.** Earlier stopping points: `m3-complete`, `m3-exit-audit`, `m3-step4b`, `m3-step4a`, `m3-step3`, `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
 `m2-exit-audit`, and one tag per step before them. To resume:
 
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 854 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 858 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
    (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 65 web tests
    (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 108 browser tests
@@ -328,8 +332,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
    ```
 
 2. **The beta release (the owner's choice, 2026-11-16; users bring the 8CB data):**
-   - **B1, install and run** (branch `beta-b1`, review rounds 55–56): the Python API, the user
-     guide, the README, versions 0.1.0b1, the user's path in CI;
+   - ~~B1, install and run~~: done (tag `beta-b1`, rounds 55–56);
    - **B2, the summary report:** a deterministic HTML/CSV report of a run (a registry operation and
      a page button);
    - **B3, executed notebooks:** the synthetic tutorial, your own XYZ and CSV, the 8CB

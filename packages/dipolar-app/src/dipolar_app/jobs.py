@@ -197,9 +197,15 @@ class JobRunner:
         result: dict[str, Any] | None = None,
         error: tuple[str, str] | None = None,
     ) -> bool:
-        """Commit the job's terminal state, unless it already has one. Returns whether it did."""
-        if self.session.stopped:
-            return False  # the session was closed: it writes nothing more, not even a result blob
+        """Commit the job's terminal state, unless it already has one. Returns whether it did.
+        The publication (the result blob, then the commit) runs as one unit that `Session.stop`
+        waits for: a stopped session writes nothing more, not even a blob (rounds 55–56)."""
+        with self.session.publication() as open_:
+            if not open_:
+                return False
+            return self._publish(job_id, status, result, error)
+
+    def _publish(self, job_id: str, status: str, result: dict[str, Any] | None, error: tuple[str, str] | None) -> bool:
         digest = self.session.blobs.put(result) if result is not None else None  # durable first
 
         def plan(state: SessionState) -> tuple[list[Event], None]:

@@ -96,3 +96,32 @@ fits behaved. All five findings were reproduced.
    stylesheet content type. With the installed assets removed it now fails (404).
 
 **After the fixes:** 854 Python tests; the smoke test against wheels rebuilt from this branch.
+
+## Round 56: NOT READY (three A, two B), on commit b1060b2 (final under the cap)
+
+The reviewer confirmed round 55's fixes 2, 4 and 5 (a failed start releases the lock; the
+equivalent-pair rules match the validation; missing installed assets fail the smoke test), and
+that journal commits after close are refused and replay stays valid. Its run: the Python suite
+(852 passed, 2 skipped in its clone), the installed-wheel D10 suite (32), Ruff, mypy, the
+contract, the wheels and the smoke test (φ = 36.985°), 65 web unit tests. Under the two-round
+cap, these fixes were **not reviewed again**.
+
+1. **(A) A result blob could still be written after close.** Paused after the stopped check, a
+   blob write outlived `close()` (whose join gave up after 10 s); another Studio reopened the
+   directory, and the late blob appeared (or, with its temporary file already open, the reopening
+   swept it and the old writer failed). **Fix:** a job's publication (its blob, then its commit)
+   runs inside `Session.publication()`, which `Session.stop()` waits for; so when `close()`
+   releases the project, nothing is being written and nothing can be. Test: the blob write held,
+   `close()` must not return until it is released, and the reopened project then has the job
+   succeeded with its run and no temporary file (fails when `stop()` does not wait).
+2. **(A) A successful reply that was not an envelope was reported as HTTP 200.** **Fix:** the
+   reply's own status and reason are used. Test: a stand-in server answering 201, 202 and 204.
+3. **(A) The guide promised that every change can be undone.** **Fix:** it states what undo
+   covers (science changes, the last 100) and what it does not (opening the first project, the
+   view, fits).
+4. **(B) A local `Studio` serves one call at a time,** so a `job.wait` slice (up to 25 s) holds
+   other calls and `close()` back. Documented in the API and the guide.
+5. **(B) `NOT_AN_ENVELOPE` is a client-side code.** Documented in `OperationFailed` and the guide,
+   with `http_status`.
+
+**After the fixes:** 858 Python tests; the smoke test against wheels rebuilt from this branch.
