@@ -73,6 +73,18 @@ def test_packages_import() -> None:
     assert dipolar_core.__version__ and dipolar_app.__version__
 
 
+def test_the_versions_agree_with_the_package_metadata() -> None:
+    """`dipolar --version` and bug reports quote __version__; it must be what pip installed."""
+    from importlib.metadata import version
+
+    import dipolar_app
+    import dipolar_core
+
+    assert dipolar_core.__version__ == version("dipolar-core")
+    assert dipolar_app.__version__ == version("dipolar-app")
+    assert dipolar_app.__version__ == dipolar_core.__version__  # released together
+
+
 # --------------------------------------------------------------------------- frontend (04 §8.5)
 WEB_SRC = ROOT / "web" / "src"
 NETWORK_APIS = ("fetch(", "XMLHttpRequest", "WebSocket", "EventSource", "sendBeacon", "import(")

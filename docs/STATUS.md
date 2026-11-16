@@ -1,5 +1,18 @@
 # Status
 
+**The beta release is in progress (the owner's choice, 2026-11-16).** Four steps: B1 install and
+run; B2 the summary report; B3 executed notebooks; B4 beta readiness. Users bring the 8CB data
+(the owner's choice): the beta ships no 8CB couplings. See
+[round55-beta-b1.md](validation/round55-beta-b1.md).
+- **B1 (install and run) is done: tag `beta-b1`.** Rounds 55 and 56 returned NOT READY (five and
+  three class-(A) findings: closing a local session while a fit published, a lock kept after a
+  failed start, replies that were not envelopes, the guide's equivalence and undo rules, assets
+  unchecked by the smoke test), all fixed; the round-56 fixes not reviewed again, under the cap.
+  Versions 0.1.0b1 and `dipolar --version`; a Python API
+  for users (`dipolar_app.api.Studio`: `local`, `connect`, `call`, `fit`); the user guide
+  (`docs/user/`); the README; the user's path checked in CI against the installed wheels
+  (`tools/package/smoke.py`).
+
 **M3, the browser beta UI, is complete: tags `m3-exit-audit` and `m3-complete`.** The exit
 audit ([m3-exit-audit.md](validation/m3-exit-audit.md)) maps every M3 exit criterion and every
 04 §7 and §8.6 check to the tests that prove it:
@@ -303,30 +316,33 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: after M3 (the owner chooses)
+## Resume here: the beta release, step B2 (the summary report)
 
-**Stopping point: tag `m3-complete`.** Earlier stopping points: `m3-exit-audit`, `m3-step4b`, `m3-step4a`, `m3-step3`, `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
+**Stopping point: tag `beta-b1`.** Earlier stopping points: `m3-complete`, `m3-exit-audit`, `m3-step4b`, `m3-step4a`, `m3-step3`, `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
 `m2-exit-audit`, and one tag per step before them. To resume:
 
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 834 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 858 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
    (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 65 web tests
    (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 108 browser tests
+   tools/package/build.sh && <clean venv>/bin/python -I tools/package/smoke.py --guide docs/user/getting-started.md
    ```
 
-2. **Next: the owner chooses.** Phase 1's next milestone in the plan (03 §8) is the **beta
-   release**: docs with executed notebooks, a summary report, `pip install` + `dipolar serve`;
-   its exit is two or more external users reproducing the 8CB dataset on their own, with no open
-   S1 issue. Points to settle first:
-   - the 8CB couplings are third-party (Di Pietro 2013): the beta's reproduction exercise needs
-     the owner's decision on redistribution (the open item below), or users bring the data;
-   - the known limits recorded in the M3 audit (no PNG renderer; the live preview's target holds
-     for projects of the beta's size; the import-only dependency boundary) and whether any is in
-     the beta's scope;
-   - the M-L legacy import spike stays gated (plan).
+2. **The beta release (the owner's choice, 2026-11-16; users bring the 8CB data):**
+   - ~~B1, install and run~~: done (tag `beta-b1`, rounds 55–56);
+   - **B2, the summary report:** a deterministic HTML/CSV report of a run (a registry operation and
+     a page button);
+   - **B3, executed notebooks:** the synthetic tutorial, your own XYZ and CSV, the 8CB
+     reproduction from your own transcription (CI runs it on the repository's validation copy).
+     The M1 8CB gates ran on the core; B3 is the first reproduction through the app;
+   - **B4, beta readiness:** the testers' 8CB guide, issue templates with S1–S3 severities,
+     release notes, the tag. **The owner's:** publishing the wheels (a GitHub release, PyPI) and
+     recruiting two or more external testers (the beta's exit).
+   - **(B, CI after round 56)** a camera gesture made within the round trip of the page's previous
+     camera commit is refused as superseded and reverted (rounds 41–42 rule); worth revisiting.
    - **Use pnpm 9** (as CI): `node_modules` linked by pnpm 10 makes `pnpm add` fail.
 3. Work under the medium plan (below): at most two review rounds per step, a fresh session per
    step.
@@ -1045,6 +1061,17 @@ See [round35-m2-step4.md](validation/round35-m2-step4.md).
   `web/tests/compare.test.ts` (the whole-run comparison), the tutorial reading the robot's run
   with the robot's credential and checking the selected arc by ID; latency records name the
   commit and a clean-tree flag; the M2 comparison's relative tolerances lost their absolute floor.
+
+## The beta release: in progress
+
+### Step B1: install and run
+
+- `dipolar_app.api` (`Studio.local`, `Studio.connect`, `call`, `envelope`, `fit`, `wait`,
+  `OperationFailed`); `dipolar_app.instance` (the project lock, shared with `dipolar serve`);
+  `dipolar --version`; versions 0.1.0b1.
+- `docs/user/getting-started.md`, `docs/user/file-formats.md`; the README's "Use it".
+- `tools/package/smoke.py` in the CI "packaged" job: the guide's example run as written against the
+  installed wheels, and `dipolar serve` with `Studio.connect`.
 
 ## The small batch (after M2)
 

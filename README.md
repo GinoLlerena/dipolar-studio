@@ -17,9 +17,23 @@ software architecture), to cross-validate every conclusion with an independent m
 write the new software. It is designed from the start so that an **AI agent** can later use the
 same tools as a human to run calculations and drive the interface.
 
-> Status: **Phase 1, milestone M0 (foundations), complete.** The workspace, CI, decision records,
-> frozen test answers, legacy goldens, the end-to-end vertical slice and the four M0 spikes are in
-> place. A re-baseline for M1–M3 awaits the owner.
+> Status: **Phase 1, the browser beta (0.1.0b1) in preparation.** The scientific core (M1), the
+> application layer (M2) and the browser app (M3) are complete, each through independent review.
+> Where the project stands: [docs/STATUS.md](docs/STATUS.md).
+
+## Use it
+
+Install the release's two wheels into a Python 3.12 environment, then start the app on a project
+directory; it opens in your browser:
+
+```bash
+pip install dipolar_core-0.1.0b1-py3-none-any.whl dipolar_app-0.1.0b1-py3-none-any.whl
+dipolar serve --project-dir ~/dipolar/my-project --open
+```
+
+Start with the user guide: [getting started](docs/user/getting-started.md) (a first fit, your own
+data, Python) and [file formats](docs/user/file-formats.md) (couplings CSV, XYZ geometry,
+projects).
 
 ## Why a new implementation
 
@@ -57,7 +71,7 @@ Details: [docs/legacy/02-bug-report.md](docs/legacy/02-bug-report.md).
 
 ## Development
 
-Requirements: Python 3.12 with [uv](https://docs.astral.sh/uv/), Node 22 with pnpm.
+Requirements: Python 3.12 with [uv](https://docs.astral.sh/uv/), Node 22 with pnpm 9.
 
 ```bash
 uv sync                      # Python workspace: packages/dipolar-core, packages/dipolar-app
@@ -66,7 +80,7 @@ uv run ruff check . && uv run mypy
 cd web && pnpm install && pnpm run build   # browser UI (strict TypeScript)
 ```
 
-Try the M0 vertical slice (one local session, served on 127.0.0.1 at an OS-assigned port):
+Run the app from the source tree (one local session, served on 127.0.0.1 at an OS-assigned port):
 
 ```bash
 uv run dipolar serve --project-dir /tmp/dipolar-demo --static-dir web/dist --open
@@ -99,6 +113,7 @@ tools/package/build.sh       # -> dist/packages/*.whl
 
 | Document | Purpose |
 |---|---|
+| [docs/user/](docs/user/) | The user guide: getting started, file formats |
 | [docs/03-redesign-plan.md](docs/03-redesign-plan.md) | The consolidated plan: decisions D1–D20, scope, roadmap, risks |
 | [docs/04-ai-ready-architecture.md](docs/04-ai-ready-architecture.md) | The headless engine and the AI-ready architecture |
 | [docs/adr/](docs/adr/) | Architecture decision records ADR-0001 to ADR-0020 (one per decision D1–D20) |

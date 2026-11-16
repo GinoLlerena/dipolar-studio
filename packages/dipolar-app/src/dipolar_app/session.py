@@ -41,7 +41,8 @@ import os
 import threading
 import uuid
 from collections import deque
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, TypeVar
@@ -599,6 +600,8 @@ class Session:
         self._cursor = 0
         self._live: dict[str, str] = {}  # job ID -> "running" (not journaled)
         self._feeds_closed = False  # set at shutdown: waiting feeds return at once (round 49 B)
+        self._stopped = False  # set by stop(): no commit is accepted any more (round 55)
+        self._publishing = threading.Lock()  # a job's publication (blob, then commit); stop() waits for it
         #: Names this process's session for event-stream clients (a restart starts a new feed).
         self.boot_id = uuid.uuid4().hex
         self.blobs = BlobStore(journal.path.parent / "runs" if journal is not None else None)
@@ -667,6 +670,25 @@ class Session:
                 return [], self._cursor, cursor != self._cursor
             return [(c, item) for c, item in self._feed if c > cursor], self._cursor, False
 
+    def stop(self) -> None:
+        """Accept no commit and no publication any more (rounds 55–56). It waits for a job's
+        publication in progress (its result blob, then its commit) and takes the commit lock, so when
+        it returns nothing is being written and nothing can be: neither the journal nor the result
+        store will be written again by this session, and the project's lock can be released."""
+        with self._publishing, self._lock:
+            self._stopped = True
+
+    @contextmanager
+    def publication(self) -> Iterator[bool]:
+        """Hold off stop() while a job publishes its result (round 56): yields False if the session
+        is already stopped, in which case nothing may be written."""
+        with self._publishing:
+            yield not self._stopped
+
+    @property
+    def stopped(self) -> bool:
+        return self._stopped
+
     def close_feeds(self) -> None:
         """Wake every waiting feed and keep later waits from blocking: the server is shutting
         down, and a feed waiting for its heartbeat would hold a worker thread (and the process)
@@ -724,6 +746,8 @@ class Session:
         if dry_run and request_id is not None:
             raise ValueError("a dry run is never recorded, so it takes no request_id")
         with self._lock:
+            if self._stopped:
+                raise OperationError(ErrorCode.INTERNAL, "the session is closed")
             if self._failure is not None:
                 raise OperationError(
                     ErrorCode.JOURNAL_FAILED,

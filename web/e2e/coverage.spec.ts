@@ -77,14 +77,24 @@ test("rotating and fitting the camera in the page moves the shared camera", asyn
   const camera = async () => JSON.stringify((await server.ok("robot", "render.scene")).camera);
   const before = await camera();
   const view = app.getByRole("group", { name: /atoms/ });
+  // A gesture names the view revision its camera was moved from, and the server refuses one that
+  // a newer camera replaced (rounds 41–42). So each gesture waits until the page has the server's
+  // current view, as a user acts on what is shown (CI Firefox: a wheel right after "0" was refused).
+  const settled = async () =>
+    expect(view).toHaveAttribute(
+      "data-workspace-revision",
+      String((await server.ok("robot", "render.scene")).workspace_revision),
+    );
   await view.focus();
   await view.press("ArrowRight");
   await view.press("ArrowRight");
   await expect.poll(camera, { timeout: 10_000 }).not.toBe(before);
   const rotated = await camera();
+  await settled();
   await view.press("+"); // zoom
   await expect.poll(camera, { timeout: 10_000 }).not.toBe(rotated);
   const zoomed = await camera();
+  await settled();
   // A drag with the pointer, from the middle of the view.
   const box = (await view.boundingBox())!;
   await app.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -93,13 +103,16 @@ test("rotating and fitting the camera in the page moves the shared camera", asyn
   await app.mouse.up();
   await expect.poll(camera, { timeout: 10_000 }).not.toBe(zoomed);
   const dragged = await camera();
+  await settled();
   await view.press("0"); // fit the molecule: the automatic camera again
   await expect.poll(camera, { timeout: 10_000 }).not.toBe(dragged);
   const fitted = await camera();
+  await settled();
   // The wheel zooms (round 54: it was untested).
   await app.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await app.mouse.wheel(0, -240);
   await expect.poll(camera, { timeout: 10_000 }).not.toBe(fitted);
+  await settled();
   // The "Fit to view" button: the automatic camera again.
   await app.getByRole("button", { name: "Fit to view" }).click();
   await expect.poll(camera, { timeout: 10_000 }).toBe(fitted);

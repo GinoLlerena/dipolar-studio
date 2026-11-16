@@ -270,6 +270,7 @@ function ScenePane({
           tabIndex={0}
           role="group"
           aria-roledescription="3D structure view"
+          data-workspace-revision={scene.workspace_revision}
           aria-label={strings.structureLabel(
             scene.atoms.length,
             scene.couplings.length,
