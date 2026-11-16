@@ -39,6 +39,7 @@ import uvicorn
 
 from dipolar_app.auth import LAUNCH_CODE_TTL_S, Credentials
 from dipolar_app.http import create_app
+from dipolar_app.instance import InstanceRunning, lock_project
 from dipolar_app.jobs import JobRunner
 from dipolar_app.journal import Journal, make_durable_dirs
 from dipolar_app.operations import build_registry
@@ -58,10 +59,6 @@ PRINCIPALS = {
 BUNDLED_STATIC = Path(__file__).resolve().parent / "static"  # filled by tools/package/build.sh
 EXIT_INSTANCE_RUNNING = 3
 EXIT_STALE = 4
-
-
-class InstanceRunning(Exception):
-    pass
 
 
 LAUNCH_DIR_NAME = "browser-launch"
@@ -144,24 +141,6 @@ def remove_instance_pages(ready_file: Path, instance_id: str) -> None:
         return
     if directory is not None:
         remove_pages(directory, f"open-{instance_id}-*.html")
-
-
-def lock_project(project_dir: Path) -> int:
-    """Take the project's exclusive instance lock; the returned descriptor is held for life."""
-    fd = os.open(project_dir / "serve.lock", os.O_RDWR | os.O_CREAT, 0o600)
-    try:
-        if sys.platform == "win32":
-            import msvcrt
-
-            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-        else:
-            import fcntl
-
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        os.close(fd)
-        raise InstanceRunning(f"another dipolar serve is already using {project_dir}") from None
-    return fd
 
 
 def _write_private(path: Path, data: dict[str, object]) -> None:
@@ -296,8 +275,18 @@ def launch_url(ready_file: Path) -> tuple[str, str]:
     return f"{base}/#launch={issued['code']}", expected
 
 
+def _version() -> str:
+    """What a bug report needs: both packages and the tool contract."""
+    import dipolar_core
+
+    import dipolar_app
+
+    return f"dipolar {dipolar_app.__version__} (dipolar-core {dipolar_core.__version__}, contract {CONTRACT_VERSION})"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="dipolar")
+    parser.add_argument("--version", action="version", version=_version())
     sub = parser.add_subparsers(dest="command", required=True)
     p_serve = sub.add_parser("serve", help="serve one local session over HTTP on 127.0.0.1")
     p_serve.add_argument("--project-dir", type=Path, required=True, help="directory for the journal")

@@ -111,7 +111,7 @@ jobs:
           retention-days: 14
 
   packaged:
-    name: Packaged build (D10 negative tests on the installed wheel)
+    name: Packaged build (the user path and D10 negative tests on the installed wheels)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -131,6 +131,9 @@ jobs:
         run: |
           uv venv "$RUNNER_TEMP/pkg"
           uv pip install --python "$RUNNER_TEMP/pkg/bin/python" dist/packages/*.whl
+      - name: The user's path against the installed package (the guide's example, dipolar serve)
+        run: |
+          "$RUNNER_TEMP/pkg/bin/python" -I tools/package/smoke.py --guide docs/user/getting-started.md
       - name: D10 spike against the installed package
         run: |
           uv sync --locked

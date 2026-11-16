@@ -128,7 +128,7 @@ wheels = [
 
 [[package]]
 name = "dipolar-app"
-version = "0.0.1.dev0"
+version = "0.1.0b1"
 source = { editable = "packages/dipolar-app" }
 dependencies = [
     { name = "dipolar-core" },
@@ -147,7 +147,7 @@ requires-dist = [
 
 [[package]]
 name = "dipolar-core"
-version = "0.0.1.dev0"
+version = "0.1.0b1"
 source = { editable = "packages/dipolar-core" }
 dependencies = [
     { name = "numpy" },
