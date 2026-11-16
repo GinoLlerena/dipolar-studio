@@ -7,6 +7,7 @@
 // browser, in docs/validation/data/m3-latency/<browser>.json. Without it (CI's shared runners) a
 // looser bound only guards against regressions.
 
+import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { cpus, platform, release, totalmem } from "node:os";
 import { join, resolve } from "node:path";
@@ -37,9 +38,12 @@ function record(info: TestInfo, version: string, name: string, samples: number[]
   mkdirSync(OUT, { recursive: true });
   const file = join(OUT, `${info.project.name}-${name}.json`);
   const machine = { cpu: cpus()[0]?.model ?? "unknown", cores: cpus().length, memory_gib: totalmem() / 2 ** 30, os: `${platform()} ${release()}` };
+  // The code measured (the M3 exit check cites it): the commit, and whether the tree differed from it.
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: OUT, encoding: "utf-8" }).trim();
+  const code = { commit: git("rev-parse", "HEAD"), modified: git("status", "--porcelain", "--", "../../../web", "../../../packages") !== "" };
   writeFileSync(
     file,
-    `${JSON.stringify({ measurement: name, browser: info.project.name, browser_version: version, machine, ...extra, ...summary, samples_ms: samples.map(tenth) }, null, 2)}\n`,
+    `${JSON.stringify({ measurement: name, browser: info.project.name, browser_version: version, machine, code, ...extra, ...summary, samples_ms: samples.map(tenth) }, null, 2)}\n`,
   );
 }
 
