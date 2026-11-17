@@ -89,3 +89,12 @@ unexercised until the owner pushes a tag.
    workflow (Actions, or `gh run rerun RUN_ID --failed`).
 
 Under the cap, this fix was not reviewed again.
+
+**CI after round 62.** The browser job failed once on Firefox in `eightcb.spec.ts`: the model's
+"Apply" stayed disabled, because the couplings import's new project description arrived after
+the model's selects were changed, and the model draft was reset on every science change, wiping
+the edit (the same pattern as the torsion fields in M3 step 4b). A user editing the model while
+another client changes the project would have lost the edit too. **Fix:** the model draft follows
+the model itself, not every science change. Test: `tutorial.spec.ts` "a science change while the
+model is edited keeps the edit" (another client changes a coupling while the kind is edited); it
+fails with the old reset. The browser suite then passed: 117 tests (39 × 3).

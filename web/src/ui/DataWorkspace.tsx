@@ -246,7 +246,11 @@ const FRAMES: readonly ModelOut["frame"][] = ["bisector", "ring-a", "input"];
  * combination; an invalid one comes back as an error naming the field. */
 function ModelPane({ studio, state, project }: Props & { project: DescribeProjectOut }) {
   const [draft, setDraft] = useState(() => toDraft(project.model));
-  useEffect(() => setDraft(toDraft(project.model)), [project.science_hash]);
+  // The draft follows the model when it changes (here or by another client), not every science
+  // change: one that arrives while the user edits (the couplings import's new description, another
+  // client's edit) must not wipe the edit (CI Firefox, beta step B4; as for the torsion, M3 step 4b).
+  const modelKey = JSON.stringify(project.model);
+  useEffect(() => setDraft(toDraft(project.model)), [modelKey]);
   const saved = toDraft(project.model);
   const changed = (Object.keys(draft) as (keyof ModelDraft)[]).some((k) => draft[k] !== saved[k]);
   const from = Number(draft.from);

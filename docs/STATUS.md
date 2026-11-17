@@ -345,7 +345,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
    uv sync --locked && uv run pytest -q -m "not slow"   # 885 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
    (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 65 web tests
-   (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 114 browser tests
+   (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 117 browser tests
    tools/package/build.sh && <clean venv>/bin/python -I tools/package/smoke.py --guide docs/user/getting-started.md
    ```
 
