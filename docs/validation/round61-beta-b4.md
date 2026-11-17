@@ -70,4 +70,22 @@ the notebooks, the build, the three browser tests, a scratch wheel build and smo
 4. **(B) Displayed precision:** the guide says the app shows values rounded to their uncertainty,
    and that a value rounding the same way agrees.
 5. **(B) Retrying a release:** the workflow refuses to touch an existing release, and its header
-   says how to retry (delete the draft, push the tag again).
+   says how to retry (corrected in round 62).
+
+## Round 62: READY WITH MINOR CHANGES (one B), on commit 1b5117b (final under the cap)
+
+The reviewer confirmed both class-(A) fixes: the local and the GitHub-generated tar and zip
+archives leave out the 8CB dataset, keep the synthetic data and contain no copied coupling
+values, and the archive guard rejects the earlier leaking commit; the version mutants, and the
+broken-link, form-schema and pair-mapping mutants, are rejected. With mocked GitHub commands it
+confirmed the existing-release refusal and the draft and pre-release arguments. Its run: 883
+Python (the two build-dependent skips then passed), the 15 documentation tests, Ruff, mypy, the
+contract, the three notebooks, the web typecheck and the 8CB exercise on the three browsers, a
+wheel build and the clean-install smoke test. The live, tag-triggered release workflow remains
+unexercised until the owner pushes a tag.
+
+1. **(B) The retry advice was wrong:** pushing an unchanged tag again starts no run. **Fix:** the
+   workflow's header and its error message say to delete any partial draft and re-run the failed
+   workflow (Actions, or `gh run rerun RUN_ID --failed`).
+
+Under the cap, this fix was not reviewed again.
