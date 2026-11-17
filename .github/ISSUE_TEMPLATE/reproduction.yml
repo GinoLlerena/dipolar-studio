@@ -1,0 +1,52 @@
+name: Reproduction report (8CB exercise)
+description: Your result for the beta exercise, reproducing biphenyl in 8CB from your own transcription.
+labels: ["reproduction"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The exercise is in the [testers' guide](https://github.com/GinoLlerena/dipolar-studio/blob/main/docs/beta/testers.md#2-the-exercise-reproduce-biphenyl-in-8cb). A failure is as useful as a success. Please do not paste the transcribed couplings: they are the thesis author's data.
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: Did you reproduce the reference values?
+      options:
+        - "Yes: φ, S_zz and Δ agree with the guide"
+        - "Partly: some values agree, or only one route worked"
+        - "No"
+    validations:
+      required: true
+  - type: dropdown
+    id: route
+    attributes:
+      label: How did you fit it?
+      multiple: true
+      options:
+        - In the app
+        - In notebook 3
+        - Both
+    validations:
+      required: true
+  - type: input
+    id: values
+    attributes:
+      label: Your unweighted result
+      placeholder: "phi = 32.932 deg, S_zz = 0.43075, Delta = 0.18524"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `dipolar --version`.
+    validations:
+      required: true
+  - type: input
+    id: time
+    attributes:
+      label: Roughly how long did it take, from installing to the result?
+  - type: textarea
+    id: notes
+    attributes:
+      label: What was unclear, or went wrong?
+      description: Anything that slowed you down; open a bug report for a specific problem.

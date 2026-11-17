@@ -4,6 +4,10 @@
 run; B2 the summary report; B3 executed notebooks; B4 beta readiness. Users bring the 8CB data
 (the owner's choice): the beta ships no 8CB couplings. See
 [round55-beta-b1.md](validation/round55-beta-b1.md).
+- **B4 (beta readiness), under review:** the testers' guide (`docs/beta/testers.md`: the 8CB
+  exercise, reporting, severities S1–S3), issue forms, release notes for 0.1.0b1, and a release
+  workflow that drafts a GitHub release when a `v*` tag is pushed (nothing is published until the
+  owner publishes the draft). See [round61-beta-b4.md](validation/round61-beta-b4.md).
 - **B3 (executed notebooks) is done: tag `beta-b3`.** Rounds 59 (NOT READY, one class-(A) finding: a
   mistyped transcription crashed notebook 3 without explaining) and 60 (READY WITH MINOR CHANGES);
   all fixed. Three notebooks in `docs/notebooks/` (a first fit, your
@@ -328,7 +332,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: the beta release, step B4 (beta readiness)
+## Resume here: the beta release, step B4 (beta readiness, under review)
 
 **Stopping point: tag `beta-b3`.** Earlier stopping points: `beta-b2`, `beta-b1`, `m3-complete`, `m3-exit-audit`, `m3-step4b`, `m3-step4a`, `m3-step3`, `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
 `m2-exit-audit`, and one tag per step before them. To resume:
@@ -336,10 +340,10 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 870 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 882 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
    (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 65 web tests
-   (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 111 browser tests
+   (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 114 browser tests
    tools/package/build.sh && <clean venv>/bin/python -I tools/package/smoke.py --guide docs/user/getting-started.md
    ```
 

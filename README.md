@@ -114,6 +114,8 @@ tools/package/build.sh       # -> dist/packages/*.whl
 | Document | Purpose |
 |---|---|
 | [docs/user/](docs/user/) | The user guide: getting started, file formats |
+| [docs/beta/testers.md](docs/beta/testers.md) | For beta testers: the 8CB reproduction exercise, reporting problems, severities |
+| [docs/release-notes/](docs/release-notes/) | Release notes (0.1.0b1) |
 | [docs/notebooks/](docs/notebooks/) | Executed notebooks: a first fit, your own data, reproducing biphenyl in 8CB |
 | [docs/03-redesign-plan.md](docs/03-redesign-plan.md) | The consolidated plan: decisions D1–D20, scope, roadmap, risks |
 | [docs/04-ai-ready-architecture.md](docs/04-ai-ready-architecture.md) | The headless engine and the AI-ready architecture |
