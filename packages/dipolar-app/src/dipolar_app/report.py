@@ -71,38 +71,58 @@ def _number(value: float | int | None, digits: int = 6) -> str:
     return text.replace("-", "−")
 
 
-def _decimals(spread: float | None) -> int | None:
-    """Decimal places that show `spread` (an uncertainty or an interval's half-width) to two
-    significant digits, so a value is never shown coarser than its uncertainty (round 57); None
-    when there is no usable spread."""
+def _resolution(spread: float | None) -> int | None:
+    """The power of ten of the last digit to show for a value with this `spread` (an uncertainty
+    or an interval's half-width): two significant digits of the spread, so a value is never shown
+    coarser than its uncertainty, at any scale (rounds 57–58); None when there is no usable spread."""
     if spread is None or not math.isfinite(spread) or spread <= 0:
         return None
-    return max(0, min(15, 1 - math.floor(math.log10(spread))))
+    return math.floor(math.log10(spread)) - 1
 
 
-def _fixed(value: float | None, decimals: int | None) -> str:
-    """`value` at `decimals` places (a typographic minus); `_number` when there are none."""
-    if value is None or decimals is None or not math.isfinite(value):
+#: Fixed decimals are used up to this many places; beyond, scientific notation (round 58).
+MAX_FIXED_PLACES: Final = 10
+
+
+def _at(value: float | None, resolution: int | None) -> str:
+    """`value` down to the digit 10**`resolution` (a typographic minus): fixed decimals when they
+    are few enough, otherwise scientific notation with as many significant digits as that needs;
+    `_number` when there is no resolution."""
+    if value is None or resolution is None or not math.isfinite(value):
         return _number(value)
-    return f"{value:.{decimals}f}".replace("-", "\u2212")
+    if -resolution <= MAX_FIXED_PLACES and abs(value) < 1e7:
+        text = f"{value:.{max(0, -resolution)}f}"
+    elif value == 0:
+        text = "0"
+    else:
+        exponent = math.floor(math.log10(abs(value)))
+        text = f"{value:.{max(0, exponent - resolution)}e}"
+    return text.replace("-", "\u2212")
 
 
 def _interval_cells(estimate: float, lower: float | None, upper: float | None) -> tuple[str, str, str]:
-    """An interval's estimate and endpoints at one precision fine enough to tell them apart: from
-    the narrower half-width, refined until the three differ (round 57: a supported interval of
-    width 3e-7 showed three equal numbers)."""
+    """An interval's estimate and endpoints at one resolution fine enough to tell them apart: from
+    the narrower half-width, refined until the three differ (rounds 57–58: a supported interval of
+    width 3e-7, and one of values near 2.5e-8 with an uncertainty of 1e-16, showed three equal
+    numbers)."""
     sides = [
         d
         for d in (estimate - lower if lower is not None else None, upper - estimate if upper is not None else None)
         if d is not None and d > 0
     ]
-    places = _decimals(min(sides)) if sides else None
-    if places is None:
+    resolution = _resolution(min(sides)) if sides else None
+    if resolution is None:
         return _number(estimate), _number(lower), _number(upper)
-    cells = (_fixed(estimate, places), _fixed(lower, places), _fixed(upper, places))
-    while places < 15 and len({c for c in cells if c != "\u2014"}) < sum(c != "\u2014" for c in cells):
-        places += 1
-        cells = (_fixed(estimate, places), _fixed(lower, places), _fixed(upper, places))
+
+    def cells_at(r: int) -> tuple[str, str, str]:
+        return _at(estimate, r), _at(lower, r), _at(upper, r)
+
+    cells = cells_at(resolution)
+    present = [c for c in cells if c != "\u2014"]
+    while len(set(present)) < len(present) and resolution > -330:
+        resolution -= 1
+        cells = cells_at(resolution)
+        present = [c for c in cells if c != "\u2014"]
     return cells
 
 
@@ -160,7 +180,7 @@ def render_html(run: Mapping[str, Any], result: Mapping[str, Any], *, software: 
         add(f"<p>{_text(result['statement'])}</p>")
     add("<h2>Result</h2>")
     rows = [
-        (_text(name), _fixed(value, _decimals(stderr.get(name))), _number(stderr.get(name), 2))
+        (_text(name), _at(value, _resolution(stderr.get(name))), _number(stderr.get(name), 2))
         for name, value in [*_named(result["theta"]).items(), *_named(result["order"]).items()]
     ]
     add(_table([("Parameter", False), ("Value", True), ("Standard error", True)], rows))
@@ -200,9 +220,10 @@ def render_html(run: Mapping[str, Any], result: Mapping[str, Any], *, software: 
         )
     )
     add(
-        '<p class="muted">Standard errors, ν and intervals need a regular optimum. Identifiability is '
-        "the ranks: a full rank and no undetermined direction mean the data determine every parameter, "
-        "even at a bound.</p>"
+        '<p class="muted">Standard errors, ν and intervals need a regular optimum. The ranks are a '
+        "<em>local</em> diagnostic of identifiability: full ranks and no undetermined direction mean the "
+        "data determine every parameter near this optimum (even at a bound), not that no other torsion "
+        "fits as well. Other basins are listed under Basins.</p>"
     )
     unidentified = result.get("unidentified") or ()
     if unidentified:
@@ -259,6 +280,12 @@ def render_html(run: Mapping[str, Any], result: Mapping[str, Any], *, software: 
 
     if result["basins"]:
         add("<h2>Basins</h2>")
+        rivals = [b for b in result["basins"][1:] if b["delta_chi2"] < 1.0]  # the first is the optimum
+        if rivals:
+            add(
+                '<p class="flag-no">Another basin fits about as well (Δχ² below 1, the one-parameter '
+                "interval's threshold): the data do not single out one torsion between them.</p>"
+            )
         add(
             _table(
                 [("Torsion", True), ("χ²", True), ("Δχ²", True)],

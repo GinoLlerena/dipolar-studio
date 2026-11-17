@@ -260,3 +260,66 @@ def test_the_report_does_not_depend_on_the_clock(monkeypatch: pytest.MonkeyPatch
         renders.append((html_text, report_module.render_csv(record, stored["result"])))
         monkeypatch.undo()
     assert renders[0] == renders[1]
+
+
+# --------------------------------------------------------------------------- round 58
+def test_a_tiny_but_supported_interval_is_still_told_apart() -> None:
+    """Round 58: predictions scaled by 1e-7 and σ = 1e-12 Hz put S near 2.5e-8 with a standard
+    error of 1e-16; a 15-decimal cap showed estimate and endpoints equal. Scientific notation at
+    the uncertainty's resolution tells them apart."""
+    with Studio.local() as studio:
+        studio.call("project.open_example", OPEN)
+        first = studio.fit()
+        exported = json.loads(studio.call("project.export")["text"])
+        calc = {c["id"]: c["calculated"]["value"] for c in first["couplings"]}
+        for c in exported["project"]["couplings"]:
+            c["value"]["value"], c["sigma"]["value"] = calc[c["id"]] * 1e-7, 1e-12
+        studio.call("project.load", text=json.dumps(exported), expected_science_revision=studio.science_revision)
+        run_id, run = fitted(studio)
+        page = studio.call("run.report", run_id=run_id)["html"]
+    assert run["validity"]["regular"]
+    rows = dict(
+        (name, (e, lo, hi))
+        for name, e, lo, hi in re.findall(
+            r"<tr><td>(phi_deg|Szz|Delta)</td><td class=num>([^<]+)</td><td class=num>([^<]+)</td>"
+            r"<td class=num>([^<]+)</td><td>",
+            page,
+        )
+    )
+    for i in run["intervals"]:
+        if not i["supported"]:
+            continue
+        estimate, lower, upper = rows[i["parameter"]]
+        assert len({estimate, lower, upper}) == 3, (i["parameter"], estimate, lower, upper)
+        assert shown(lower) < shown(estimate) < shown(upper)
+        for text, value in ((estimate, i["estimate"]), (lower, i["lower"]), (upper, i["upper"])):
+            assert abs(shown(text) - value) <= 0.6 * abs(i["upper"] - i["lower"]), (text, value)
+
+
+def test_rank_is_described_as_local_and_rival_basins_are_flagged() -> None:
+    """Round 58: imported geometry, rigid C1 on [−90°, 90°]: full ranks and two basins near ±36.7°
+    with Δχ² ≈ 3e-13. The report must not say the data determine every parameter outright."""
+    xyz = (DATA / "biphenyl.xyz").read_text(encoding="utf-8")
+    couplings = (DATA / "tutorial-couplings.csv").read_text(encoding="utf-8")
+    names = xyz.split("\n")[1].split("atoms:")[1].split()
+    with Studio.local() as studio:
+        studio.call("project.import_xyz", xyz=xyz, name="two basins", expected_science_revision=0)
+        spins = {s["atom"]: s["id"] for s in studio.call("project.describe")["spins"]}
+        mapping = {label: spins[names.index(label)] for label in TUTORIAL_LABELS}
+        studio.call("couplings.import", csv=couplings, confirmed_mapping=mapping, expected_science_revision=1)
+        studio.call("molecule.set_torsion", torsion=[1, 0, 6, 7], expected_science_revision=studio.science_revision)
+        studio.call(
+            "model.set",
+            kind="rigid",
+            order="c1",
+            frame="input",
+            phi_domain=[{"value": -90, "unit": "deg"}, {"value": 90, "unit": "deg"}],
+            expected_science_revision=studio.science_revision,
+        )
+        run_id, run = fitted(studio)
+        page = studio.call("run.report", run_id=run_id)["html"]
+    assert len(run["basins"]) >= 2 and run["basins"][1]["delta_chi2"] < 1.0
+    validity = section(page, "Validity")
+    assert "local diagnostic" in validity and "not that no other torsion fits as well" in validity
+    assert "determine every parameter, even" not in page
+    assert "Another basin fits about as well" in section(page, "Basins")

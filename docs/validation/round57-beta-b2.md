@@ -90,3 +90,27 @@ removing the escaping or the formula guard failed the tests. All six findings we
    fit (inner rank 1 of 2).
 
 **After the fixes:** 868 Python tests; the report's browser test on the three browsers.
+
+## Round 58: NOT READY (two A), on commit e0ce585 (final under the cap)
+
+The reviewer confirmed round 57's adequacy wording, the regularity label, the clock and content
+assertions, the software qualification and the singular condition number; all eight mutation
+checks failed as they should. Its run: 867 Python (one archive-only Git-metadata failure that
+passed on rerun), the report tests, Ruff, mypy, the contract, the web build, TypeScript, parity,
+65 web unit tests and the report's browser tests. Under the two-round cap, these fixes were **not
+reviewed again**.
+
+1. **(A) The 15-decimal cap still hid a supported interval.** With the observations scaled by
+   1e-7 and σ = 1e-12 Hz, S_zz (about 2.5e-8, standard error 1.2e-16) showed its estimate and both
+   endpoints as 0.000000025003777. **Fix:** a value is shown down to its uncertainty's resolution
+   (two significant digits of it), in fixed decimals up to ten places and in scientific notation
+   beyond, with no cap; an interval's three numbers share that resolution, refined until they
+   differ. Test: the reviewer's scaled case (three distinct, ordered numbers for every supported
+   interval); a mutant restoring the 15-decimal cap fails it.
+2. **(A) "The data determine every parameter" overstated full rank.** Imported geometry, rigid C1
+   on [−90°, 90°]: ranks 5/5 and 6/6, no undetermined direction, and two basins near ±36.7° with
+   Δχ² ≈ 3e-13. **Fix:** the note calls the ranks a *local* diagnostic (the data determine every
+   parameter near this optimum, not that no other torsion fits as well), and the Basins section
+   says so when another basin is within Δχ² < 1, the one-parameter interval's threshold. Test: the
+   reviewer's case; a mutant without the warning fails it.
+**After the fixes:** 870 Python tests; the report's browser test on the three browsers.
