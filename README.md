@@ -33,7 +33,7 @@ dipolar serve --project-dir ~/dipolar/my-project --open
 
 Start with the user guide: [getting started](docs/user/getting-started.md) (a first fit, your own
 data, Python) and [file formats](docs/user/file-formats.md) (couplings CSV, XYZ geometry,
-projects).
+projects), and the executed [notebooks](docs/notebooks/README.md).
 
 ## Why a new implementation
 
@@ -114,6 +114,7 @@ tools/package/build.sh       # -> dist/packages/*.whl
 | Document | Purpose |
 |---|---|
 | [docs/user/](docs/user/) | The user guide: getting started, file formats |
+| [docs/notebooks/](docs/notebooks/) | Executed notebooks: a first fit, your own data, reproducing biphenyl in 8CB |
 | [docs/03-redesign-plan.md](docs/03-redesign-plan.md) | The consolidated plan: decisions D1–D20, scope, roadmap, risks |
 | [docs/04-ai-ready-architecture.md](docs/04-ai-ready-architecture.md) | The headless engine and the AI-ready architecture |
 | [docs/adr/](docs/adr/) | Architecture decision records ADR-0001 to ADR-0020 (one per decision D1–D20) |

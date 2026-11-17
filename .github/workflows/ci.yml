@@ -31,6 +31,8 @@ jobs:
         run: uv run python tools/codegen/ts_contract.py --check
       - name: Tests (frozen fixtures, boundaries)
         run: uv run pytest -m "not slow"
+      - name: The user notebooks are current and run (docs/notebooks)
+        run: uv run python tools/notebooks/run.py --check
 
   windows:
     # Spike 3: the msvcrt project lock, Windows paths and line endings. POSIX-only checks (mode bits,

@@ -132,6 +132,9 @@ with Studio.local() as studio:                      # a session in this process
 - A local `Studio` serves one call at a time, and closing it waits for a call in progress
   (`studio.fit()` waits for its job in slices of up to 25 s).
 
+Executed examples: the [notebooks](../notebooks/README.md) (a first fit, your own data, and
+reproducing biphenyl in 8CB from your own transcription of the published couplings).
+
 The operations, with their arguments and results, are listed in
 `packages/dipolar-app/registry.snapshot.json` in the repository, and by `GET /api/v1/registry` on
 a running server (with a token from its ready file).
