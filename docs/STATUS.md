@@ -334,7 +334,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: the beta is ready to publish (the owner's steps)
+## Resume here: the draft release v0.1.0b1 awaits the owner's review
 
 **Stopping point: tag `beta-b4`.** Earlier stopping points: `beta-b3`, `beta-b2`, `beta-b1`, `m3-complete`, `m3-exit-audit`, `m3-step4b`, `m3-step4a`, `m3-step3`, `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
 `m2-exit-audit`, and one tag per step before them. To resume:
@@ -354,9 +354,11 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
    - ~~B2, the summary report~~: done (tag `beta-b2`, rounds 57–58);
    - ~~B3, executed notebooks~~: done (tag `beta-b3`, rounds 59–60);
    - ~~B4, beta readiness~~: done (tag `beta-b4`, rounds 61–62).
-   - **Next, the owner's steps:** (1) push the tag `v0.1.0b1`: the release workflow builds and
-     smoke-tests the wheels and drafts a GitHub release with them and the release notes (it has
-     not run yet; if it fails, delete any partial draft and re-run the workflow); (2) review and
+   - ~~Push the tag `v0.1.0b1`~~: done 2026-11-17; the release workflow passed on its first run
+     and drafted the prerelease. The testers' path was then followed on the draft's own wheels
+     and a fresh transcription of the thesis: reproduced, three S3 findings, the guide clarified
+     (`docs/validation/beta-walkthrough-v0.1.0b1.md`).
+   - **Next, the owner's steps:** (2) review and
      publish the draft (PyPI is a separate decision); (3) recruit two or more external testers
      and point them to `docs/beta/testers.md`. The beta ends when the 8CB exercise is reproduced
      independently at least twice with no open S1 issue (03 §8). Then the owner selects and
