@@ -4,6 +4,10 @@
 run; B2 the summary report; B3 executed notebooks; B4 beta readiness. Users bring the 8CB data
 (the owner's choice): the beta ships no 8CB couplings. See
 [round55-beta-b1.md](validation/round55-beta-b1.md).
+- **B3 (executed notebooks), under review:** three notebooks in `docs/notebooks/` (a first fit, your
+  own data, reproducing biphenyl in 8CB from your own transcription), executed and checked in CI
+  (`tools/notebooks/run.py --check`); the first 8CB reproduction through the app equals the frozen
+  fits. See [round59-beta-b3.md](validation/round59-beta-b3.md).
 - **B2 (the summary report) is done: tag `beta-b2`.** `run.report` (contract 0.10.0) renders a run
   as a deterministic, self-contained HTML page and a full-precision CSV of its couplings; "Download
   report" and "Couplings CSV" in the Fit tab. Rounds 57 and 58 returned NOT READY (three and two
@@ -322,7 +326,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: the beta release, step B3 (executed notebooks)
+## Resume here: the beta release, step B3 (executed notebooks, under review)
 
 **Stopping point: tag `beta-b2`.** Earlier stopping points: `beta-b1`, `m3-complete`, `m3-exit-audit`, `m3-step4b`, `m3-step4a`, `m3-step3`, `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
 `m2-exit-audit`, and one tag per step before them. To resume:

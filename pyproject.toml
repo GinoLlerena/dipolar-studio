@@ -12,6 +12,9 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.13",
     "jsonschema>=4.23",
+    "nbformat>=5.10",
+    "nbclient>=0.10",
+    "ipykernel>=6.29",
 ]
 
 [tool.uv]
