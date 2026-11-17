@@ -1,5 +1,5 @@
 {
-  "contract_version": "0.9.0",
+  "contract_version": "0.10.0",
   "envelopes": {
     "error": {
       "$defs": {
@@ -6859,6 +6859,83 @@
       "proposable": false,
       "revision_check": "none",
       "summary": "The session's runs, newest first, each with its input identity and staleness."
+    },
+    {
+      "capability": "query",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {
+          "run_id": "run_000001"
+        }
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "pattern": "^run_[0-9]{6}$",
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "title": "RunReportIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "max_request_bytes": 1048576,
+      "name": "run.report",
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "csv": {
+            "title": "Csv",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "format": {
+            "title": "Format",
+            "type": "string"
+          },
+          "html": {
+            "title": "Html",
+            "type": "string"
+          },
+          "run_id": {
+            "pattern": "^run_[0-9]{6}$",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "run_id",
+          "format",
+          "filename",
+          "html",
+          "csv"
+        ],
+        "title": "RunReportOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none",
+      "summary": "A run's summary report: a self-contained HTML page and a CSV of the couplings at full precision; the same run gives the same bytes."
     },
     {
       "capability": "view_write",

@@ -1,12 +1,12 @@
 // GENERATED FILE: do not edit. Regenerate with `uv run python tools/codegen/ts_contract.py`.
-// Source: packages/dipolar-app/registry.snapshot.json (sha256 915aa347e111465e86178532b6f0afb3a85fa154f3eba319cbd6519c0eaff7f1).
+// Source: packages/dipolar-app/registry.snapshot.json (sha256 79f697260698d2f6a7a3ae044131a502fed394a35d895f11b07a0c44727ce760).
 // CI fails if this file is stale (tests/test_ts_contract.py).
 //
 // Value constraints that TypeScript cannot express (bounds, lengths, patterns) appear as doc
 // comments; the server enforces them.
 /* eslint-disable */
 
-export const CONTRACT_VERSION = "0.9.0";
+export const CONTRACT_VERSION = "0.10.0";
 
 /** Any JSON value. */
 export type JsonValue =
@@ -1086,6 +1086,25 @@ export type RunListOut = {
   science_revision: number;
 };
 
+/** `run.report` input. */
+export type RunReportIn = {
+  /** pattern "^run_[0-9]{6}$" */
+  run_id: string;
+};
+
+/** `run.report` output. */
+export type RunReportOut = {
+  csv: string;
+  filename: string;
+  format: string;
+  html: string;
+  /** pattern "^run_[0-9]{6}$" */
+  run_id: string;
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+};
+
 /** `view.highlight` input. */
 export type HighlightIn = {
   /** maxItems 1000 */
@@ -1200,6 +1219,8 @@ export interface Operations {
   "run.get": { input: RunGetIn; output: RunGetOut };
   /** The session's runs, newest first, each with its input identity and staleness. */
   "run.list": { input: RunListIn; output: RunListOut };
+  /** A run's summary report: a self-contained HTML page and a CSV of the couplings at full precision; the same run gives the same bytes. */
+  "run.report": { input: RunReportIn; output: RunReportOut };
   /** Set the shared highlights to the given spin or coupling IDs (replaces them). */
   "view.highlight": { input: HighlightIn; output: HighlightOut };
   /** Set the shared selection to the given spin or coupling IDs (replaces it). */
@@ -1290,6 +1311,7 @@ export const OPERATIONS = {
   "render.view_svg": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "run.get": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "run.list": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "run.report": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "view.highlight": { kind: "command", effect: "view", capability: "view_write", cost: "instant", idempotent: true, revision_check: "none: an absolute set of view state; never touches the science", max_request_bytes: 1048576, proposable: false },
   "view.select": { kind: "command", effect: "view", capability: "view_write", cost: "instant", idempotent: true, revision_check: "none: an absolute set; IDs are validated atomically and never reused", max_request_bytes: 1048576, proposable: false },
   "view.set_camera": { kind: "command", effect: "view", capability: "view_write", cost: "instant", idempotent: true, revision_check: "optional expected_workspace_revision: a delayed gesture never overwrites a newer camera; otherwise an absolute set of view state", max_request_bytes: 1048576, proposable: false },

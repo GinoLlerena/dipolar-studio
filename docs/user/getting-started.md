@@ -74,6 +74,17 @@ opened or loaded over the current one) can be undone, the **last 100** of them, 
 fits are not undone. A fit made before a change is marked **stale** until the data are as they
 were.
 
+## Reports
+
+A fit's panel in the **Fit** tab has **Download report** (an HTML page to keep, print or send:
+the result, its validity flags and intervals, the model, every coupling's residual, and where the
+numbers came from: the fit's inputs, the software and its numerical settings) and **Couplings
+CSV** (the same couplings table at full precision, for a spreadsheet or a script). With the same
+version of Dipolar Studio, the same fit always gives the same report (a newer version may word it
+differently; the report names the version), and the report describes that fit, whatever has
+changed in the project since. From Python: `studio.call("run.report", run_id=...)` returns both, as `html` and
+`csv`.
+
 ## Your own data
 
 Two kinds of input, both described in [file formats](file-formats.md):

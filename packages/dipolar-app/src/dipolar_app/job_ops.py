@@ -25,12 +25,15 @@ import json
 import threading
 from typing import Annotated, Literal
 
+import dipolar_core
 from pydantic import Field
 
+import dipolar_app
 from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.policy import Tier
 from dipolar_app.project import canonical_json
-from dipolar_app.registry import Context
+from dipolar_app.registry import CONTRACT_VERSION, Context
+from dipolar_app.report import REPORT_FORMAT, render_csv, render_html
 from dipolar_app.schemas import Revision, Wire
 from dipolar_app.science_ops import FitRunOut, Science, check_revision, readiness, require_project
 from dipolar_app.session import JOB, TERMINAL, CurrentScience, Event, Job, Run, SessionState
@@ -360,24 +363,62 @@ class RunGetOut(Science):
     result: FitRunOut
 
 
-def run_get(ctx: Context, p: RunGetIn) -> RunGetOut:
+def _stored_run(ctx: Context, run_id: str) -> tuple[SessionState, Run, FitRunOut]:
+    """A run and its result, verified against the stored hash."""
     state = ctx.read()
-    run = state.run(p.run_id)
+    run = state.run(run_id)
     if run is None:
         raise OperationError(
             ErrorCode.ID_NOT_FOUND,
-            f"{p.run_id} is not a run of this session (or it was pruned)",
+            f"{run_id} is not a run of this session (or it was pruned)",
             offending_field="run_id",
             hint="run.list shows the runs",
         )
     text = ctx.session.blobs.text(run.result_sha256)
     if text is None:
         raise OperationError(ErrorCode.INTERNAL, f"the result of {run.id} is missing or damaged")
+    return state, run, FitRunOut.model_validate_json(text)
+
+
+def run_get(ctx: Context, p: RunGetIn) -> RunGetOut:
+    state, run, result = _stored_run(ctx, p.run_id)
     return RunGetOut(
         science_revision=state.science_revision,
         science_hash=state.science_hash,
         run=run_out(run, state),
-        result=FitRunOut.model_validate_json(text),
+        result=result,
+    )
+
+
+class RunReportIn(Wire):
+    run_id: RunId
+
+
+class RunReportOut(Science):
+    run_id: RunId
+    format: str  # the report's format (report.REPORT_FORMAT)
+    filename: str  # a file name stem: add .html and .csv
+    html: str  # a self-contained page: no script, no external resource
+    csv: str  # the per-coupling table at full precision
+
+
+def run_report(ctx: Context, p: RunReportIn) -> RunReportOut:
+    """The run's summary report (beta step B2): the same run gives the same bytes. It describes the
+    run only, never the current project (whether the run is stale is for run.get to say)."""
+    state, run, result = _stored_run(ctx, p.run_id)
+    record = run_out(run, state).model_dump(mode="json", exclude={"stale"})
+    fit = result.model_dump(mode="json")
+    software = (
+        f"dipolar {dipolar_app.__version__} (dipolar-core {dipolar_core.__version__}, contract {CONTRACT_VERSION})"
+    )
+    return RunReportOut(
+        science_revision=state.science_revision,
+        science_hash=state.science_hash,
+        run_id=run.id,
+        format=REPORT_FORMAT,
+        filename=f"dipolar-report-{run.id}",
+        html=render_html(record, fit, software=software),
+        csv=render_csv(record, fit),
     )
 
 

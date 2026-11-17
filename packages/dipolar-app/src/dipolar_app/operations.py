@@ -531,6 +531,21 @@ def _register_jobs(registry: Registry) -> None:
             examples=({"run_id": "run_000001"},),
         ),
         Operation(
+            name="run.report",
+            kind="query",
+            effect="none",
+            capability=Capability.QUERY,
+            summary=(
+                "A run's summary report: a self-contained HTML page and a CSV of the couplings at full "
+                "precision; the same run gives the same bytes."
+            ),
+            input_model=J.RunReportIn,
+            output_model=J.RunReportOut,
+            handler=J.run_report,
+            idempotent=True,
+            examples=({"run_id": "run_000001"},),
+        ),
+        Operation(
             name="run.list",
             kind="query",
             effect="none",

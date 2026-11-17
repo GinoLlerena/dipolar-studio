@@ -33,6 +33,17 @@ type Fit = {
 
 /** The robot's tutorial on its own server: its JSON report. */
 function robotTutorial(server: Server): Record<string, any> {
+  try {
+    return robotReport(server);
+  } catch (error) {
+    // The robot prints its failure as a JSON line on stdout: show it (a failure under load in M3
+    // beta step B2 showed only the command line).
+    const e = error as { stdout?: string; stderr?: string; message: string };
+    throw new Error(`the robot failed: ${e.stdout?.trim() || e.message}\n${e.stderr?.trim() ?? ""}`);
+  }
+}
+
+function robotReport(server: Server): Record<string, any> {
   const report = execFileSync(
     PYTHON,
     [

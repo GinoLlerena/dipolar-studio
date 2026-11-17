@@ -14,7 +14,7 @@ import { atPlace, decimalsFor, fixed, hz, pValue, residualHz, scientific, signed
 import { strings } from "../strings";
 import type { Studio, StudioState } from "../studio";
 import { LandscapePlot, ObsCalcPlot, ResidualBar } from "./charts";
-import { adequacyLabel, Chip, decimalsOf, Panel, Quantity, selectableRow, unitOf, Spacer, useRowWindow } from "./common";
+import { adequacyLabel, Chip, decimalsOf, download, Panel, Quantity, selectableRow, unitOf, Spacer, useRowWindow } from "./common";
 
 type Props = { studio: Studio; state: StudioState };
 
@@ -191,6 +191,26 @@ function valueOf(list: readonly NamedValue[] | null, name: string): number | nul
   return list?.find((v) => v.name === name)?.value ?? null;
 }
 
+/** The run's summary report (run.report, beta step B2): the HTML page, and the couplings as CSV. */
+function ReportButtons({ studio, runId }: { studio: Studio; runId: string }) {
+  const save = async (part: "html" | "csv") => {
+    const out = await studio.run((t) => callOperation("run.report", { run_id: runId }, t));
+    if (!out) return;
+    if (part === "html") download(`${out.filename}.html`, out.html, "text/html");
+    else download(`${out.filename}.csv`, out.csv, "text/csv");
+  };
+  return (
+    <>
+      <button type="button" className="quiet" onClick={() => void save("html")}>
+        {strings.downloadReport}
+      </button>
+      <button type="button" className="quiet" onClick={() => void save("csv")}>
+        {strings.downloadReportCsv}
+      </button>
+    </>
+  );
+}
+
 function RunDetail({ studio, state, run, result }: Props & { run: RunOut; result: FitRunOut | undefined }) {
   if (!result && run.id in state.failedResults) {
     const failure = state.failedResults[run.id];
@@ -242,11 +262,14 @@ function RunDetail({ studio, state, run, result }: Props & { run: RunOut; result
         title={`${run.id}`}
         id="pane-run-detail"
         actions={
-          run.stale ? (
-            <span className="badge badge-stale" title={strings.staleHelp}>
-              {strings.staleBadge}
-            </span>
-          ) : undefined
+          <>
+            {run.stale && (
+              <span className="badge badge-stale" title={strings.staleHelp}>
+                {strings.staleBadge}
+              </span>
+            )}
+            <ReportButtons studio={studio} runId={run.id} />
+          </>
         }
       >
         <p className="statement">{result.statement}</p>

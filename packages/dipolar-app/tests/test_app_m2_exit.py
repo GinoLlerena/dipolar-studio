@@ -19,6 +19,7 @@ ones:
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from collections.abc import Callable
@@ -188,6 +189,9 @@ def test_the_robot_completes_the_m2_scenario_over_http_only(tmp_path: Path, clea
 VOLATILE = {"submitted_at", "finished_at", "created_at", "expires_at", "decided_at", "at"}
 
 
+TIMESTAMP = r"\d{4}-\d{2}-\d{2}T[0-9:.]+(?:Z|[+-]\d{2}:\d{2})"
+
+
 def normalized(value: Any) -> Any:
     if isinstance(value, dict):
         return {k: ("<time>" if k in VOLATILE else normalized(v)) for k, v in value.items()}
@@ -224,6 +228,7 @@ EVERY_OPERATION: list[Step] = [
     ("job.list", lambda r: {}, "robot", None),
     ("run.list", lambda r: {}, "robot", None),
     ("run.get", lambda r: {"run_id": "run_000001"}, "robot", None),
+    ("run.report", lambda r: {"run_id": "run_000001"}, "robot", None),
     ("job.cancel", lambda r: {"job_id": "job_000001"}, "robot", None),
     ("model.set", lambda r: {**JUMP, "expected_science_revision": r}, "robot", None),
     ("history.log", lambda r: {}, "robot", None),
@@ -290,6 +295,11 @@ def test_every_operation_returns_the_same_envelope_on_both_adapters(server: Serv
             for envelope in (over_http, in_process):
                 assert envelope["ok"], envelope
             np.testing.assert_allclose(over_http["result"].pop("chi2"), in_process["result"].pop("chi2"), rtol=1e-12)
+        if name == "run.report":
+            # Each adapter's session made its own run: the report names its creation time.
+            for envelope in (over_http, in_process):
+                assert envelope["ok"], envelope
+                envelope["result"]["html"] = re.sub(TIMESTAMP, "<time>", envelope["result"]["html"])
         assert normalized(over_http) == normalized(in_process), name
         if expect is None:
             assert over_http["ok"], (name, over_http)
