@@ -220,3 +220,22 @@ test("typed torsion indices are reset when another geometry replaces the first (
   for (const k of [0, 1, 2, 3]) await expect(app.getByLabel(["a", "i", "j", "b"][k] as string, { exact: true })).toHaveValue("");
   await expect(app.getByRole("button", { name: "Set torsion" })).toBeDisabled();
 });
+
+test("a science change while the model is edited keeps the edit (CI, beta step B4)", async ({ app, server }) => {
+  // On CI's Firefox the couplings import's new project description arrived after the model's
+  // selects were changed, and the draft was reset: Apply stayed disabled.
+  await server.ok("robot", "project.open_example", { name: "biphenyl-synthetic", expected_science_revision: 0 });
+  await openTab(app, "Data");
+  await expect(app.locator(".crumb .muted")).toContainText("rev 1 ");
+  await app.locator("#model-kind").selectOption("jump4");
+  await expect(app.getByRole("button", { name: "Apply" })).toBeEnabled();
+  // Another client changes one coupling (a science change that leaves the model alone).
+  const csv = readFileSync(join(DATA, "couplings.csv"), "utf-8").replace("-1124.726", "-1124.5");
+  const { proposed_mapping } = await server.ok("robot", "couplings.reconcile", { csv });
+  await server.ok("robot", "couplings.import", { csv, confirmed_mapping: proposed_mapping, expected_science_revision: 1 });
+  await expect(app.locator(".crumb .muted")).toContainText("rev 2 ");
+  await expect(app.locator("#model-kind")).toHaveValue("jump4");
+  await expect(app.getByRole("button", { name: "Apply" })).toBeEnabled();
+  await app.getByRole("button", { name: "Apply" }).click();
+  await expect.poll(async () => (await server.ok("robot", "project.describe")).model.kind).toBe("jump4");
+});

@@ -1,0 +1,72 @@
+name: Release (draft)
+
+# Pushing a tag v<version> (for example v0.1.0b1) builds the wheels, checks the user's path on
+# them, and creates a DRAFT GitHub release with the wheels and docs/release-notes/<version>.md.
+# Nothing is published until the owner reviews the draft and publishes it (beta step B4).
+#
+# To retry a failed or partial run: delete any draft it left on GitHub, then re-run the failed
+# workflow (Actions → the run → "Re-run failed jobs", or `gh run rerun RUN_ID --failed`). Pushing
+# the same tag again starts nothing (round 62). Only if the tag itself must move: delete it,
+# fix, and push it again. A run refuses to touch an existing release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    name: Build, check and draft the release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Install uv and pnpm
+        run: |
+          python -m pip install --upgrade uv
+          npm install -g pnpm@9
+      - name: The tag is the packages' version, with release notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # Literal comparisons (round 61: as a regex, the dots matched any version like 0.1+0b1).
+          grep -Fqx "version = \"$version\"" packages/dipolar-app/pyproject.toml
+          grep -Fqx "version = \"$version\"" packages/dipolar-core/pyproject.toml
+          test -f "docs/release-notes/$version.md"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: No release exists for this tag yet
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "A release for $GITHUB_REF_NAME exists: delete the draft on GitHub, then re-run this workflow." >&2
+            exit 1
+          fi
+      - name: The source archive leaves out third-party data
+        run: |
+          # GitHub attaches the tag's source archives to the release; .gitattributes keeps the 8CB
+          # couplings out of them (round 61: the owner's choice is that the beta ships none).
+          if git archive HEAD | tar -t | grep -q "biphenyl-8CB-dipietro2013"; then
+            echo "the source archive contains the third-party 8CB dataset" >&2
+            exit 1
+          fi
+      - name: Build the wheels (page bundled)
+        run: tools/package/build.sh
+      - name: The user's path against the installed wheels
+        run: |
+          uv venv "$RUNNER_TEMP/pkg"
+          uv pip install --python "$RUNNER_TEMP/pkg/bin/python" dist/packages/*.whl
+          "$RUNNER_TEMP/pkg/bin/python" -I tools/package/smoke.py --guide docs/user/getting-started.md
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$VERSION" in *a*|*b*|*rc*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/packages/*.whl --draft $prerelease \
+            --title "Dipolar Studio $VERSION" --notes-file "docs/release-notes/$VERSION.md"

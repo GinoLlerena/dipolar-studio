@@ -4,6 +4,12 @@
 run; B2 the summary report; B3 executed notebooks; B4 beta readiness. Users bring the 8CB data
 (the owner's choice): the beta ships no 8CB couplings. See
 [round55-beta-b1.md](validation/round55-beta-b1.md).
+- **B4 (beta readiness) is done: tag `beta-b4`.** Rounds 61 (NOT READY, two class-(A) findings: the
+  release's source archives would have carried the 8CB couplings, and the version gate accepted
+  unequal versions) and 62 (READY WITH MINOR CHANGES); all fixed. The testers' guide (`docs/beta/testers.md`: the 8CB
+  exercise, reporting, severities S1–S3), issue forms, release notes for 0.1.0b1, and a release
+  workflow that drafts a GitHub release when a `v*` tag is pushed (nothing is published until the
+  owner publishes the draft). See [round61-beta-b4.md](validation/round61-beta-b4.md).
 - **B3 (executed notebooks) is done: tag `beta-b3`.** Rounds 59 (NOT READY, one class-(A) finding: a
   mistyped transcription crashed notebook 3 without explaining) and 60 (READY WITH MINOR CHANGES);
   all fixed. Three notebooks in `docs/notebooks/` (a first fit, your
@@ -328,18 +334,18 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: the beta release, step B4 (beta readiness)
+## Resume here: the beta is ready to publish (the owner's steps)
 
-**Stopping point: tag `beta-b3`.** Earlier stopping points: `beta-b2`, `beta-b1`, `m3-complete`, `m3-exit-audit`, `m3-step4b`, `m3-step4a`, `m3-step3`, `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
+**Stopping point: tag `beta-b4`.** Earlier stopping points: `beta-b3`, `beta-b2`, `beta-b1`, `m3-complete`, `m3-exit-audit`, `m3-step4b`, `m3-step4a`, `m3-step3`, `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
 `m2-exit-audit`, and one tag per step before them. To resume:
 
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 870 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 885 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
    (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 65 web tests
-   (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 111 browser tests
+   (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 117 browser tests
    tools/package/build.sh && <clean venv>/bin/python -I tools/package/smoke.py --guide docs/user/getting-started.md
    ```
 
@@ -347,9 +353,14 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
    - ~~B1, install and run~~: done (tag `beta-b1`, rounds 55–56);
    - ~~B2, the summary report~~: done (tag `beta-b2`, rounds 57–58);
    - ~~B3, executed notebooks~~: done (tag `beta-b3`, rounds 59–60);
-   - **B4, beta readiness:** the testers' 8CB guide, issue templates with S1–S3 severities,
-     release notes, the tag. **The owner's:** publishing the wheels (a GitHub release, PyPI) and
-     recruiting two or more external testers (the beta's exit).
+   - ~~B4, beta readiness~~: done (tag `beta-b4`, rounds 61–62).
+   - **Next, the owner's steps:** (1) push the tag `v0.1.0b1`: the release workflow builds and
+     smoke-tests the wheels and drafts a GitHub release with them and the release notes (it has
+     not run yet; if it fails, delete any partial draft and re-run the workflow); (2) review and
+     publish the draft (PyPI is a separate decision); (3) recruit two or more external testers
+     and point them to `docs/beta/testers.md`. The beta ends when the 8CB exercise is reproduced
+     independently at least twice with no open S1 issue (03 §8). Then the owner selects and
+     re-baselines Phase 2's first verification release (V0 + V1).
    - **(B, CI after round 56)** a camera gesture made within the round trip of the page's previous
      camera commit is refused as superseded and reverted (rounds 41–42 rule); worth revisiting.
    - **Use pnpm 9** (as CI): `node_modules` linked by pnpm 10 makes `pnpm add` fail.

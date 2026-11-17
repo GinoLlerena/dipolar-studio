@@ -1,0 +1,49 @@
+name: Bug report
+description: Something is wrong, or misleading, in Dipolar Studio.
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you. Severities are defined in the [testers' guide](https://github.com/GinoLlerena/dipolar-studio/blob/main/docs/beta/testers.md#3-reporting-problems). Do not attach data you may not share.
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - "S1: a wrong result without a warning, lost or corrupted work, a security problem, or the app cannot be used"
+        - "S2: something does not work, or misleads, and there is a way around it"
+        - "S3: cosmetic, wording or documentation"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `dipolar --version`.
+      placeholder: "dipolar 0.1.0b1 (dipolar-core 0.1.0b1, contract 0.10.0)"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Operating system and browser
+      placeholder: "macOS 15, Firefox 159"
+  - type: textarea
+    id: steps
+    attributes:
+      label: What you did
+      description: The steps, from opening the app or the notebook.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Files (optional)
+      description: The exported project (`.dipolar.json`), the fit's report, or the input files, if you may share them.
