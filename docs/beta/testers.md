@@ -55,7 +55,9 @@ Type the primes as an ASCII apostrophe, as shown (`H2'`).
   configuration). Then: Data → "Open the synthetic biphenyl example"; "Choose a CSV file…" with
   that copy (the proposed mapping is right: your labels are the template's); "Import 12
   couplings"; under Model choose "Four-site jump", "Bisector diagonal", "Bisector", φ domain 0 to
-  90, and "Apply"; then Fit → "Run fit".
+  90, and "Apply"; then Fit → "Run fit". The title bar keeps the example's name, "Synthetic
+  biphenyl (known answer)": that is expected, the geometry is the example's template and the
+  couplings are now yours.
 
 **What you should find** (the four-site jump at T_red = 0.930, unweighted):
 
@@ -72,7 +74,7 @@ analysis agrees with them to 1–2 % in the order parameters. With the thesis's 
 ("weighted"), φ = 32.975°, S_zz = 0.43097, Δ = 0.18395, and the fit is flagged **inadequate**:
 those σ are spectral-analysis errors, much smaller than the model's misfit. The unweighted fit's
 χ², p-value and adequacy have no statistical meaning (σ = 1 is a convention), so compare only its
-values.
+values: the app flags it **inadequate** too, with a yellow banner, and that is expected.
 
 **Then tell us**, with the "Reproduction report" issue form (below), whether you got these values,
 how long it took, and what was unclear. A failure is as useful as a success.
