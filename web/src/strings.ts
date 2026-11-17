@@ -171,6 +171,8 @@ export const strings = {
   loadingRun: "Loading the run…",
   runUnavailable: "This run's stored result could not be read.",
   retry: "Retry",
+  downloadReport: "Download report",
+  downloadReportCsv: "Couplings CSV",
   parameters: "Parameters",
   colParameter: "Parameter",
   colEstimate: "Estimate ± standard error",

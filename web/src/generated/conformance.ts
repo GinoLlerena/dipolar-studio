@@ -38,6 +38,7 @@ void ({} satisfies OperationInput<"render.scene">); // example 0
 void ({} satisfies OperationInput<"render.view_svg">); // example 0
 void ({"run_id": "run_000001"} satisfies OperationInput<"run.get">); // example 0
 void ({} satisfies OperationInput<"run.list">); // example 0
+void ({"run_id": "run_000001"} satisfies OperationInput<"run.report">); // example 0
 void ({"ids": ["cpl_000001", "spn_000002"]} satisfies OperationInput<"view.highlight">); // example 0
 void ({"ids": ["cpl_000002"]} satisfies OperationInput<"view.select">); // example 0
 void ({"camera": null, "viewport": {"height": 600, "width": 800}} satisfies OperationInput<"view.set_camera">); // example 0
