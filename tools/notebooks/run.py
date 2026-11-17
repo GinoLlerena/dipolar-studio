@@ -74,7 +74,11 @@ def execute(name: str, nb: nbformat.NotebookNode, env: dict[str, str]) -> nbform
     os.environ.update(env)
     try:
         client = NotebookClient(
-            nb, timeout=TIMEOUT_S, kernel_name="python3", resources={"metadata": {"path": str(OUT)}}
+            nb,
+            timeout=TIMEOUT_S,
+            kernel_name="python3",
+            record_timing=False,  # no execution timestamps: a rewrite changes nothing (round 59)
+            resources={"metadata": {"path": str(OUT)}},
         )
         client.execute()
     finally:

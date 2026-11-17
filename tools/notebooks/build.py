@@ -252,9 +252,24 @@ REPRODUCE_8CB = _notebook(
 This notebook reproduces a fit of **experimental** couplings: biphenyl dissolved in the liquid
 crystal 8CB, measured by M. E. Di Pietro (PhD thesis, Université Paris-Sud / Università della
 Calabria, 2013), **Table 3.1** (open copy: <http://hdl.handle.net/10955/1001>). Dipolar Studio
-does not ship these values: transcribe the 12 couplings at **T_red = 0.930** yourself into a CSV
-with the columns `spin_a, spin_b, D_obs_Hz, sigma_Hz`, one row per coupling, using the thesis
-label → proton pair table below. Then set `COUPLINGS_CSV` to your file and run the notebook.
+does not ship these values: transcribe them yourself.
+
+**How to transcribe** (round 59):
+
+- the table is on the thesis's printed pages **167–168** (PDF pages 179–180); use the **"exp"**
+  columns at **T_red = 0.930** (the simulated "sim" columns are not used);
+- one CSV row per thesis label (12 rows), with the columns `spin_a, spin_b, D_obs_Hz, sigma_Hz`:
+  the pair from the label table below, the **signed** coupling D in Hz as printed, and the number
+  after "±" (positive) as `sigma_Hz`; keep the printed digits;
+- the pair labels (`H2` … `H6'`) are the template's own protons, so the import's proposed mapping
+  is the right one; the notebook checks that every label maps and that the 12 pairs are the
+  table's.
+
+Then set `COUPLINGS_CSV` (or the `DIPOLAR_8CB_CSV` environment variable) to your file and run
+the notebook. **What it can and cannot catch:** a wrong sign, a wrong temperature or a coupling
+on the wrong pair changes the fit and fails the comparison; but two pairs whose model
+predictions are identical (for example H2–H6 and H3–H5) can be exchanged without changing any
+fitted value, so compare such rows with the table by eye.
 
 The model is the **symmetric four-site jump** (±φ, 180° ± φ, equal populations) on the built-in
 biphenyl template. The reference values below are the fits that Dipolar Studio's independent
@@ -339,16 +354,28 @@ def fit(sigma_of):
 
 
 results = {"unweighted": fit(lambda r: 1), "weighted": fit(lambda r: r["sigma_Hz"])}
+problems = []
 for name, run in results.items():
     values = {**{t["name"]: t["value"] for t in run["theta"]}, **{o["name"]: o["value"] for o in run["order"]}}
-    p = run["p_value"]
-    p_text = f"p = {p:.1e}" if p > 0 else "p < 1e-300"  # chi2 in the hundred thousands: p underflows
-    verdict = f"  adequate: {run['adequate']} ({p_text})" if name == "weighted" else ""
-    print(f"{name:10}  phi = {values['phi_deg']:.4f} deg  S_zz = {values['Szz']:.5f}  Delta = {values['Delta']:.5f}"
-          f"  RMS = {run['rms_residual']['value']:.2f} Hz{verdict}")
+    line = (f"{name:10}  phi = {values['phi_deg']:.4f} deg  S_zz = {values['Szz']:.5f}"
+            f"  Delta = {values['Delta']:.5f}  RMS = {run['rms_residual']['value']:.2f} Hz")
+    if name == "weighted":
+        p = run["p_value"]  # None when the fit is not regular (round 59: a sign error gave one)
+        p_text = "not available" if p is None else f"{p:.1e}" if p > 0 else "< 1e-300"
+        line += f"  adequate: {run['adequate']} (p {p_text})"
+    print(line)
+    if not run["validity"]["regular"]:
+        problems.append(f"the {name} fit is not regular (bound, rank or convergence)")
     for key, expected in REFERENCE[name].items():
-        assert abs(values[key] - expected) <= TOLERANCE[key], (name, key, values[key], expected)
-assert results["weighted"]["adequate"] is False
+        if abs(values[key] - expected) > TOLERANCE[key]:
+            problems.append(f"{name} {key} = {values[key]:.6g}, the reference is {expected:.6g}")
+if results["weighted"]["adequate"] is not False:
+    problems.append("the weighted fit should be inadequate under the thesis's spectral sigma")
+if problems:
+    raise AssertionError(
+        "Not reproduced. Check the transcription: the signs, which pair each value is on, the "
+        "temperature (T_red = 0.930) and the exp columns.\\n  " + "\\n  ".join(problems)
+    )
 print("reproduced: both fits agree with the reference.")
 """,
         ),

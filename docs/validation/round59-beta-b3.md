@@ -52,3 +52,32 @@ report of B2.
 
 **Baseline (before review):** 870 Python (`-m "not slow"`), Ruff, mypy, the contract; the three
 notebooks executed by `run.py --check`. Web code is unchanged.
+
+## Round 59: NOT READY (one A, three B), on commit 0062f55
+
+The reviewer confirmed the scientific baseline (the coverage wording, notebook 2's −37°
+convention, the label mapping, the weighting explanation, the 1–2 % agreement) and checked the
+repository's transcription against the thesis's Tables 3.1–3.2. A faithful transcription passed
+both fits, the weighted fit being inadequate; a wrong temperature failed the comparison; the
+committed outputs hold fit summaries, not measured couplings or σ; no local path leaked. The
+requested mutants of `--check` (a changed cell, a reference value, a broken API call, removed
+outputs) were rejected and an absent dataset skipped. Its run: 867 Python (one scratch-only
+failure that passed with a Git index), Ruff, mypy, the contract, `--check`.
+
+1. **(A) A transcription error could crash the notebook before it explained anything:** a
+   reversed sign on H2–H3, or two observations swapped, gave an irregular fit whose p-value is
+   None, and formatting it raised `TypeError`. **Fix:** the notebook prints "p not available" for
+   an irregular fit, collects every problem (a fit not regular, a value off the reference, the
+   weighted fit not inadequate) and raises one message that says what to check: the signs, which
+   pair each value is on, the temperature and the exp columns. Checked with the reviewer's
+   sign-flipped transcription: the message, no `TypeError`.
+2. **(B) Matching fits cannot verify every row:** two pairs with identical model predictions
+   (H2–H6 and H3–H5) can be exchanged without changing any fitted value. **Documented** in the
+   notebook, with the advice to compare such rows with the table by eye.
+3. **(B) The transcription steps are now explicit:** printed pages 167–168, the "exp" columns at
+   T_red = 0.930, signed D in Hz as printed, the positive number after "±" as `sigma_Hz`, the
+   printed digits kept; the pair labels are the template's own, so the proposed mapping is right.
+4. **(B) `--write` kept execution timestamps.** **Fix:** `record_timing=False`; two consecutive
+   writes now give identical files.
+
+Under the cap, round 60 reviews these fixes and the step once more.
