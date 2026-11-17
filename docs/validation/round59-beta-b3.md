@@ -81,3 +81,18 @@ failure that passed with a Git index), Ruff, mypy, the contract, `--check`.
    writes now give identical files.
 
 Under the cap, round 60 reviews these fixes and the step once more.
+
+## Round 60: READY WITH MINOR CHANGES (one B), on commit ba9c5e5 (final under the cap)
+
+The reviewer confirmed the round-59 responses: the sign flip and both observation swaps print "p
+not available" and raise the explanatory message; the H2–H6/H3–H5 exchange passes, as
+documented; the instructions and all 12 observations and uncertainties match the thesis; two
+writes are byte-identical to the committed notebooks; the faithful fits reproduce the frozen
+parameters, χ² and N, the weighted fit inadequate. It also exercised missing, extra and duplicate
+rows, non-numeric values, decimal commas and a wrong temperature, and the `--check` mutants. Its
+run: 870 Python, Ruff, mypy, the contract, `--check`.
+
+1. **(B) A misspelt header raised a bare `KeyError`.** **Fix:** notebook 3 checks the header first
+   and names the missing columns. Checked with the reviewer's `spin_a_typo`.
+
+Under the cap, this fix was not reviewed again.

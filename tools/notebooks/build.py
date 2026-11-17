@@ -306,7 +306,10 @@ THESIS_LABELS = {  # Table 3.1's label: the representative pair on the template
 }
 if not COUPLINGS_CSV.exists():
     raise SystemExit(f"Transcribe Table 3.1 at T_red = 0.930 into {COUPLINGS_CSV} first (see above).")
-rows = list(csv.DictReader(COUPLINGS_CSV.open(encoding="utf-8")))
+reader = csv.DictReader(COUPLINGS_CSV.open(encoding="utf-8"))
+missing = {"spin_a", "spin_b", "D_obs_Hz", "sigma_Hz"} - set(reader.fieldnames or ())
+assert not missing, f"the CSV's header lacks {sorted(missing)} (it has {reader.fieldnames})"  # round 60
+rows = list(reader)
 print(len(rows), "couplings read from", COUPLINGS_CSV.name)
 pairs = {tuple(sorted((r["spin_a"], r["spin_b"]))) for r in rows}
 assert pairs == {tuple(sorted(p)) for p in THESIS_LABELS.values()}, "one row for each of Table 3.1's 12 labels"

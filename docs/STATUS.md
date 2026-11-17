@@ -4,7 +4,9 @@
 run; B2 the summary report; B3 executed notebooks; B4 beta readiness. Users bring the 8CB data
 (the owner's choice): the beta ships no 8CB couplings. See
 [round55-beta-b1.md](validation/round55-beta-b1.md).
-- **B3 (executed notebooks), under review:** three notebooks in `docs/notebooks/` (a first fit, your
+- **B3 (executed notebooks) is done: tag `beta-b3`.** Rounds 59 (NOT READY, one class-(A) finding: a
+  mistyped transcription crashed notebook 3 without explaining) and 60 (READY WITH MINOR CHANGES);
+  all fixed. Three notebooks in `docs/notebooks/` (a first fit, your
   own data, reproducing biphenyl in 8CB from your own transcription), executed and checked in CI
   (`tools/notebooks/run.py --check`); the first 8CB reproduction through the app equals the frozen
   fits. See [round59-beta-b3.md](validation/round59-beta-b3.md).
@@ -326,9 +328,9 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 - **Step 5, re-baseline: a proposal.** [docs/rebaseline-after-m0.md](rebaseline-after-m0.md) gives
   the measured velocity, proposes the shape of M1–M3 in slice-sized steps, and sets no dates.
 
-## Resume here: the beta release, step B3 (executed notebooks, under review)
+## Resume here: the beta release, step B4 (beta readiness)
 
-**Stopping point: tag `beta-b2`.** Earlier stopping points: `beta-b1`, `m3-complete`, `m3-exit-audit`, `m3-step4b`, `m3-step4a`, `m3-step3`, `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
+**Stopping point: tag `beta-b3`.** Earlier stopping points: `beta-b2`, `beta-b1`, `m3-complete`, `m3-exit-audit`, `m3-step4b`, `m3-step4a`, `m3-step3`, `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
 `m2-exit-audit`, and one tag per step before them. To resume:
 
 1. Check the baseline:
@@ -344,9 +346,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 2. **The beta release (the owner's choice, 2026-11-16; users bring the 8CB data):**
    - ~~B1, install and run~~: done (tag `beta-b1`, rounds 55–56);
    - ~~B2, the summary report~~: done (tag `beta-b2`, rounds 57–58);
-   - **B3, executed notebooks:** the synthetic tutorial, your own XYZ and CSV, the 8CB
-     reproduction from your own transcription (CI runs it on the repository's validation copy).
-     The M1 8CB gates ran on the core; B3 is the first reproduction through the app;
+   - ~~B3, executed notebooks~~: done (tag `beta-b3`, rounds 59–60);
    - **B4, beta readiness:** the testers' 8CB guide, issue templates with S1–S3 severities,
      release notes, the tag. **The owner's:** publishing the wheels (a GitHub release, PyPI) and
      recruiting two or more external testers (the beta's exit).
