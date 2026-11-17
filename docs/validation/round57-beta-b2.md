@@ -52,3 +52,41 @@ The beta release's steps are in [round55-beta-b1.md](round55-beta-b1.md). B2 del
 
 **Baseline (before review):** 864 Python (`-m "not slow"`), 65 web unit and 111 browser tests
 (37 × 3), TypeScript, mypy, Ruff, the generated contract (0.10.0), projection parity.
+
+## Round 57: NOT READY (three A, three B), on commit 452a1ba
+
+The reviewer's run: 863 Python (one scratch-copy failure that passed on rerun), Ruff, mypy, the
+contract, 65 web unit and 111 browser tests; PR CI green. For a fixed software version the
+snapshot-based determinism held, and excluding staleness and the current project was judged right;
+locale and key-order probes, escaping, CSV precision, newlines and quotes in labels passed, and
+removing the escaping or the formula guard failed the tests. All six findings were reproduced.
+
+1. **(A) Rounding hid supported intervals and uncertainty.** With the observations set to a fit's
+   own predictions and σ = 1e-5 Hz, the φ interval [36.9850289, 36.9850292] showed its estimate and
+   both endpoints as 36.985, and its standard error as 1.63954e−07. **Fix:** a parameter's value is
+   shown to two significant digits of its standard error, the standard error to two significant
+   digits; an interval's estimate and endpoints share a precision from its narrower half-width,
+   refined until the three differ. Test: the reviewer's case, three distinct numbers each within its
+   displayed precision of the stored value, φ no coarser than its σ.
+2. **(A) "Adequate (the model explains the data within σ)" overstated the flag,** which is the
+   frozen policy p ≥ 0.001 (χ² = 29.4 with ν = 11, p = 0.002, read "yes"). **Fix:** "Adequate (p ≥
+   0.001 under the stated σ)", from `reporting.ADEQUATE_P_MIN`.
+3. **(A) "Regular (identifiable)" conflated two things:** an imported geometry with φ at a bound of
+   [−30°, 0°] had full ranks and no undetermined direction, yet read "identifiable: no". **Fix:**
+   "Regular optimum (converged, resolved, interior, full rank)", with a note that standard errors,
+   ν and intervals need it while identifiability is the ranks and the undetermined directions.
+   Test: the wording, and every validity value shown.
+4. **(B) Content and clock regressions escaped the tests** (removing the Validity and Intervals
+   sections, or adding today's date, passed). **Fix:** the tests read the Validity and Intervals
+   sections value by value, and render a run twice with the clock moved by a year
+   (`time.time`, `datetime.datetime.now`, `datetime.date.today`). Mutants adding today's date or
+   the current time, ignoring the uncertainty's precision, hiding the Validity section or
+   unlabelling a singular condition number each fail.
+5. **(B) "The same report" needed its software qualification** (another installed version words
+   the same run differently). **Fix:** the guide and the report's footer say "with the same
+   version / software".
+6. **(B) An infinite condition number (null on the wire) showed as missing.** **Fix:** with a
+   deficient inner rank it reads "∞ (singular)", otherwise "not computed". Test: a one-coupling
+   fit (inner rank 1 of 2).
+
+**After the fixes:** 868 Python tests; the report's browser test on the three browsers.

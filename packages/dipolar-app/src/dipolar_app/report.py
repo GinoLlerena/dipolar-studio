@@ -19,6 +19,8 @@ import math
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Final
 
+from dipolar_app.reporting import ADEQUATE_P_MIN
+
 #: The report's own format, named in both outputs; bumped when their content changes.
 REPORT_FORMAT: Final = "dipolar-report.1"
 
@@ -69,6 +71,41 @@ def _number(value: float | int | None, digits: int = 6) -> str:
     return text.replace("-", "−")
 
 
+def _decimals(spread: float | None) -> int | None:
+    """Decimal places that show `spread` (an uncertainty or an interval's half-width) to two
+    significant digits, so a value is never shown coarser than its uncertainty (round 57); None
+    when there is no usable spread."""
+    if spread is None or not math.isfinite(spread) or spread <= 0:
+        return None
+    return max(0, min(15, 1 - math.floor(math.log10(spread))))
+
+
+def _fixed(value: float | None, decimals: int | None) -> str:
+    """`value` at `decimals` places (a typographic minus); `_number` when there are none."""
+    if value is None or decimals is None or not math.isfinite(value):
+        return _number(value)
+    return f"{value:.{decimals}f}".replace("-", "\u2212")
+
+
+def _interval_cells(estimate: float, lower: float | None, upper: float | None) -> tuple[str, str, str]:
+    """An interval's estimate and endpoints at one precision fine enough to tell them apart: from
+    the narrower half-width, refined until the three differ (round 57: a supported interval of
+    width 3e-7 showed three equal numbers)."""
+    sides = [
+        d
+        for d in (estimate - lower if lower is not None else None, upper - estimate if upper is not None else None)
+        if d is not None and d > 0
+    ]
+    places = _decimals(min(sides)) if sides else None
+    if places is None:
+        return _number(estimate), _number(lower), _number(upper)
+    cells = (_fixed(estimate, places), _fixed(lower, places), _fixed(upper, places))
+    while places < 15 and len({c for c in cells if c != "\u2014"}) < sum(c != "\u2014" for c in cells):
+        places += 1
+        cells = (_fixed(estimate, places), _fixed(lower, places), _fixed(upper, places))
+    return cells
+
+
 def _flag(value: bool | None, yes: str = "yes", no: str = "no") -> str:
     if value is None:
         return '<span class="muted">not assessed</span>'
@@ -93,6 +130,17 @@ def _named(values: Sequence[Mapping[str, Any]] | None) -> dict[str, float]:
     return {str(v["name"]): float(v["value"]) for v in values or ()}
 
 
+def _condition(validity: Mapping[str, Any]) -> str:
+    """The inner condition number; an infinite one is sent as null (JSON has no infinity), which
+    with a deficient inner rank means singular, not unknown (round 57)."""
+    value = validity.get("inner_condition_number")
+    if value is not None:
+        return _number(value, 4)
+    if validity["inner_rank"] < validity["inner_parameters"]:
+        return "\u221e (singular)"
+    return '<span class="muted">not computed</span>'
+
+
 def render_html(run: Mapping[str, Any], result: Mapping[str, Any], *, software: str) -> str:
     """The report page of a run. `run` is the run record (`RunOut` as JSON), `result` its fit
     (`FitRunOut` as JSON), `software` the version line (`dipolar --version`)."""
@@ -112,7 +160,7 @@ def render_html(run: Mapping[str, Any], result: Mapping[str, Any], *, software: 
         add(f"<p>{_text(result['statement'])}</p>")
     add("<h2>Result</h2>")
     rows = [
-        (_text(name), _number(value), _number(stderr.get(name)))
+        (_text(name), _fixed(value, _decimals(stderr.get(name))), _number(stderr.get(name), 2))
         for name, value in [*_named(result["theta"]).items(), *_named(result["order"]).items()]
     ]
     add(_table([("Parameter", False), ("Value", True), ("Standard error", True)], rows))
@@ -125,7 +173,7 @@ def render_html(run: Mapping[str, Any], result: Mapping[str, Any], *, software: 
                 ("Free parameters", _number(result["p_free"])),
                 ("Degrees of freedom ν", _number(result.get("nu"))),
                 ("p-value", _number(result.get("p_value"), 4)),
-                ("Adequate (the model explains the data within σ)", _flag(result.get("adequate"))),
+                (f"Adequate (p ≥ {ADEQUATE_P_MIN:g} under the stated σ)", _flag(result.get("adequate"))),
                 ("RMS residual", f"{_number(rms['value'], 4)} {_text(rms['unit'])}"),
             ]
         )
@@ -137,16 +185,24 @@ def render_html(run: Mapping[str, Any], result: Mapping[str, Any], *, software: 
         _dl(
             [
                 ("Converged", _flag(v["converged"])),
-                ("Regular (identifiable)", _flag(v["regular"])),
+                (
+                    "Regular optimum (converged, resolved, interior, full rank)",
+                    _flag(v["regular"]),
+                ),
                 ("Physically admissible order", _flag(v.get("physically_admissible"))),
                 ("Search resolved", _flag(v["search_resolved"])),
                 ("Derivatives resolved", _flag(v["derivatives_resolved"])),
                 ("Inner rank", f"{_number(v['inner_rank'])} of {_number(v['inner_parameters'])}"),
                 ("Joint rank", f"{_number(v['joint_rank'])} of {_number(v['joint_parameters'])}"),
-                ("Inner condition number", _number(v.get("inner_condition_number"), 4)),
+                ("Inner condition number", _condition(v)),
                 ("At a bound", _text(", ".join(v.get("at_bound") or ())) or "none"),
             ]
         )
+    )
+    add(
+        '<p class="muted">Standard errors, ν and intervals need a regular optimum. Identifiability is '
+        "the ranks: a full rank and no undetermined direction mean the data determine every parameter, "
+        "even at a bound.</p>"
     )
     unidentified = result.get("unidentified") or ()
     if unidentified:
@@ -174,9 +230,7 @@ def render_html(run: Mapping[str, Any], result: Mapping[str, Any], *, software: 
                 (
                     (
                         _text(i["parameter"]),
-                        _number(i["estimate"]),
-                        _number(i.get("lower")),
-                        _number(i.get("upper")),
+                        *_interval_cells(i["estimate"], i.get("lower"), i.get("upper")),
                         _flag(i["supported"]),
                         _text(i["note"]),
                     )
@@ -265,8 +319,8 @@ def render_html(run: Mapping[str, Any], result: Mapping[str, Any], *, software: 
         )
     )
     add(
-        '<p class="muted">The same run gives the same report. The couplings, at full precision, are in '
-        "the CSV that goes with it.</p>"
+        '<p class="muted">The same run gives the same report with the same software (named above). The '
+        "couplings, at full precision, are in the CSV that goes with it.</p>"
     )
 
     title = f"Dipolar Studio fit report: {run['id']}"

@@ -327,7 +327,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 864 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 868 passed
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
    (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 65 web tests
    (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 111 browser tests

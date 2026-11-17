@@ -8,6 +8,7 @@ import csv
 import html
 import io
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -138,3 +139,124 @@ def test_an_unknown_or_damaged_run_is_refused(tmp_path: Path) -> None:
         with pytest.raises(OperationFailed) as damaged:
             studio.call("run.report", run_id=run_id)
         assert damaged.value.code == "INTERNAL"
+
+
+# --------------------------------------------------------------------------- round 57
+def section(page: str, title: str) -> str:
+    """A section's text, tags removed."""
+    part = page.split(f"<h2>{title}</h2>", 1)[1].split("<h2>", 1)[0]
+    return html.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", part))).strip()
+
+
+def shown(text: str) -> float:
+    return float(text.replace("−", "-"))
+
+
+def tight(studio: Studio) -> tuple[str, dict[str, Any]]:
+    """The example with its observations replaced by a fit's own predictions and σ = 1e-5 Hz: a
+    supported interval only a few 1e-7 degrees wide (the reviewer's case)."""
+    studio.call("project.open_example", OPEN)
+    first = studio.fit()
+    exported = json.loads(studio.call("project.export")["text"])
+    calc = {c["id"]: c["calculated"]["value"] for c in first["couplings"]}
+    for c in exported["project"]["couplings"]:
+        c["value"]["value"], c["sigma"]["value"] = calc[c["id"]], 1e-5
+    studio.call("project.load", text=json.dumps(exported), expected_science_revision=studio.science_revision)
+    return fitted(studio)
+
+
+def test_values_are_shown_to_the_precision_of_their_uncertainty() -> None:
+    with Studio.local() as studio:
+        run_id, run = tight(studio)
+        page = studio.call("run.report", run_id=run_id)["html"]
+    rows = re.findall(
+        r"<tr><td>(phi_deg|Szz|Delta)</td><td class=num>([^<]+)</td><td class=num>([^<]+)</td>"
+        r"<td class=num>([^<]+)</td><td>",
+        page,
+    )
+    assert len(rows) == 3, rows
+    for name, estimate, lower, upper in rows:
+        interval = next(i for i in run["intervals"] if i["parameter"] == name)
+        assert interval["supported"]
+        assert len({estimate, lower, upper}) == 3, (name, estimate, lower, upper)  # told apart
+        places = len(estimate.split(".")[1])
+        for text, value in ((estimate, interval["estimate"]), (lower, interval["lower"]), (upper, interval["upper"])):
+            assert abs(shown(text) - value) <= 0.5 * 10**-places, (name, text, value)
+    se = {s["name"]: s["value"] for s in run["stderr"]}
+    phi_row = re.search(r"<tr><td>phi_deg</td><td class=num>([^<]+)</td><td class=num>([^<]+)</td></tr>", page)
+    assert phi_row is not None
+    assert len(phi_row.group(1).split(".")[1]) >= -math.floor(math.log10(se["phi_deg"]))  # not coarser than σ
+
+
+def test_the_validity_wording_says_what_the_flags_mean() -> None:
+    with Studio.local() as studio:
+        studio.call("project.open_example", OPEN)
+        run_id, run = fitted(studio)
+        page = studio.call("run.report", run_id=run_id)["html"]
+    result, validity, intervals = section(page, "Result"), section(page, "Validity"), section(page, "Intervals")
+    assert "explains the data" not in page  # adequacy is the p-value policy, nothing stronger
+    assert "Adequate (p ≥ 0.001 under the stated σ) yes" in result
+    assert "Regular optimum (converged, resolved, interior, full rank) yes" in validity
+    assert "identifiable" not in validity.split("Standard errors")[0].lower()  # regularity is not identifiability
+    for flag in (
+        "Converged yes",
+        "Search resolved yes",
+        "Derivatives resolved yes",
+        "Inner rank 2 of 2",
+        "Joint rank 3 of 3",
+        "At a bound none",
+    ):
+        assert flag in validity, flag
+    assert run["intervals_policy"] in intervals
+    for i in run["intervals"]:
+        assert re.search(rf"{i['parameter']} [0-9.−]+ [0-9.−]+ [0-9.−]+ yes", intervals), i["parameter"]
+
+
+def test_a_singular_inner_problem_is_shown_as_such() -> None:
+    with Studio.local() as studio:
+        studio.call("project.open_example", OPEN)
+        exported = json.loads(studio.call("project.export")["text"])
+        exported["project"]["couplings"] = exported["project"]["couplings"][:1]
+        studio.call("project.load", text=json.dumps(exported), expected_science_revision=studio.science_revision)
+        run_id, run = fitted(studio)
+        page = studio.call("run.report", run_id=run_id)["html"]
+    assert run["validity"]["inner_condition_number"] is None and run["validity"]["inner_rank"] == 1
+    assert "Inner condition number ∞ (singular)" in section(page, "Validity")
+
+
+def test_the_report_does_not_depend_on_the_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Rendered twice with the clock moved by a year: the same bytes."""
+    import datetime as dt
+    import time
+
+    from dipolar_app import report as report_module
+
+    with Studio.local() as studio:
+        studio.call("project.open_example", OPEN)
+        run_id, _ = fitted(studio)
+        stored = studio.call("run.get", run_id=run_id)
+    record = {k: v for k, v in stored["run"].items() if k != "stale"}
+    real_time = time.time
+
+    def move_clock(shift: float) -> None:
+        class Moved(dt.datetime):
+            @classmethod
+            def now(cls, tz: dt.tzinfo | None = None) -> dt.datetime:  # type: ignore[override]
+                return dt.datetime.fromtimestamp(real_time() + shift, tz)
+
+        class MovedDate(dt.date):
+            @classmethod
+            def today(cls) -> dt.date:  # type: ignore[override]
+                return dt.date.fromtimestamp(real_time() + shift)
+
+        monkeypatch.setattr(time, "time", lambda: real_time() + shift)
+        monkeypatch.setattr(dt, "datetime", Moved)
+        monkeypatch.setattr(dt, "date", MovedDate)
+
+    renders = []
+    for shift in (0.0, 365 * 86400.0):
+        move_clock(shift)
+        html_text = report_module.render_html(record, stored["result"], software="s")
+        renders.append((html_text, report_module.render_csv(record, stored["result"])))
+        monkeypatch.undo()
+    assert renders[0] == renders[1]
