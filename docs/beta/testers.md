@@ -65,7 +65,9 @@ Type the primes as an ASCII apostrophe, as shown (`H2'`).
 | S_zz | 0.43075 |
 | Δ | 0.18524 |
 
-These are Dipolar Studio's frozen reference fits for the published data; the thesis's own
+The app shows each value rounded to its uncertainty (for example Δ = 0.1852 ± 0.0004): a value
+that rounds the same way agrees. These are Dipolar Studio's frozen reference fits for the
+published data; the thesis's own
 analysis agrees with them to 1–2 % in the order parameters. With the thesis's σ instead of 1
 ("weighted"), φ = 32.975°, S_zz = 0.43097, Δ = 0.18395, and the fit is flagged **inadequate**:
 those σ are spectral-analysis errors, much smaller than the model's misfit. The unweighted fit's

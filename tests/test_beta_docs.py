@@ -31,8 +31,15 @@ def test_issue_forms_are_valid(path: Path) -> None:
     assert len(ids) == len(set(ids)), "field ids must be unique"
     for item in form["body"]:
         assert item["type"] in {"markdown", "input", "textarea", "dropdown", "checkboxes"}
+        if item["type"] == "markdown":
+            continue
+        assert str(item["attributes"].get("label", "")).strip(), f"{item['id']} has no label"  # round 61
         if item["type"] == "dropdown":
-            assert item["attributes"]["options"], item["id"]
+            options = item["attributes"]["options"]
+            assert options and len(options) == len(set(options)), item["id"]
+            assert isinstance(item["attributes"].get("multiple", False), bool), item["id"]
+        if "validations" in item:
+            assert isinstance(item["validations"].get("required", False), bool), item["id"]
 
 
 def test_the_bug_form_asks_for_the_severity_and_the_version() -> None:
@@ -47,10 +54,23 @@ def test_the_issue_config_is_valid() -> None:
     assert all(link["url"].startswith("https://") for link in config["contact_links"])
 
 
+def link_targets(text: str) -> list[str]:
+    """The destinations of Markdown links: inline (with or without a title, or in angle
+    brackets) and reference definitions (round 61: titled and reference links were missed)."""
+    targets = re.findall(r"\]\(\s*<([^>]+)>", text)  # [x](<a b.md>)
+    targets += re.findall(r"\]\(\s*([^)<\s]+)(?:\s+\"[^\"]*\")?\s*\)", text)  # [x](a.md) and [x](a.md "t")
+    targets += re.findall(r"^\s*\[[^\]]+\]:\s*<?([^\s>]+)>?", text, flags=re.M)  # [x]: a.md
+    return targets
+
+
+def test_link_targets_are_all_found() -> None:
+    text = '[a](a.md) [b](b.md "title") [c](<c d.md>) [e][ref]\n\n[ref]: e.md "t"\n'
+    assert sorted(link_targets(text)) == ["a.md", "b.md", "c d.md", "e.md"]
+
+
 @pytest.mark.parametrize("path", USER_DOCS, ids=lambda p: str(p.relative_to(ROOT)))
 def test_relative_links_resolve(path: Path) -> None:
-    text = path.read_text(encoding="utf-8")
-    for target in re.findall(r"\]\(([^)\s]+)\)", text):
+    for target in link_targets(path.read_text(encoding="utf-8")):
         if re.match(r"[a-z]+:", target) or target.startswith("#"):
             continue  # external, or an anchor in the same page
         file = (path.parent / target.split("#", 1)[0]).resolve()
@@ -83,3 +103,35 @@ def test_the_testers_guide_quotes_the_frozen_8cb_fits() -> None:
     phi, szz, delta = (float(v) for v in quoted.groups())
     assert abs(phi - weighted["phi_deg"]) <= 5e-4
     assert abs(szz - weighted["Szz"]) <= 5e-6 and abs(delta - weighted["Delta"]) <= 5e-6
+
+
+@pytest.mark.skipif(not (DIPIETRO / "couplings.csv").exists(), reason="the third-party 8CB dataset is not present")
+def test_the_testers_guide_pairs_are_the_datasets() -> None:
+    """The guide's thesis-label → pair table is the repository's mapping (round 61: a changed pair
+    passed every test)."""
+    import csv
+
+    with (DIPIETRO / "couplings.csv").open(encoding="utf-8") as handle:
+        mapping = {r["thesis_label"]: (r["spin_a"], r["spin_b"]) for r in csv.DictReader(handle)}
+    guide = (ROOT / "docs" / "beta" / "testers.md").read_text(encoding="utf-8")
+    rows = re.findall(r"^\| (D[^|]+?) \| `([^`]+)` \| `([^`]+)` \|$", guide, flags=re.M)
+    table = {label.replace("′", "'"): (a, b) for label, a, b in rows}
+    assert table == mapping
+
+
+def test_third_party_data_stay_out_of_source_archives() -> None:
+    """GitHub attaches the tag's source archives to a release: the 8CB dataset is export-ignored
+    (round 61), so no archive carries its couplings."""
+    import subprocess
+
+    files = sorted(p.relative_to(ROOT).as_posix() for p in DIPIETRO.rglob("*") if p.is_file())
+    if not files:
+        pytest.skip("the third-party 8CB dataset is not present")
+    try:
+        out = subprocess.run(
+            ["git", "check-attr", "export-ignore", "--", *files], cwd=ROOT, capture_output=True, text=True, check=True
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        pytest.skip("not a git checkout")
+    values = [line.rsplit(": ", 1)[1] for line in out.splitlines()]
+    assert values and all(v == "set" for v in values), out

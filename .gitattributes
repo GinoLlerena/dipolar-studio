@@ -1,3 +1,7 @@
 # Text files keep LF line endings on every platform: fixtures are checked by SHA-256 (Windows CI).
 * text=auto eol=lf
 web/src/generated/** linguist-generated=true
+# Third-party data stay out of source archives (git archive, and the archives GitHub attaches to
+# releases): the owner's choice is that the beta ships no 8CB couplings (beta step B4, round 61).
+datasets/biphenyl-8CB-dipietro2013 export-ignore
+datasets/biphenyl-8CB-dipietro2013/** export-ignore

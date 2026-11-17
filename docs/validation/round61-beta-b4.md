@@ -45,3 +45,29 @@ with no open S1 issue.
 off by 1e-4 in S_zz.
 
 **Baseline (before review):** 882 Python (`-m "not slow"`), Ruff, mypy, the contract; the new browser test on the three browsers (the suite is now 114 = 38 × 3; web code unchanged).
+
+## Round 61: NOT READY (two A, three B), on commit 2d914f3
+
+The reviewer confirmed the 12 mappings, the values and their rounding, the weighting, adequacy
+and 1–2 % wording, the forms and heading anchors, the severities, and the workflow's draft and
+pre-release flags, wheel selection and toolchain. Its run: 882 Python, Ruff, mypy, the contract,
+the notebooks, the build, the three browser tests, a scratch wheel build and smoke test.
+
+1. **(A) The release's source archives would have included the 8CB couplings.** GitHub attaches
+   the tag's source archives to every release; `git archive` contained the dataset's
+   `couplings.csv` and its expected files (which hold the observations), contradicting the
+   owner's choice and the guide. **Fix:** the dataset is `export-ignore`d in `.gitattributes`
+   (the directory and every file); the release workflow refuses to draft if the source archive
+   contains it; a test checks the attribute on every file of the dataset. `git archive` now holds
+   none of it, and the synthetic dataset is kept.
+2. **(A) The release's version check accepted unequal versions:** as a regex, `0.1.0b1` matched
+   `0.1+0b1` and `0!1.0b1`. **Fix:** literal comparisons (`grep -Fqx`); the reviewer's mutant is
+   now rejected and the right version accepted.
+3. **(B) The documentation tests proved less than claimed.** **Fix:** the link test also reads
+   titled, angle-bracket and reference-style links (with a test of the parser); the form test
+   requires labels, unique options, boolean `multiple` and `required`; a new test requires the
+   guide's thesis-label → pair table to equal the dataset's mapping (a changed pair now fails).
+4. **(B) Displayed precision:** the guide says the app shows values rounded to their uncertainty,
+   and that a value rounding the same way agrees.
+5. **(B) Retrying a release:** the workflow refuses to touch an existing release, and its header
+   says how to retry (delete the draft, push the tag again).
