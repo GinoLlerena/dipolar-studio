@@ -20,9 +20,14 @@ ROOT = Path(__file__).resolve().parents[1]
 BENZENE = ROOT / "datasets" / "benzene-zli1132-taggar2006"
 sys.path.insert(0, str(ROOT / "tools" / "datasets"))
 
-needs_benzene = pytest.mark.skipif(
-    not (BENZENE / "source").exists(), reason="the third-party benzene dataset is not present"
-)
+needs_benzene = pytest.mark.skipif(not BENZENE.exists(), reason="the third-party benzene dataset is not present")
+
+
+@needs_benzene
+def test_the_dataset_is_complete_when_present() -> None:
+    """Skip only when the whole directory is removed: a partial removal is an error (round 71b)."""
+    for name in ("README.md", "couplings.csv", "source/jp052592j_si_001.txt"):
+        assert (BENZENE / name).is_file(), f"{name} is missing from {BENZENE.name}"
 
 
 def _rows() -> list[dict[str, str]]:
@@ -167,8 +172,12 @@ def test_local_only_data_are_ignored_by_the_repository_rules() -> None:
     ):
         out = _git("check-ignore", "-v", "--no-index", probe)
         assert out.returncode == 0, f"{probe} is not ignored by git"
-        source = out.stdout.split(":", 1)[0]
-        assert source == ".gitignore" and "datasets-local/" in out.stdout, out.stdout
+        # "<source>:<line>:<pattern>\t<path>": the matching rule must be the root .gitignore's
+        # directory rule itself, not any pattern that happens to match (round 71b: "*.*" passed).
+        rule, _, path = out.stdout.rstrip("\n").partition("\t")
+        source, _, rest = rule.partition(":")
+        pattern = rest.partition(":")[2]
+        assert (source, pattern, path) == (".gitignore", "datasets-local/", probe), out.stdout
     tracked = _git("ls-files", "datasets-local")
     assert tracked.returncode == 0 and not tracked.stdout
 
@@ -207,3 +216,24 @@ def test_the_comparison_refuses_malformed_files(tmp_path: Path) -> None:
     for bad in (empty, short, surplus):
         with pytest.raises(ValueError):
             compare_transcriptions.compare(bad, bad, key)
+
+
+def test_the_comparison_refuses_duplicate_headers_bad_quoting_and_key_only_files(tmp_path: Path) -> None:
+    """Round 71b: a duplicate column could hide a cell, an unclosed quote could swallow rows, and
+    a file of key columns only compares nothing."""
+    import compare_transcriptions
+
+    key = ("table", "T_K", "coupling")
+    duplicate = tmp_path / "duplicate.csv"
+    duplicate.write_text("table,T_K,coupling,D_token,D_token\nI,100,X,-1.25,-9.99\n", encoding="utf-8")
+    unclosed = tmp_path / "unclosed.csv"
+    unclosed.write_text('table,T_K,coupling,D_token\nI,100,X,"-1.25\nI,105,X,-2.50\n', encoding="utf-8")
+    keys_only = tmp_path / "keys.csv"
+    keys_only.write_text("table,T_K,coupling\nI,100,X\n", encoding="utf-8")
+    for bad in (duplicate, unclosed, keys_only):
+        with pytest.raises(ValueError):
+            compare_transcriptions.compare(bad, bad, key)
+    good = tmp_path / "good.csv"
+    good.write_text("table,T_K,coupling,D_token\nI,100,X,-1.25\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="sigma_token"):
+        compare_transcriptions.compare(good, good, key, required=compare_transcriptions.ODCB_COLUMNS)

@@ -58,8 +58,14 @@ jobs:
           git archive --format=tar -o "$RUNNER_TEMP/source.tar" HEAD
           tar -tf "$RUNNER_TEMP/source.tar" > "$RUNNER_TEMP/source.list"
           test -s "$RUNNER_TEMP/source.list"
-          if grep -qE "biphenyl-8CB-dipietro2013|benzene-zli1132-taggar2006|datasets-local/" "$RUNNER_TEMP/source.list"; then
+          # grep exits 0 on a match, 1 on no match, 2 on an error: only 1 passes (round 71b).
+          status=0
+          grep -qE "biphenyl-8CB-dipietro2013|benzene-zli1132-taggar2006|datasets-local/" "$RUNNER_TEMP/source.list" || status=$?
+          if [ "$status" -eq 0 ]; then
             echo "the source archive contains third-party data" >&2
+            exit 1
+          elif [ "$status" -ne 1 ]; then
+            echo "searching the source archive listing failed (grep status $status)" >&2
             exit 1
           fi
       - name: Build the wheels (page bundled)

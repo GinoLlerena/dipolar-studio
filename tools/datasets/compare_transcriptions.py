@@ -16,35 +16,50 @@ import hashlib
 import sys
 from pathlib import Path
 
+#: The measured columns an ortho-dichlorobenzene transcription must have (V0.2).
+ODCB_COLUMNS = ("D_token", "sigma_token", "D_Hz", "sigma_Hz")
 
-def load(path: Path, key: tuple[str, ...]) -> tuple[list[str], dict[tuple[str, ...], dict[str, str]]]:
-    """Read a transcription; a missing header, a key column absent, a row of the wrong width or a
-    duplicate key is an error (round 70), never silent agreement."""
+
+def load(
+    path: Path, key: tuple[str, ...], required: tuple[str, ...] = ()
+) -> tuple[list[str], dict[tuple[str, ...], dict[str, str]]]:
+    """Read a transcription strictly. A missing or duplicated header column, a missing key or
+    required column, no column beyond the key, a malformed quote, a row of the wrong width or a
+    duplicate key is an error (rounds 70 and 71b), never silent agreement."""
     with path.open(encoding="utf-8", newline="") as handle:
-        reader = csv.reader(handle)
-        header = next(reader, None)
-        if not header:
-            raise ValueError(f"{path}: no header")
-        missing = [c for c in key if c not in header]
-        if missing:
-            raise ValueError(f"{path}: the key columns {missing} are not in the header")
-        rows: dict[tuple[str, ...], dict[str, str]] = {}
-        for number, fields in enumerate(reader, start=2):
-            if len(fields) != len(header):
-                raise ValueError(f"{path}: line {number} has {len(fields)} fields, the header {len(header)}")
-            row = dict(zip(header, fields, strict=True))
-            k = tuple(row[c] for c in key)
-            if k in rows:
-                raise ValueError(f"{path}: duplicate key {k}")
-            rows[k] = row
+        try:
+            records = list(csv.reader(handle, strict=True))
+        except csv.Error as exc:
+            raise ValueError(f"{path}: {exc}") from None
+    if not records or not records[0]:
+        raise ValueError(f"{path}: no header")
+    header = records[0]
+    if len(set(header)) != len(header):
+        raise ValueError(f"{path}: duplicate header columns")
+    missing = [c for c in (*key, *required) if c not in header]
+    if missing:
+        raise ValueError(f"{path}: the columns {missing} are not in the header")
+    if len(header) <= len(key):
+        raise ValueError(f"{path}: no column beyond the key")
+    rows: dict[tuple[str, ...], dict[str, str]] = {}
+    for number, fields in enumerate(records[1:], start=2):
+        if len(fields) != len(header):
+            raise ValueError(f"{path}: line {number} has {len(fields)} fields, the header {len(header)}")
+        row = dict(zip(header, fields, strict=True))
+        k = tuple(row[c] for c in key)
+        if k in rows:
+            raise ValueError(f"{path}: duplicate key {k}")
+        rows[k] = row
     if not rows:
         raise ValueError(f"{path}: no rows")
     return header, rows
 
 
-def compare(a: Path, b: Path, key: tuple[str, ...], expect: int | None = None) -> list[str]:
-    header_a, rows_a = load(a, key)
-    header_b, rows_b = load(b, key)
+def compare(
+    a: Path, b: Path, key: tuple[str, ...], expect: int | None = None, required: tuple[str, ...] = ()
+) -> list[str]:
+    header_a, rows_a = load(a, key, required)
+    header_b, rows_b = load(b, key, required)
     problems: list[str] = []
     if expect is not None:
         for path, rows in ((a, rows_a), (b, rows_b)):
@@ -71,10 +86,12 @@ def main() -> int:
     parser.add_argument("b", type=Path)
     parser.add_argument("--key", default="table,T_K,coupling")
     parser.add_argument("--expect", type=int, default=None, help="the number of keys each file must have")
+    parser.add_argument("--require", default=",".join(ODCB_COLUMNS), help="the columns each file must have")
     ns = parser.parse_args()
     key = tuple(ns.key.split(","))
+    required = tuple(c for c in ns.require.split(",") if c)
     try:
-        problems = compare(ns.a, ns.b, key, ns.expect)
+        problems = compare(ns.a, ns.b, key, ns.expect, required)
     except ValueError as exc:
         print(f"error: {exc}")
         return 1

@@ -1,4 +1,4 @@
-# Validation rounds 70–71: V0.2 transcription and verification
+# Validation rounds 70 and 71b: V0.2 transcription and verification
 
 Reviewer: GPT-6.2-Sol (Codex, reasoning effort high), independent of the author. The medium plan
 allows at most two rounds. Class (A) findings block; class (B) findings are documented.
@@ -23,3 +23,26 @@ The reviewer verified a lot against the sources:
 | 5 | B | `CITATION.cff` failed CFF 1.2.0 validation (`type: dataset`). The derived CSV's licence needed stating. | `type: data`. The README says the CSV carries the same CC BY-NC 4.0 terms. |
 | 6 | B | Distinguish the first-pass evidence from the adjudicated result. | The first-pass output is kept locally (`FIRST-PASS.md`), and the 87/88 count is called a reported result. The spot-check sheet says "after adjudicating one token". |
 | 7 | B | Carry the target availability into V0.3: Fig. 2's panels differ. Clarify the J provenance. | v0.2-corpus.md §3: availability per condition and per tensor component; benzene's missing J inputs are LEQUOR provenance; ortho-dichlorobenzene's J are printed. |
+
+## Round 71b (on 7a8c7fe, the final round under the cap): NOT READY, 2 A + 3 B; fixed without re-review
+
+The reviewer confirmed:
+- **A1 is cleared.** All 289 tracked blobs were scanned against the local ortho-dichlorobenzene
+  tokens, D and σ, and only incidental matches remain. The older token is on `origin/main` only,
+  as the history note says.
+- **The tests catch the reviewer's errors:** the swapped-column and wrong-composition mutants
+  fail.
+- **The comparator** refuses round 70's malformed inputs.
+- **`CITATION.cff`** validates as CFF 1.2.0.
+- **The README** applies CC BY-NC 4.0 to the CSV.
+- **The local copies:** the three are byte-identical, `FIRST-PASS.md` and `SPOT-CHECK.md` are
+  worded correctly, and the V0.3 handoff is right.
+
+| # | Class | Finding | Fix |
+|---|---|---|---|
+| 1 | A | Benzene's worked numbers (the implied distance, the ratio differences) were still in two exported documents. | Both documents now refer to the dataset README, which is excluded from archives and holds the numbers. |
+| 2 | A | The ignore guard passed with an unrelated `*.*` rule (it found `datasets-local/` in the printed probe path). | The test parses `<source>:<line>:<pattern>\t<path>` and requires exactly (`.gitignore`, `datasets-local/`, the probe). The `*.*` mutant fails. |
+| 3 | A | The release check passed when `grep` itself failed (exit 2). | Only exit 1 (no match) passes; a match or any error fails the step. Checked for no match, a match and a missing file. |
+| 4 | B | The comparator could drop a cell through a duplicated header column, accepted an unclosed quote, and accepted a file of key columns only. | Strict CSV parsing. Duplicated header columns and key-only files are refused. `--require` defaults to the measured columns. Tested. |
+| 5 | B | Removing only `source/` skipped every benzene check. | The skip applies only if the whole directory is gone; a new test requires all three files when it exists. |
+| 6 | B | The PDF checksum's suffix was abbreviated wrongly (`…9c99`). | Corrected to `…8c99`, with a pointer to `v0-sources.json`. |

@@ -76,7 +76,7 @@ Concentration Dependence in Liquid Crystal NMR", *J. Phys. Chem. B* **110**, 136
   With z normal to the ring, D12 = −K·S_zz / (2 r³), where K = −120120 Hz·Å³ for ¹H–¹H. So the
   ortho H–H distance is r = 2.4778 Å.
 - Its ratios are D13/D12 = 0.194036 and D14/D12 = 0.126594. A rigid regular hexagon gives
-  0.192450 and 0.125000.
+  0.192450 and 0.125000, so the measured ratios are 0.824 % and 1.275 % higher.
 
 ## Columns of `couplings.csv`
 

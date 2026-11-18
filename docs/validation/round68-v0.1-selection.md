@@ -9,8 +9,8 @@ Its source files are local, not committed; their manifest is
 
 ## Round 68 (on dcd7f58): NOT READY, 6 A + 3 B
 
-The reviewer verified all eight SHA-256 checksums and the benzene arithmetic: an implied
-2.477831 Å, and ratios 0.824 % and 1.275 % above the rigid values.
+The reviewer verified all eight SHA-256 checksums and the benzene arithmetic: the implied
+distance and the ratio differences recorded in the benzene dataset's README.
 
 | # | Class | Finding | Fix |
 |---|---|---|---|
