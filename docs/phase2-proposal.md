@@ -29,10 +29,16 @@ reuse:
 
 What it lacks for V1:
 
-1. **A fit with no geometry parameter.** Every fit today has a torsion φ: the D3 stack scans φ
-   on a grid, refines it and profiles it. An imported XYZ is refused until a torsion is declared
-   (`science.problem_for`). A rigid molecule has no geometry parameter, so its fit is a weighted
-   *linear* least-squares problem in the order parameters alone.
+1. **A fit with no geometry parameter.**
+   - The core's `Problem` already accepts zero geometry parameters (k = 0), and its inner linear
+     solve works.
+   - The top-level `fit()` does not: with k = 0 it raises `ValueError: zero-size array to
+     reduction operation maximum` (checked on 2026-11-18, round 63). The stack's grid or Sobol
+     scan, refinement and profiles all assume at least one geometry parameter. Any number from
+     one up is supported, not only φ.
+   - The app refuses imported geometry until a torsion is declared (`science._problem_for`).
+   - A rigid molecule with fixed geometry has no geometry parameter, so its fit is a weighted
+     *linear* least-squares problem in the order parameters alone.
 2. **Symmetry.** There are no declared symmetry reductions (for example, one order parameter for
    benzene in D6h). The equivalences of imported molecules come only from the user's
    `equivalent_pairs` column, not from the molecule's symmetry.
@@ -53,14 +59,18 @@ V0 is mostly finding and checking data, not code. Its exit (plan §8):
 **What the candidates can test.** Proton-only rigid benchmarks are small. Under the molecule's
 symmetry:
 
-| Candidate (plan §8) | Proton couplings (distinct) | Order parameters | ν | What it can test |
+The counts below are symmetry counts. They hold only **if the paper actually reports an
+independent value for each class**, which V0.1 must check; symmetry says nothing about what a
+dataset contains.
+
+| Candidate (plan §8) | Symmetry-distinct H–H classes | Order parameters | ν, with fixed geometry | What it can test |
 |---|---|---|---|---|
-| Benzene (D6h) | 3 (ortho, meta, para) | 1 (S_zz) | 2 | the scale, and the geometry's shape |
+| Benzene (D6h) | 3 (ortho, meta, para) | 1 (S_zz) | 2 | S_zz, and the coupling ratios against the assumed geometry |
 | 1,4-dichlorobenzene (D2h) | 3 (ortho, meta, para) | 2 (S_zz, S_xx − S_yy) | 1 | barely over-determined |
 | 1,3,5-trichlorobenzene (D3h) | 1 (meta) | 1 | 0 | nothing beyond the scale: the fit is exactly determined |
-| Fluorobenzene | needs ¹H–¹⁹F | | | V4 (a new measurement type), not V1 |
+| Fluorobenzene (C2v) | 6 | 2 | 4 | a proton-only fit, **if** the paper gives the H–H couplings separately; its H–F couplings are V4 |
 
-So **V1's experimental comparisons would rest on very few degrees of freedom**. Its main
+So **V1's experimental comparisons may rest on few degrees of freedom**. Its main
 verification would be synthetic (known answer). V0 should therefore also look for at least one
 rigid dataset with clearly more couplings than order parameters, either proton-rich or with
 ¹³C satellites. ¹³C satellites, however, are V4 unless they are selected.
@@ -80,10 +90,16 @@ criterion is then preregistered on that basis, and any disagreement is reported,
 - **V0.2 Transcription and verification.** Each value is entered once and cross-checked against
   the rendered source page. On 2026-11-17 the beta walkthrough did exactly this for Di Pietro's
   Table 3.1 (`docs/validation/beta-walkthrough-v0.1.0b1.md`). Each dataset gets a README
-  (source, checksum, rights basis, numbering map, conventions, estimand, published values) and a
-  development/holdout split.
-- **V0.3 Preregistration.** The estimands, tolerances and agreement criteria for each dataset
-  are frozen and committed **before** any V1 result on it is looked at.
+  (source, checksum, rights basis, numbering map, conventions, estimand, published values).
+  The development/holdout split follows **all** of plan §8's holdout rules:
+  - related observations (the same sample, the same paper series) are grouped and never split
+    across the two sides;
+  - the model and the criteria are frozen before a holdout is opened;
+  - an opened holdout becomes regression data;
+  - the report says when no independent holdout exists.
+- **V0.3 Preregistration.** The estimands, tolerances and agreement criteria for each
+  experimental dataset are frozen and committed **before** any V1 result on it is looked at,
+  anywhere in V1, not only in V1.5.
 
 V0 needs no change to the app and does not disturb the beta testers, so it can start at once.
 
@@ -92,40 +108,57 @@ V0 needs no change to the app and does not disturb the beta testers, so it can s
 **Scope proposed for V1: fixed geometry only.** The imported geometry is the scale anchor
 (D12), and only the order parameters are fitted.
 
-**Fitting geometry is deferred.** Examples are a ring radius, or a C–H distance against a fixed
-C–C. Plan §8 requires a joint-rank check and enough independent constraints for any fitted
-geometry. Its own example is exactly this trap: for proton-only benzene, fitting the C–H bond
-while fixing C–C rescales S exactly. With the candidates above (ν ≤ 2), no fitted geometry
-could be identified anyway. If a richer dataset turns up in V0, a separate step **V1b (fitted
-geometry)** can be selected later.
+**Fitting geometry is deferred**, as a choice of scope; plan §8 makes it conditional, not
+mandatory. Examples are a ring radius, or a C–H distance against a fixed C–C.
+- **Why defer.** It adds a joint-rank analysis for each model and a geometry-parameter
+  interface, and the candidate datasets are still unconfirmed.
+- **Few degrees of freedom do not, by themselves, make a geometry parameter unidentifiable.**
+  One identifiable parameter can use up one residual degree of freedom. An exactly determined
+  model can still be locally identifiable: a D2h proton rectangle with one fixed length and a
+  free aspect ratio has 3 coupling classes, 2 order parameters and joint rank 3 (round 63).
+- **Some degeneracies are specific.** Proton-only benzene is one: its couplings depend on the
+  proton-ring radius times S, so fitting C–H with C–C fixed rescales S exactly (plan §8).
+- **The rule.** Before any geometry parameter is called identifiable or not, a model-specific
+  joint-rank calculation is required.
+- **Later.** A separate step, **V1b (fitted geometry)**, can be selected once V0 has confirmed
+  the data.
 
 **Proposed steps** (each the size of a Phase 1 step, ending as Phase 1's steps did: tests, at
 most two review rounds, a tag):
 
 | Step | What it builds | What it must prove |
 |---|---|---|
-| **V1.1 Linear rigid fit** (core) | A fit with no geometry parameter: the order parameters by weighted linear least squares on the whitened design. The identifiable combinations come from its SVD, in the declared frame; unidentified directions are reported with no error bars. The covariance of the identifiable combinations; adequacy and admissibility as today. Exact linear-Gaussian intervals | Noiseless recovery for a **nonplanar rank-5**, a **planar rank-3** (S_xx, S_yy, S_xy; S_xz and S_yz unidentified) and a **collinear rank-1** case. The rank decision tested in both directions (it neither hides a real direction nor invents one). The M1 coverage protocol (1000 seeds, 64.5–72.1 %) on the supported intervals. The φ-path results (the biphenyl gates, 8CB) unchanged |
-| **V1.2 Symmetry and permutation classes** (core) | A declared point group and frame, which reduce the order matrix (for example D6h → S_zz only; D2h → S_zz, S_xx − S_yy). Permutation classes of sites and pairs derived from the declared isotopic structure, molecular symmetry, medium symmetry and fast motions, checked numerically against the geometry. Chemical equivalence kept distinct from magnetic equivalence. A class counts once in N | **Ideal benzene in D6h has one independent order parameter.** A declared symmetry the geometry does not have is refused. Merged observations never inflate N or ν. Relabelling under the symmetry leaves the fit unchanged. A geometry-confounding check: proton-only benzene shows the scale degeneracy the plan describes |
-| **V1.3 Application** | The model `rigid` without a torsion for imported geometry, with the symmetry declaration. Project schema v3 with a migration (D20), journal replay, readiness ("ready to fit" without a torsion), reports without φ, and a contract version bump | v1/v2 projects migrate and replay to the same science hash. Every new operation is in the registry snapshot and has a Python/HTTP parity test. A report states the identifiable combinations |
+| **V1.1 Linear rigid fit** (core) | An explicit **k = 0 path** in `fit()`, with no dummy torsion. Its result contract covers empty geometry coordinates, no scan, basins or profiles, the covariance, the validity flags, the preview and serialization. The order parameters come from weighted linear least squares on the whitened design. The **estimable combinations** are the retained right-singular coordinates of the whitened design, each with variance 1/s_i², in the declared frame; null directions are reported as unidentified, with no error bars. Adequacy uses the exact fixed-design χ² with N − r degrees of freedom (r the rank). Admissibility stays a separate flag. **Interval assumptions, stated in the result:** fixed geometry, known σ and unconstrained linear estimation give exact Gaussian intervals for estimable combinations, even near the physical boundary. Enforcing admissibility, clipping, regularizing, or reporting nonlinear quantities (principal values and axes) changes the inference. Those cases need their own calibration, or report "interval not supported" | All synthetic estimands, equivalences and tolerances frozen before evaluation. Noiseless recovery for a **nonplanar rank-5**, a **planar rank-3** and a **collinear rank-1** fixture, built so the rank holds: for the planar one the plane is xy, and S_xx, S_yy, S_xy are estimable while S_xz, S_yz are not, with enough distinct directions measured. The rank decision is tested in both directions: it neither hides a real direction nor invents one. A **fixed-seed noisy regression**, separate from coverage. The M1 coverage protocol (1000 seeds, 64.5–72.1 %) on the supported intervals. The φ-path results (biphenyl gates, 8CB) unchanged |
+| **V1.2 Symmetry and permutation classes** (core) | **Declared symmetry, stored with the project.** The point group with its axes, or the symmetry operations as matrices in the input frame, and a tolerance. **Order reductions with the frame on the symmetry axes:** a C_n axis with n ≥ 3 (D6h, D3h, C3v) leaves S_zz along it; D2h and C2v leave S_zz and S_xx − S_yy; C2, Cs and C2h leave three; C1 five. **Supported first:** C1, Cs, C2v, D2h, D3h and D6h, with **no fast internal motions** (methyl rotation and the like come later). **Permutation classes** come from isotope-preserving atom bijections that map the geometry onto itself within the tolerance. Pair rows are compared **after** the order constraints and any declared averaging are applied. Chemical equivalence is kept distinct from magnetic equivalence. **N counts independent measurement information, never pair multiplicity:** one supplied estimate per class is the supported input. A symmetry copy of a coupling is not a new observation; independent repeat measurements of a class are not accepted in this release (aggregating them would mean propagating their uncertainty and keeping their within-class scatter for adequacy) | **Ideal benzene in D6h has one independent order parameter.** A declared symmetry the geometry does not have is refused. Relabelling and permuting both endpoints of every pair under the symmetry leave the fit unchanged. A rotated input frame gives the same estimable quantities. A molecule whose chemically equivalent sites are magnetically inequivalent is handled correctly. A symmetry copy never inflates N or ν. Proton-only benzene shows the scale degeneracy the plan describes |
+| **V1.3 Application** | The model `rigid` without a torsion for imported geometry, with the symmetry declaration. Project schema v3 with a migration (D20), journal replay, readiness ("ready to fit" without a torsion), reports without φ, and a contract version bump | **Compatibility:** loading a migrated project and replaying its journal converge on the same **migrated** identity, and each historical hash is still checked under its original rules (the hash includes the schema version and the numerical context, so a migration changes it). Fixtures cover old project files, journals, compacted snapshots, stored runs, undo/redo and staleness. Existing biphenyl projects and their torsion fits behave exactly as before. A decision is recorded on how an old imported draft without a torsion is read. **Contract:** every new operation is in the registry snapshot and has a Python/HTTP parity test. A report states the estimable combinations and its interval assumptions |
 | **V1.4 Browser and robot** | A Fit workspace without φ (no slider or landscape; a panel for the identifiable combinations). A Structure view for one-ring molecules. A robot tutorial (synthetic benzene or 1,4-dichlorobenzene from XYZ) and its browser test on three browsers | The robot tutorial and the page give the same run (the M3 comparison, fail-closed). The AI-readiness checks stay green |
-| **V1.5 Verification report and exit** | One page per dataset: data, model, estimand, our result, the published result, the preregistered criterion, and the status labels (implementation; verification: *pending*, *synthetic-only*, *experimentally supported* or *unresolved failure*; holdout availability) | Every V0/V1 gate green. Each experimental result carries an honest label; an explained discrepancy is not counted as validation. At least one external user reproduces a Phase 2 dataset, as the beta did for 8CB |
+| **V1.5 Verification report and exit** | One page per dataset: data, model, estimand, our result, the published result, the preregistered criterion, and the status labels (implementation; verification: *pending*, *synthetic-only*, *experimentally supported* or *unresolved failure*; holdout availability) | Every V0/V1 gate green. Each experimental result carries an honest label; an explained discrepancy is not counted as validation. At least one external user reproduces a Phase 2 dataset |
 
 V0.1–V0.3 run beside V1.1–V1.2, since the core work needs no data. V0.3 must be done before
 V1.5 opens any experimental result.
 
 ## What the measurements support
 
-Phase 1 after M0 measured:
+**Measured** (Phase 1 after M0; each can be recounted):
 
-- **Calendar.** From M1 step 1 (2026-11-10) to the draft release (2026-11-17): 22 tagged steps
-  in 8 calendar days.
-- **Review.** About 50 independent review rounds (13–62). The first round of almost every step
-  was NOT READY, and every finding was fixed under the two-round cap.
-- **Size.** About 29 600 inserted lines in `packages/` and `web/src` (product and tests).
+- **Calendar.** 23 tagged work steps from M1 step 1 (tag `m1-step1`, 2026-11-10) to B4 (tag
+  `beta-b4`, 2026-11-17), 8 calendar days.
+  - Counted with `git for-each-ref refs/tags --sort=creatordate`.
+  - Not counted: the milestone markers (`*-complete`), `m1-step1-wip`, `v0.1.0b1` and
+    `beta-draft`.
+- **Review.** 50 independent review rounds (13–62), recorded in `docs/validation/`.
+  - M1 step 1 went through six rounds (13–18). The two-round cap (the medium plan) was adopted
+    on 2026-11-10, during that sequence, and every later step stayed within it.
+  - The first round of almost every step was NOT READY.
+- **Size.** About 29 600 inserted lines in `packages/` and `web/src`, product and tests
+  (`git diff --shortstat m1-step1 beta-b4 -- packages web/src`).
 
-As after M0, **writing the code was not the bottleneck**. The time went to specifying the step,
-adversarial review and fixing what it found. On that basis V0 + V1 is about **8 steps**:
-3 for V0, mostly research and owner time, and 5 for V1.
+**Inferred, not measured:** as after M0, writing the code did not seem to be the bottleneck. The
+review records show most of each step's work in specifying it and in fixing what adversarial
+review found. Without the owner's hours this cannot be confirmed. On that basis V0 + V1 is
+about **8 steps**: 3 for V0, mostly research and owner time, and 5 for V1. V1.2 is the largest;
+if it proves bigger than a Phase 1 step, it splits into order reductions, then permutation
+classes.
 
 **The owner's hours are still not logged** (the tables in `docs/STATUS.md` are empty), so
 neither the owner's effort nor a calendar estimate can be given. Plan §8 also ties the 1.0 date
