@@ -42,7 +42,7 @@ The reviewer confirmed every round 68 fix against the sources:
 | 4 | A | Unknown error definitions need an explicit inference rule. | The reported errors are kept as printed, and their use is preregistered in V0.3 as a stated error model. Residuals and agreement are descriptive or conditional; calibrated p-values or intervals need a justified model or a calibration. |
 | 5 | B | SHAPE and LEQUOR provenance were missing from the checklist; the anisotropic-J statement was too broad. | Added to the README checklist and V0.2. Benzene's J inputs are LEQUOR provenance. The anisotropic-J treatment for benzene is "not stated". |
 | 6 | B | The frame handoff. | The right-handed map (x, y, z)_V1 = (z, x, y)_paper is recorded and frozen before comparison. Benzene's S_xx = S_yy = −S_zz/2 is recorded, with the paper's apparent reversal noted. |
-| 7 | B | The `±0:28` token at 311 K in Table II. | The token is preserved, and its reading (0.28 Hz) is documented after the independent check. |
+| 7 | B | The colon-separated uncertainty token at 311 K in Table II (D12 = D34). | The token is preserved, and its decimal reading is documented after the independent check. |
 | 8 | B | The exposure log. | Round 69 appended. Retrieval-only access, Phase 1 data and the V1 development sets are distinguished. Premature exposure is logged when discovered, and the group retired from holdout use. |
 | 9 | B | The registry: pages and rights for ortho-dichlorobenzene; the fourth missing item. | pp. 199–204; the ISMAR notice (PDF page 2); the Yethiraj supplement marked unconfirmed. |
 | 10 | B | The Burnell 1987 exclusion was too broad. | Narrowed: Table 1 has diatomics (H₂, HD, D₂); Table 3 has polyatomic order parameters, with no qualifying coupling table. |

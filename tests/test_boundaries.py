@@ -141,7 +141,7 @@ def test_the_app_starts_without_the_optimizer() -> None:
 
 
 #: Third-party data used for validation only, removable on request (datasets/README.md).
-THIRD_PARTY_DATA = ("biphenyl-8CB-dipietro2013", "dipietro")
+THIRD_PARTY_DATA = ("biphenyl-8CB-dipietro2013", "dipietro", "benzene-zli1132-taggar2006", "taggar", "chandrakumar")
 
 
 def test_shipped_code_never_depends_on_third_party_data() -> None:

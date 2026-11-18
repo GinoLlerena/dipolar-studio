@@ -22,6 +22,10 @@ tools/legacy-harness/src/Matriz.h
 tools/legacy-harness/src/SistEcuac.h
 tools/legacy-harness/t
 
+# Experimental data kept on the owner's machine only (rights do not allow the repository):
+# the ortho-dichlorobenzene transcription of Chandrakumar & Burnell 1993 (docs/phase2/v0.2-corpus.md).
+datasets-local/
+
 # OS / editors
 .DS_Store
 .idea/
