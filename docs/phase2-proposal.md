@@ -10,12 +10,21 @@ after review rounds 63–65. What the approval covers:
 - **Decision 5:** the owner is the holdout custodian.
 - **Decision 7, order:** V0 + V1 before Phase 3.
 
+**Decided on 2026-11-18** ("proceed with the recommendations"):
+
+- **Decision 4, transcription:** two independent AI transcriptions from the rendered pages,
+  compared mechanically. The owner spot-checks them. This replaces plan §8's "the owner enters
+  each value".
+- **When V1 code starts:** now, on `main`. Beta fixes go to the `release/0.1` branch, cut from
+  the `v0.1.0b1` tag.
+- **The V1.0 design's D-1:** Phase 1 directories are left untouched, and projects carry over by
+  their export file.
+
 **Still open:**
 
-- **Decision 4,** the transcription procedure; it is needed before V0.2.
 - **Decision 6,** the external-reproduction path; it is needed before V1.5.
-- **When V1 code starts:** after the beta exit, or earlier with a `release/0.1` branch. This is
-  needed before V1.1.
+- **Library access** for the authors' geometries (Diehl & Niederberger 1973; Diehl & Khetrapal
+  1968). Until then, the published-value comparisons stay *pending*.
 
 Plan §8 says that after the beta, the owner selects and re-baselines the first verification
 release, **V0 (benchmark corpus) plus V1 (rigid molecules from XYZ)**. This page proposes:
