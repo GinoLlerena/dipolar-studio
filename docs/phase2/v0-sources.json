@@ -1,0 +1,147 @@
+{
+  "about": "Sources consulted for V0.1 (2026-11-18). Metadata only: the files themselves are not in the repository (rights vary; see docs/phase2/v0.1-selection.md). Retrieved by a Codex task; checksums verified by the author and by the round 68 reviewer.",
+  "obtained": [
+    {
+      "citation": "A. S. Taggar, C. J. Campbell, A. Yethiraj, and E. E. Burnell, “Testing Assumptions about Solute Concentration Dependence in Liquid Crystal NMR,” J. Phys. Chem. B 110, 1363–1368 (2006). DOI 10.1021/jp052592j.",
+      "url_tried": "https://www.physics.mun.ca/~ayethiraj/pdf/Taggar_TestingAssumptions.pdf",
+      "final_url": "https://softmaterials.ca/wp-content/pdf/Taggar_TestingAssumptionsaboutSolute.pdf",
+      "http_status": 200,
+      "local_filename": "taggar-2006.pdf",
+      "byte_size": 212811,
+      "sha256": "14d7adc3ca88d9041c8f1bb24610755eaa9899df858a7e3e3dfb0aa9ff0928d5",
+      "content_type": "application/pdf",
+      "rights_statement": "© 2006 American Chemical Society",
+      "landing_page_url": "https://softmaterials.ca/publications/",
+      "failure_reason": null,
+      "note": "Copyright notice transcribed from the PDF. The author publication list gives no item-specific rights statement."
+    },
+    {
+      "citation": "A. S. Taggar, C. J. Campbell, A. Yethiraj, and E. E. Burnell, “Testing Assumptions about Solute Concentration Dependence in Liquid Crystal NMR,” J. Phys. Chem. B 110, 1363–1368 (2006). DOI 10.1021/jp052592j. Supporting Information. DOI 10.1021/jp052592j.s001.",
+      "url_tried": "https://pubs.acs.org/doi/suppl/10.1021/jp052592j/suppl_file/jp052592j_si_001.pdf",
+      "final_url": "https://s3-eu-west-1.amazonaws.com/pstorage-acs-6854636/5075614/jp052592j_si_001.txt",
+      "http_status": 200,
+      "local_filename": "jp052592j_si_001.txt",
+      "byte_size": 2115,
+      "sha256": "a52e77b8061b010607d486548c62abb4f9a8f93dad3e4a2a4ff78f65e119dd29",
+      "content_type": "text/plain",
+      "rights_statement": "CC BY-NC 4.0",
+      "landing_page_url": "https://acs.figshare.com/articles/dataset/Testing_Assumptions_about_Solute_Concentration_Dependence_in_Liquid_Crystal_NMR/3241549",
+      "failure_reason": null,
+      "note": "ACS Figshare metadata lists a plain-text file as the sole supplement. The download from the public storage URL matches Figshare’s supplied MD5."
+    },
+    {
+      "citation": "A. Yethiraj, Z. Sun, R. Y. Dong, and E. E. Burnell, “NMR measurement of smectic ordering and nematic–smectic-A coupling in a liquid crystal,” Chem. Phys. Lett. 398, 517–521 (2004). DOI 10.1016/j.cplett.2004.09.108.",
+      "url_tried": "https://www.physics.mun.ca/~ayethiraj/pdf/ChemPhysLett2004.pdf",
+      "final_url": "https://softmaterials.ca/wp-content/pdf/ChemPhysLett2004.pdf",
+      "http_status": 200,
+      "local_filename": "yethiraj-2004.pdf",
+      "byte_size": 443108,
+      "sha256": "58c483b1ccd0081759d1bf6aa25f3180f61935a7dc7d1423a124b7d6ed4307de",
+      "content_type": "application/pdf",
+      "rights_statement": "© 2004 Published by Elsevier B.V.",
+      "landing_page_url": "https://softmaterials.ca/publications/",
+      "failure_reason": null,
+      "note": "Copyright notice transcribed from the PDF. The author publication list gives no item-specific rights statement."
+    },
+    {
+      "citation": "S. W. Sinton, “NMR Studies of Oriented Molecules,” PhD thesis, University of California, Berkeley / Lawrence Berkeley Laboratory, LBL-13604 (1981). OSTI 5638387.",
+      "url_tried": "https://escholarship.org/content/qt22f3d70d/qt22f3d70d.pdf",
+      "final_url": "https://www.osti.gov/servlets/purl/5638387",
+      "http_status": 200,
+      "local_filename": "sinton-1981-lbl-13604.pdf",
+      "byte_size": 9229822,
+      "sha256": "9032f0ee502ed7fe4dbcfea7aae948b7fbde0d36be13607c29c1969e4127e046",
+      "content_type": "application/pdf",
+      "rights_statement": null,
+      "landing_page_url": "https://www.osti.gov/biblio/5638387",
+      "failure_reason": null,
+      "note": null
+    },
+    {
+      "citation": "M. Marjanska, F. Castiglione, J. D. Walls, and A. Pines, “Measurement of dipolar couplings in partially oriented molecules by local field NMR spectroscopy with low-power decoupling,” J. Magn. Reson. 158, 52–59 (2002). DOI 10.1016/S1090-7807(02)00059-9.",
+      "url_tried": "https://pines.berkeley.edu/sites/default/files/publications/measurement_of_dipolar_couplings_in_paritally_oriented_molecules_by_local_field_nmr_spectroscopy_with_low_power_decoupling.pdf",
+      "final_url": "https://web.archive.org/web/20240514031420/https://pines.berkeley.edu/sites/default/files/publications/measurement_of_dipolar_couplings_in_paritally_oriented_molecules_by_local_field_nmr_spectroscopy_with_low_power_decoupling.pdf",
+      "http_status": 200,
+      "local_filename": "marjanska-2002.pdf",
+      "byte_size": 1561941,
+      "sha256": "4d744fff4241b2a2b1c265e462b805882f17f323a5abba669317208bb999df3b",
+      "content_type": "application/pdf",
+      "rights_statement": "© 2002 Elsevier Science (USA). All rights reserved.",
+      "landing_page_url": "https://re.public.polimi.it/handle/11311/1226212",
+      "failure_reason": null,
+      "note": null
+    },
+    {
+      "citation": "T. Chandrakumar and E. E. Burnell, “Comparison of short-range interactions in zero electric field gradient mixtures,” Bull. Magn. Reson. 15, 199–204 (1993).",
+      "url_tried": "https://ismar.org/wp-content/uploads/2021/09/BMR_15_141-210_1993.pdf",
+      "final_url": "https://ismar.org/wp-content/uploads/2021/09/BMR_15_141-210_1993.pdf",
+      "http_status": 200,
+      "local_filename": "chandrakumar-burnell-1993-bmr-issue.pdf",
+      "byte_size": 9808307,
+      "sha256": "f262c2f870e0b98a7c58da174423796620a62153abdf5cc46b37f024b5898c99",
+      "content_type": "application/pdf",
+      "rights_statement": "© 1993 International Society of Magnetic Resonance; all rights reserved (issue front matter, PDF page 2)",
+      "landing_page_url": null,
+      "failure_reason": null,
+      "note": "Tables I and II, printed pp. 201–202 (PDF pp. 64–65), list measured ortho-dichlorobenzene proton–proton dipolar couplings in Hz with uncertainties. ISMAR serves the complete issue."
+    },
+    {
+      "citation": "A. Pizzirusso, M. B. Di Cicco, G. Tiberio, L. Muccioli, R. Berardi, and C. Zannoni, “Alignment of Small Organic Solutes in a Nematic Solvent: The Effect of Electrostatic Interactions,” J. Phys. Chem. B 116 (2012). DOI 10.1021/jp3003799.",
+      "url_tried": "https://claudiozannoni.it/pdgmbz%20small%20solutes%205CB%20md%20%20preprint%202012.pdf",
+      "final_url": "https://claudiozannoni.it/pdgmbz%20small%20solutes%205CB%20md%20%20preprint%202012.pdf",
+      "http_status": 200,
+      "local_filename": "pizzirusso-2012-preprint.pdf",
+      "byte_size": 946281,
+      "sha256": "2d6fff45c23492e747f5f7750a65c5850fa3fece038b8302829461b3a938129f",
+      "content_type": "application/pdf",
+      "rights_statement": null,
+      "landing_page_url": null,
+      "failure_reason": null,
+      "note": "Table 5, preprint p. 23, reproduces measured proton–proton couplings for benzene, tribromobenzene, and acetylene in three nematic media."
+    },
+    {
+      "citation": "E. E. Burnell, A. J. van der Est, G. N. Patey, C. A. de Lange, and J. G. Snijders, “NMR of Solutes in Liquid Crystalline Solvents: Mechanisms of Orientational Order,” Bull. Magn. Reson. 9, 4–19 (1987).",
+      "url_tried": "https://ismar.org/wp-content/uploads/2021/09/BMR_09_004-019_1987.pdf",
+      "final_url": "https://ismar.org/wp-content/uploads/2021/09/BMR_09_004-019_1987.pdf",
+      "http_status": 200,
+      "local_filename": "burnell-1987-mechanisms.pdf",
+      "byte_size": 2453763,
+      "sha256": "c89076a5a0b0384282b7f7b14f4d04ef43f5f20722a3cb871a346b4dd559d1db",
+      "content_type": "application/pdf",
+      "rights_statement": null,
+      "landing_page_url": null,
+      "failure_reason": null,
+      "note": "Table 1, printed p. 8 (PDF p. 6), reproduces experimental D_HH in Hz with uncertainties for molecular hydrogen in EBBA and ZLI-1132."
+    }
+  ],
+  "not_obtained": [
+    {
+      "citation": "Supplementary material of Yethiraj et al., Chem. Phys. Lett. (2004), if any exists (unconfirmed); A. Yethiraj, Z. Sun, R. Y. Dong, and E. E. Burnell, “NMR measurement of smectic ordering and nematic–smectic-A coupling in a liquid crystal,” Chem. Phys. Lett. 398, 517–521 (2004). DOI 10.1016/j.cplett.2004.09.108. Supporting Information.",
+      "url_tried": "https://www.sciencedirect.com/science/article/abs/pii/S0009261404015192",
+      "final_url": "https://www.sciencedirect.com/science/article/abs/pii/S0009261404015192",
+      "http_status": 403,
+      "failure_reason": "No supplement was listed on the publisher record or identified in the downloaded article."
+    },
+    {
+      "citation": "E. E. Burnell, Z. Ahmed, C. Welch, G. H. Mehl, and R. Y. Dong, “Deuteron and proton NMR study of D₂, p-dichlorobenzene and 1,3,5-trichlorobenzene in bimesogenic liquid crystals with two nematic phases,” Chem. Phys. Lett. 659, 48–54 (2016). DOI 10.1016/j.cplett.2016.07.005.",
+      "url_tried": "https://hull-repository.worktribe.com/output/440631/",
+      "final_url": "https://hull-repository.worktribe.com/index.php/output/440631/deuteron-and-proton-nmr-study-of-d2-p-dichlorobenzene-and-135-trichlorobenzene-in-bimesogenic-liquid-crystals-with-two-nematic-phases",
+      "http_status": 403,
+      "failure_reason": "Indexed Hull record lists Article.pdf as the accepted manuscript. The live record denied access, so the file URL could not be verified."
+    },
+    {
+      "citation": "R. T. Syvitski and E. E. Burnell, “Multiple quantum and high-resolution NMR, molecular structure, and order parameters of partially oriented ortho and meta dimethyl-, dichloro-, and chloromethylbenzenes codissolved in nematic liquid crystals,” J. Magn. Reson. 144, 58–73 (2000). DOI 10.1006/jmre.1999.2013.",
+      "url_tried": "https://doi.org/10.1006/jmre.1999.2013",
+      "final_url": "https://linkinghub.elsevier.com/retrieve/pii/S109078079992013X",
+      "http_status": 200,
+      "failure_reason": "The DOI resolved to a publisher landing page. No openly downloadable copy of the article was located."
+    },
+    {
+      "citation": "S. Meiboom, R. C. Hewitt, and L. C. Snyder, “Developments in NMR in liquid crystalline solvents,” Pure Appl. Chem. 32, 251–261 (1972). DOI 10.1351/pac197232010251.",
+      "url_tried": "https://publications.iupac.org/pac/1972/pdf/3201x0251.pdf",
+      "final_url": "https://www.degruyterbrill.com/document/doi/10.1351/pac197232010251/pdf",
+      "http_status": 202,
+      "failure_reason": "Table 1 was visible in the indexed IUPAC PDF, but a complete PDF could not be downloaded."
+    }
+  ]
+}
