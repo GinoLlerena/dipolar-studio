@@ -19,7 +19,15 @@ The reviewer confirmed:
 
 **Freeze order.** As the reviewer asked, the new tests and their independently computed targets
 were committed first (`f75b022`, with 10 tests failing on the old code), and the fixes after
-them.
+them (`9276d5d`). The fix commit also changed four tests:
+- **The test that patches the search** was moved to an unphysical family, because the new early
+  return made its old family trivially feasible. Its target, "undetermined", is unchanged.
+- **Three tests were strengthened** after mutation testing; their targets are still independent
+  of `fixed.py`:
+  - the tiny σ moved to 1e-160, where unscaled squares lose precision;
+  - the asymmetric-covariance test now requires bit-identical fits at the largest allowed
+    asymmetry;
+  - the retained SEs are checked against an independent SVD.
 
 | # | Class | Finding | Fix |
 |---|---|---|---|
