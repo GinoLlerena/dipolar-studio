@@ -556,3 +556,135 @@ def test_the_public_array_contract() -> None:
     res = fixed.fit_fixed(a, a @ S_TRUE, np.full(len(a), 0.5))
     res.subspace[0, 0] = 99.0
     assert fixed.SUBSPACES["C1"][0, 0] == 1.0
+
+
+# =============================================================================================
+# Round 72 gates (the final round). Written and committed before the fixes; every target is
+# computed independently of fixed.py.
+# =============================================================================================
+
+
+def _two_by_two(delta: float, scale: float) -> np.ndarray:
+    """scale · [[1, 1−δ], [1−δ, 1]]: eigenvalues scale·(2 − δ) and scale·δ."""
+    return scale * np.array([[1.0, 1.0 - delta], [1.0 - delta, 1.0]])
+
+
+def test_covariance_validation_does_not_depend_on_scale() -> None:
+    a = _design(NONPLANAR)[:2]
+    y = np.array([0.1, -0.2])
+    for scale in (1.0, 1e-300, 1e300):
+        sigma = np.full(2, math.sqrt(scale))
+        # λ_min/‖C‖∞ = δ/2: 0.83e-12 < 1e-12 is refused at every scale; 2e-12 is accepted.
+        with pytest.raises(ValueError, match="positive definite"):
+            fixed.fit_fixed(a, y * math.sqrt(scale), sigma, covariance=_two_by_two(1.666e-12, scale))
+        fixed.fit_fixed(a, y * math.sqrt(scale), sigma, covariance=_two_by_two(4e-12, scale))
+    big = 1e308 * np.eye(len(_design(NONPLANAR)))
+    a_full = _design(NONPLANAR)
+    res = fixed.fit_fixed(a_full, a_full @ S_TRUE * 1e154, np.full(len(a_full), 1e154), covariance=big)
+    plain = fixed.fit_fixed(a_full, a_full @ S_TRUE, np.ones(len(a_full)))
+    assert np.allclose(res.b * 1e-154, plain.b, rtol=1e-10, atol=1e-14)
+
+
+def test_a_float32_covariance_stays_within_the_memory_budget() -> None:
+    """D-11: 128 MB including the caller's matrix; a float32 input is 16 MB at N = 2000."""
+    import tracemalloc
+
+    n = fixed.MAX_COVARIANCE_N
+    rng = np.random.default_rng(21)
+    cov = np.diag(rng.uniform(0.5, 1.5, n)).astype(np.float32)
+    sigma = np.sqrt(np.diag(cov).astype(np.float64))
+    a = rng.normal(size=(n, 5))
+    y = rng.normal(size=n)
+    tracemalloc.start()
+    fixed.fit_fixed(a, y, sigma, covariance=cov)
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    assert peak <= 112 * 2**20, f"{peak / 2**20:.0f} MB beyond the caller's 16 MB matrix"
+
+
+def test_boundary_and_undetermined_certificates_are_fast() -> None:
+    import time
+
+    n = np.diag([1.0, -2.0, 1.0]) / math.sqrt(6.0)
+    s0 = np.diag([-0.51, -0.51, 1.02])
+    s0 = s0 - float(np.sum(s0 * n)) * n
+    cases = [
+        (fixed.b_from_s5(np.array([-0.5, 0, 0, 0, 0])), fixed.SUBSPACES["C1"][:, 1:]),  # the boundary
+        (fixed.b_from_matrix(s0), fixed.b_from_matrix(n)[:, None]),  # tied eigenvectors
+    ]
+    for b0, nulls in cases:
+        fixed.admissibility(b0, nulls)  # warm
+        start = time.process_time()
+        fixed.admissibility(b0, nulls)
+        assert time.process_time() - start <= 0.2  # D-11: 0.1 s on the named hardware, 2× margin
+
+
+def test_unrepresentable_uncertainties_are_refused() -> None:
+    """σ = 1e155 makes the covariance overflow, σ = 1e-165 underflow: neither can be returned."""
+    for sigma in (1e155, 1e-165):
+        with pytest.raises(ValueError, match="representable"):
+            fixed.fit_fixed(np.eye(5), np.zeros(5), np.full(5, sigma))
+
+
+def test_a_huge_design_is_fitted_with_finite_outputs() -> None:
+    res = fixed.fit_fixed(1e300 * np.eye(5), np.full(5, 1e299), np.ones(5))
+    assert res.rank_verified and np.all(np.isfinite(res.singular_ratios))
+    assert np.allclose(res.s5, 0.1, rtol=1e-12)
+    se = res.components[0].se
+    assert se is not None and math.isclose(se, 1e-300, rel_tol=1e-12)
+
+
+def test_rounding_below_sigma_withholds_adequacy() -> None:
+    """Two identical rows measuring only Szz, y = 0.25, σ = 1e-20: the exact optimum has χ² = 0,
+    but σ is far below the rounding of y, so no adequacy decision can be made."""
+    row = design_rows(np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 2.5]]), [(0, 1)], K)
+    a = np.vstack([row, row])
+    res = fixed.fit_fixed(a, np.full(2, 0.25), np.full(2, 1e-20), fixed.SUBSPACES["D6h"])
+    assert res.adequacy == "withheld" and res.adequacy_code == "ADEQUACY_NUMERICAL"
+
+
+def test_the_dual_verifier_requires_a_symmetric_witness_and_its_preconditions() -> None:
+    nulls = fixed.SUBSPACES["C1"][:, :1]  # Szz free
+    b0 = fixed.b_from_s5(np.array([0.0, 0.0, -0.1, 0.0, 0.0]))  # Sxy = −0.1: physical
+    z = np.eye(3) / 3
+    z[0, 1] = 10.0
+    assert not fixed.certifies_infeasible(z, b0, nulls)
+    with pytest.raises(ValueError):
+        fixed.certifies_infeasible(np.eye(3) / 3, b0 + nulls[:, 0], nulls)  # b0 not ⟂ the nulls
+    with pytest.raises(ValueError):
+        fixed.certifies_infeasible(np.eye(3) / 3, b0, 2 * nulls)  # not orthonormal
+
+
+def test_the_tolerance_status_is_guarded_against_rounding() -> None:
+    """Every completion has λ_min ≤ Szz < −0.500000001 (by about 3.8e-17): not within tolerance."""
+    b0 = np.array([-0.6123724369205394, 0.0, 0.0, 0.0, 0.0])
+    res = fixed.admissibility(b0, fixed.SUBSPACES["C1"][:, 1:])
+    assert res.status in ("infeasible", "undetermined")
+
+
+def test_the_arithmetic_margin_of_the_dual_is_required() -> None:
+    """Halfway between the cutoff with δ and without it: rejected only because of δ."""
+    m = 4
+    eps, delta = fixed.FEASIBILITY_EPS, fixed.FEASIBILITY_DELTA
+    s_zz = -0.5 - (2.0 + math.sqrt(1.5 * m)) * eps - delta / 2
+    z = np.diag([0.0, 0.0, 1.0])
+    assert not fixed.certifies_infeasible(
+        z, fixed.b_from_s5(np.array([s_zz, 0, 0, 0, 0])), fixed.SUBSPACES["C1"][:, 1:]
+    )
+
+
+def test_the_certificate_text_shows_the_separation() -> None:
+    b0 = fixed.b_from_s5(np.array([-0.50000001, 0, 0, 0, 0]))
+    res = fixed.admissibility(b0, fixed.SUBSPACES["C1"][:, 1:])
+    if res.status == "infeasible":
+        assert "-0.50000001" in res.certificate and "cutoff" in res.certificate
+
+
+def test_fixed_by_symmetry_is_reserved_for_structural_zeros() -> None:
+    """A custom direction (1, 0, 1e-13, 0, 0) is not a symmetry: Sxy is not fixed at zero."""
+    direction = np.array([1.0, 0.0, 1e-13, 0.0, 0.0])
+    custom = np.column_stack([direction / np.linalg.norm(direction), *fixed.SUBSPACES["C1"][:, [1, 3, 4]].T])
+    a = _design(NONPLANAR)
+    res = fixed.fit_fixed(a, a @ S_TRUE, np.full(len(a), 0.5), custom)
+    status = {c.name: c.status for c in res.components}
+    assert status["Sxy"] != "fixed-by-symmetry"
