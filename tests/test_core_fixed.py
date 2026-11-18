@@ -627,11 +627,15 @@ def test_unrepresentable_uncertainties_are_refused() -> None:
 
 
 def test_a_huge_design_is_fitted_with_finite_outputs() -> None:
-    res = fixed.fit_fixed(1e300 * np.eye(5), np.full(5, 1e299), np.ones(5))
+    """A 1e150 design: SE 1e-150 and a covariance diagonal of 1e-300, both representable. (A 1e300
+    design would need a 1e-600 covariance, which the representability rule refuses.)"""
+    res = fixed.fit_fixed(1e150 * np.eye(5), np.full(5, 1e149), np.ones(5))
     assert res.rank_verified and np.all(np.isfinite(res.singular_ratios))
     assert np.allclose(res.s5, 0.1, rtol=1e-12)
     se = res.components[0].se
-    assert se is not None and math.isclose(se, 1e-300, rel_tol=1e-12)
+    assert se is not None and math.isclose(se, 1e-150, rel_tol=1e-12)
+    with pytest.raises(ValueError, match="representable"):
+        fixed.fit_fixed(1e300 * np.eye(5), np.full(5, 1e299), np.ones(5))
 
 
 def test_rounding_below_sigma_withholds_adequacy() -> None:
