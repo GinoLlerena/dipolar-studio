@@ -364,9 +364,18 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
      independently at least twice with no open S1 issue (03 §8). Then the owner selects and
      re-baselines Phase 2's first verification release (V0 + V1).
    - **Phase 2 (V0 + V1) approved on 2026-11-18:** `docs/phase2-proposal.md` (rounds 63–65,
-     `docs/validation/round63-phase2-proposal.md`). In progress: V0.1 (selection and access) and
-     V1.0 (design review). Open owner decisions: the transcription procedure (before V0.2), the
-     external-reproduction path (before V1.5), and when V1 code starts (before V1.1).
+     `docs/validation/round63-phase2-proposal.md`).
+     - **Done:** V1.0, the design review (`docs/phase2/v1.0-design.md`, rounds 66–67, tag
+       `v1.0-design`); V0.1, selection and access (`docs/phase2/v0.1-selection.md`, rounds
+       68–69, tag `v0.1-selection`). The selected development data are Taggar et al. (2006)
+       benzene (the SI, CC BY-NC 4.0) and Chandrakumar & Burnell (1993) ortho-dichlorobenzene
+       (© ISMAR, local only).
+     - **Open owner decisions:**
+       - D-1 of the design: carry Phase 1 projects over by export file, or migrate in place;
+       - decision 4: how the ortho-dichlorobenzene tables are transcribed (before V0.2);
+       - library access for Diehl & Niederberger (1973) and Diehl & Khetrapal (1968);
+       - the external-reproduction path (before V1.5);
+       - when V1 code starts (before V1.1).
    - **(B, CI after round 56)** a camera gesture made within the round trip of the page's previous
      camera commit is refused as superseded and reverted (rounds 41–42 rule); worth revisiting.
    - **Use pnpm 9** (as CI): `node_modules` linked by pnpm 10 makes `pnpm add` fail.

@@ -17,7 +17,16 @@ Each entry is appended and never edited. A correction is a new entry.
 | 2026-11-18 | the author agent (Claude) | Chandrakumar & Burnell (1993), Tables I–II | **all values** | V0.1 survey |
 | 2026-11-18 | the author agent (Claude) | Pizzirusso et al. (2012), Table 5 | benzene, tbb and acetylene rows | V0.1 survey |
 | 2026-11-18 | round 68 reviewer (GPT-6.2-Sol) | Taggar SI; Chandrakumar & Burnell Tables I–II; Pizzirusso Table 5 | all values | review of V0.1 |
+| 2026-11-18 | round 69 reviewer (GPT-6.2-Sol) | Taggar SI and paper Tables 1–2; Chandrakumar & Burnell Tables I–II and Figs. 2–3; the excluded sources' tables | all values | review of V0.1 |
 
-**Consequence.** Every source above is **development data** for V1. Any future holdout is chosen
-and kept by the custodian, and appended here only when it is opened, after V0.3 has frozen the
-model and the criteria.
+**Kinds of access.**
+- **Retrieval-only** access (downloading, not reading values) does not expose a source.
+- **Phase 1 data** (8CB) is not a V1 candidate.
+- The **selected V1 development sets** are Taggar et al.'s benzene and Chandrakumar & Burnell's
+  ortho-dichlorobenzene.
+
+**Consequence.** Every source whose values appear above is **development data** for V1.
+- **A future holdout** is chosen and kept by the custodian, and appended here when it is opened,
+  after V0.3 has frozen the model and the criteria.
+- **Premature exposure** is appended as soon as it is discovered, and the affected group is
+  retired from holdout use.

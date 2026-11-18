@@ -72,7 +72,7 @@
       "note": null
     },
     {
-      "citation": "T. Chandrakumar and E. E. Burnell, “Comparison of short-range interactions in zero electric field gradient mixtures,” Bull. Magn. Reson. 15, 199–202 (1993).",
+      "citation": "T. Chandrakumar and E. E. Burnell, “Comparison of short-range interactions in zero electric field gradient mixtures,” Bull. Magn. Reson. 15, 199–204 (1993).",
       "url_tried": "https://ismar.org/wp-content/uploads/2021/09/BMR_15_141-210_1993.pdf",
       "final_url": "https://ismar.org/wp-content/uploads/2021/09/BMR_15_141-210_1993.pdf",
       "http_status": 200,
@@ -80,7 +80,7 @@
       "byte_size": 9808307,
       "sha256": "f262c2f870e0b98a7c58da174423796620a62153abdf5cc46b37f024b5898c99",
       "content_type": "application/pdf",
-      "rights_statement": null,
+      "rights_statement": "© 1993 International Society of Magnetic Resonance; all rights reserved (issue front matter, PDF page 2)",
       "landing_page_url": null,
       "failure_reason": null,
       "note": "Tables I and II, printed pp. 201–202 (PDF pp. 64–65), list measured ortho-dichlorobenzene proton–proton dipolar couplings in Hz with uncertainties. ISMAR serves the complete issue."
@@ -116,7 +116,7 @@
   ],
   "not_obtained": [
     {
-      "citation": "A. Yethiraj, Z. Sun, R. Y. Dong, and E. E. Burnell, “NMR measurement of smectic ordering and nematic–smectic-A coupling in a liquid crystal,” Chem. Phys. Lett. 398, 517–521 (2004). DOI 10.1016/j.cplett.2004.09.108. Supporting Information.",
+      "citation": "Supplementary material of Yethiraj et al., Chem. Phys. Lett. (2004), if any exists (unconfirmed); A. Yethiraj, Z. Sun, R. Y. Dong, and E. E. Burnell, “NMR measurement of smectic ordering and nematic–smectic-A coupling in a liquid crystal,” Chem. Phys. Lett. 398, 517–521 (2004). DOI 10.1016/j.cplett.2004.09.108. Supporting Information.",
       "url_tried": "https://www.sciencedirect.com/science/article/abs/pii/S0009261404015192",
       "final_url": "https://www.sciencedirect.com/science/article/abs/pii/S0009261404015192",
       "http_status": 403,
