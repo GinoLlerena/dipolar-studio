@@ -303,12 +303,14 @@ def test_the_k0_problem_is_refused_by_the_search_fit() -> None:
 
 def test_a_failed_search_never_claims_infeasibility(monkeypatch: pytest.MonkeyPatch) -> None:
     """If the primal search returns a poor point in a family that does hold a physical tensor, the
-    dual check must fail and the answer be "undetermined", never "infeasible" (D-9)."""
-    nulls = fixed.SUBSPACES["C1"][:, 1:]
-    b0 = fixed.b_from_s5(np.array([-0.3, 0, 0, 0, 0]))
-    bad = np.array([1.2, 0.0, 0.0, 0.0])  # far along Sxx − Syy: λ_min < −1/2 there
-    assert fixed.lambda_min(b0 + nulls @ bad) < -0.5
-    monkeypatch.setattr(fixed, "_maximize_lambda_min", lambda family, m, radius: (bad, fixed.lambda_min(family(bad))))
+    dual check must fail and the answer be "undetermined", never "infeasible" (D-9). The family:
+    S0 = diag(−0.6, 0.6, 0), unphysical, with Szz free (it reaches λ_min = −0.4)."""
+    b0 = fixed.b_from_matrix(np.diag([-0.6, 0.6, 0.0]))
+    nulls = fixed.SUBSPACES["C1"][:, :1]
+    poor = np.zeros(1)  # the fitted point itself: λ_min = −0.6
+    monkeypatch.setattr(
+        fixed, "_search_lambda_min", lambda family, m, radius: iter([(poor, fixed.lambda_min(family(poor)))])
+    )
     assert fixed.admissibility(b0, nulls).status == "undetermined"
 
 
@@ -324,7 +326,8 @@ def _synthetic_b_design(singular: tuple[float, ...], n: int, seed: int) -> np.nd
     u, _ = np.linalg.qr(rng.normal(size=(n, n)))
     v, _ = np.linalg.qr(rng.normal(size=(5, 5)))
     a_b = u[:, :5] @ np.diag(singular) @ v.T
-    return a_b * fixed.ORTHO_SCALE  # so that (design / ORTHO_SCALE) = a_b
+    out: np.ndarray = a_b * fixed.ORTHO_SCALE  # so that (design / ORTHO_SCALE) = a_b
+    return out
 
 
 def test_a_singular_covariance_is_refused() -> None:
@@ -340,12 +343,14 @@ def test_a_nearly_symmetric_covariance_uses_its_symmetric_part() -> None:
     n = len(a)
     l_mat = np.tril(rng.normal(scale=0.1, size=(n, n)), -1) + np.diag(rng.uniform(0.3, 0.8, n))
     cov = l_mat @ l_mat.T
-    skew = np.triu(np.full((n, n), 1e-14), 1)
+    skew = np.triu(np.full((n, n), 5e-13 * float(np.max(np.abs(cov)))), 1)  # within the tolerance
     y = a @ S_TRUE + l_mat @ rng.normal(size=n)
     sigma = np.sqrt(np.diag(cov))
     first = fixed.fit_fixed(a, y, sigma, covariance=cov + skew)
     second = fixed.fit_fixed(a, y, sigma, covariance=cov + skew.T)
-    assert np.allclose(first.b, second.b, rtol=1e-10, atol=1e-13)
+    # The symmetric part is the same matrix either way, so the fits are bit-identical; factoring
+    # one triangle would differ.
+    assert np.array_equal(first.b, second.b)
 
 
 def test_the_cap_is_checked_before_the_covariance_is_converted() -> None:
@@ -402,6 +407,8 @@ def test_the_retained_and_null_directions_are_orthonormal_and_annihilating() -> 
     assert np.max(np.abs(a_b @ z)) <= 1e-9 * np.max(np.abs(a_b))  # the design annihilates them
     expected = np.linalg.pinv((a_b / sigma[:, None]), rcond=1e-10) @ (y / sigma)  # independent min-norm
     assert np.allclose(res.b, expected, rtol=1e-9, atol=1e-12)
+    singular = np.linalg.svd(a_b / sigma[:, None], compute_uv=False)[:3]
+    assert np.allclose(res.retained_se, 1.0 / singular, rtol=1e-12)
 
 
 def test_fewer_rows_than_parameters_keep_singular_vectors_paired() -> None:
@@ -414,11 +421,12 @@ def test_fewer_rows_than_parameters_keep_singular_vectors_paired() -> None:
 
 
 def test_a_tiny_sigma_keeps_a_representable_uncertainty() -> None:
-    """A = I on ORDER_BASIS, σ = 1e-155: SE(Szz) is 1e-155, not 0 (s² would overflow)."""
-    res = fixed.fit_fixed(np.eye(5), np.full(5, 0.1), np.full(5, 1e-155))
+    """A = I on ORDER_BASIS, σ = 1e-160: SE(Szz) is 1e-160, not 0 (s² would overflow, and the
+    squares of 1e-160 would be subnormal)."""
+    res = fixed.fit_fixed(np.eye(5), np.full(5, 0.1), np.full(5, 1e-160))
     assert res.rank_verified
     se = res.components[0].se
-    assert se is not None and math.isclose(se, 1e-155, rel_tol=1e-12)
+    assert se is not None and math.isclose(se, 1e-160, rel_tol=1e-12)
 
 
 def test_a_common_huge_scale_cancels() -> None:

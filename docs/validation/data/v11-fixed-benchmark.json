@@ -1,0 +1,44 @@
+{
+  "fixed_fit_version": "fixed-linear.1",
+  "hardware": {
+    "cpu": "Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz",
+    "machine": "x86_64",
+    "python": "3.12.3"
+  },
+  "numpy": "2.5.4",
+  "results": {
+    "covariance_fit_N2000": {
+      "cpu_s_median": 1.2531370000000002,
+      "cpu_s_max": 1.290813,
+      "peak_mb": 91.56974792480469,
+      "budget": "128 MB peak including the caller's 32 MB covariance; i.e. 96 MB beyond it"
+    },
+    "diagonal_fit_N20000": {
+      "cpu_s_median": 0.008804000000000478,
+      "cpu_s_max": 0.011435000000000528,
+      "peak_mb": 3.9730262756347656,
+      "budget": "2 s, 100 MB"
+    },
+    "certificate_feasible_at_fitted_point": {
+      "cpu_s_median": 4.2999999999793204e-05,
+      "cpu_s_max": 8.400000000019503e-05,
+      "peak_mb": 0.0020389556884765625,
+      "status": "feasible",
+      "budget": "0.1 s (the max includes the first call's one-off import of scipy.optimize)"
+    },
+    "certificate_feasible_away_from_fitted_point": {
+      "cpu_s_median": 0.005112999999999701,
+      "cpu_s_max": 0.18950099999999992,
+      "peak_mb": 0.009052276611328125,
+      "status": "feasible",
+      "budget": "0.1 s (the max includes the first call's one-off import of scipy.optimize)"
+    },
+    "certificate_infeasible_m4": {
+      "cpu_s_median": 0.012130999999999226,
+      "cpu_s_max": 0.01221499999999942,
+      "peak_mb": 0.010725975036621094,
+      "status": "infeasible",
+      "budget": "0.1 s (the max includes the first call's one-off import of scipy.optimize)"
+    }
+  }
+}
