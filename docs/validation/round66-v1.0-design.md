@@ -31,3 +31,31 @@ The reviewer confirmed the main code facts:
 | 11 | B | Qualify §1: empty journals; the staleness fallback; the job record stores identities; the standalone loader's own message. | §1 rewritten. |
 | 12 | B | Equivalence and scope: the definition of magnetic equivalence; C2, C2h and C3v refused only for new declarations, with legacy `c2z` kept. | D-4. |
 | 13 | B | Carry the approved gates into §3 explicitly. | §3 lists the V1.1–V1.3 gates and the proposal's open items. |
+
+## Round 67 (on 28ed78d, the final round under the cap): NOT READY, 11 A + 4 B; fixed without re-review
+
+The reviewer ran the 100 existing journal, snapshot and format tests (all passing). It confirmed
+the round 66 fixes for the symmetry average (x* is exactly symmetric, by reindexing with
+k = gh), the basis and the reduction table.
+
+| # | Class | Finding | Fix |
+|---|---|---|---|
+| 1 | A | A "legacy reader" built from today's code is not frozen: it imports the live context and snapshot modules, and opening a session repairs, settles, collects and compacts. Even a `Journal` constructor can create files. | **D-1 replaced:** Phase 1 directories are never opened for writing, only detected read-only and refused with instructions. Projects carry over by their export file. No legacy reader is needed. |
+| 2 | A | Publication and crash recovery across versions: `snapshot.choose` loads both snapshots under one context. A fully compacted directory has the same sequence in both. Migration lineage is lost at the next compaction. | Gone with D-1 (no in-place migration). The requirements are kept in D-1 in case the alternative is chosen later. |
+| 3 | A | Archived inputs and job staleness: replay never walks `archive/`, idempotency keys can be reused after compaction, and jobs and runs need a per-submission input index. | Gone with D-1: runs and jobs stay in the 0.1 directory. |
+| 4 | A | Request outcomes and proposal expiry under a changed contract. | Gone with D-1: the request table and proposals are not carried over. |
+| 5 | A | Result blobs: `run.get` decodes every blob as `FitRunOut`; legacy decoding and digest checks are needed before publication. | Gone for legacy blobs (D-1). For new runs, the decoder is chosen from the run record's model kind, which is trusted (D-10). |
+| 6 | A | Transitions with populated rows: entering `fixed` can merge two singleton rows, and an edit can *expand* an orbit with one observed row. No way to resolve conflicts (an empty CSV import is refused). No guards or isotope table for the new mutations. | D-3: lossless canonicalization on entry, refusal on merge, split *or* expansion, a defined exit, and a new `couplings.remove` operation. Both new mutations take `expected_science_revision`. D-6: one isotope table on every path. |
+| 7 | A | A required rank from a 1e-6 Å coplanarity test can certify a truncated model. Counterexample: (1,0,0), (0,1,0), (1,1,0), (1,0,1e-7) pass the test but have rank 4, and one σ change hides the fourth direction. | **The required rank is d, always.** The only exact reductions are symmetry reductions: a planar molecule is declared Cs, with its plane as the mirror. The counterexample is a V1.1 fixture that must report *unverified*. Rank zero is handled before any ratio. |
+| 8 | A | Exact intervals need an exact estimand: a functional with a small nonzero null component can pass a projection test. | With the rank verified, every functional of the d coordinates is exact. With it unverified, only projected coordinates, labelled, with no intervals. Coefficient vectors, levels and `interval_support` are machine-readable; `fit.run(intervals)` has no effect for `fixed`. |
+| 9 | A | A tolerance on ⟨Z, N_k⟩ alone does not bound the unbounded family; the direct test only applies at zero nullity. | The finite-precision bound over the bounded physical set (‖c‖ ≤ √(3/2)): ⟨Z, S₀⟩ < −1/2 − (2 + √(3m/2))ε − δ. "Feasible within tolerance" is a separate outcome. The direct test is used only at nullity zero, and rank zero is special-cased. |
+| 10 | A | The fixed result lacked the report's rows, the covariance, the null space and the interval support. Old clients break on `run.get` and on `project.describe.model` without `phi_domain`. | `FixedRunOut` is specified with rows, `covariance_b` and `null_directions_b`. The change is **classified breaking** under D20 (contract 0.10.0 → 0.11.0, listed as breaking). For non-fixed projects the responses are unchanged, gated with the 0.10.0 types. |
+| 11 | A | Budgets omitted the dominant costs: archive length, n² pair enumeration, peak covariance memory, the worker's 16 MiB result cap, and rank zero with five null directions. | No migration. Orbits for observed pairs only. Covariance cap N ≤ 2000 (about 128 MB peak). Fixed-fit admission N ≤ 20 000 under the 16 MiB cap, tested through the process worker. Rank zero special-cased. |
+| 12 | B | §1 and D-2 wording: the request outcomes in snapshots; proposal transactions with jobs; wrong D-numbers for the context entries. | Corrected. |
+| 13 | B | D-4/D-7: document the passive frame convention, re-orthonormalizing the axes and the conversion to `ORDER_BASIS`. Ambiguity and failed composition cannot occur with the 0.5 Å minimum separation, so test them below the validation layer. | Added. |
+| 14 | B | Equivalence wording; distinct reduced rows; a specified tensor in the 1,4-dichlorobenzene fixture; why the medium must be achiral. | Added. |
+| 15 | B | Restore the gates: symmetry copies leave N and ν unchanged; freeze the protocol and fixtures; the V1.2 checkpoint; `fixed` supersedes the proposal's wording; the Fit workspace is V1.4. | §3 restored. |
+
+**One owner decision** comes out of this round: D-1. Carrying Phase 1 projects over by export
+file narrows the proposal's V1.3 compatibility gate. The in-place alternative and its
+requirements are written in D-1.
