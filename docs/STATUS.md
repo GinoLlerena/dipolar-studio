@@ -370,12 +370,15 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
        68–69, tag `v0.1-selection`). The selected development data are Taggar et al. (2006)
        benzene (the SI, CC BY-NC 4.0) and Chandrakumar & Burnell (1993) ortho-dichlorobenzene
        (© ISMAR, local only).
-     - **Open owner decisions:**
-       - D-1 of the design: carry Phase 1 projects over by export file, or migrate in place;
-       - decision 4: how the ortho-dichlorobenzene tables are transcribed (before V0.2);
+     - **Decided by the owner on 2026-11-18:**
+       - D-1: carry projects over by export file;
+       - decision 4: two independent AI transcriptions, with the owner's spot-check;
+       - V1 code starts now on `main`; beta fixes go to `release/0.1` (from `v0.1.0b1`).
+     - **In progress:** V0.2 (benzene parsed from the SI; ortho-dichlorobenzene transcribed and
+       kept local).
+     - **Open:**
        - library access for Diehl & Niederberger (1973) and Diehl & Khetrapal (1968);
-       - the external-reproduction path (before V1.5);
-       - when V1 code starts (before V1.1).
+       - the external-reproduction path (before V1.5).
    - **(B, CI after round 56)** a camera gesture made within the round trip of the page's previous
      camera commit is refused as superseded and reverted (rounds 41–42 rule); worth revisiting.
    - **Use pnpm 9** (as CI): `node_modules` linked by pnpm 10 makes `pnpm add` fail.
