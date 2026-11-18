@@ -336,7 +336,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 
 ## Resume here: the draft release v0.1.0b1 awaits the owner's review
 
-**Stopping point: tag `beta-b4`.** Earlier stopping points: `beta-b3`, `beta-b2`, `beta-b1`, `m3-complete`, `m3-exit-audit`, `m3-step4b`, `m3-step4a`, `m3-step3`, `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
+**Stopping point: tag `beta-draft`** (2026-11-17: the draft release `v0.1.0b1` exists, the testers' path checked on it). Earlier stopping points: `beta-b4`, `beta-b3`, `beta-b2`, `beta-b1`, `m3-complete`, `m3-exit-audit`, `m3-step4b`, `m3-step4a`, `m3-step3`, `interval-warm-starts`, `journal-compaction`, `m3-step2`, `m3-step1`, `m2-complete`,
 `m2-exit-audit`, and one tag per step before them. To resume:
 
 1. Check the baseline:
