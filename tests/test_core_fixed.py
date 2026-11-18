@@ -310,3 +310,241 @@ def test_a_failed_search_never_claims_infeasibility(monkeypatch: pytest.MonkeyPa
     assert fixed.lambda_min(b0 + nulls @ bad) < -0.5
     monkeypatch.setattr(fixed, "_maximize_lambda_min", lambda family, m, radius: (bad, fixed.lambda_min(family(bad))))
     assert fixed.admissibility(b0, nulls).status == "undetermined"
+
+
+# =============================================================================================
+# Round 71 gates. These tests and their targets were written and committed before the fixes they
+# check (the freeze order of design §3); every target is computed independently of fixed.py.
+# =============================================================================================
+
+
+def _synthetic_b_design(singular: tuple[float, ...], n: int, seed: int) -> np.ndarray:
+    """A design in b coordinates with prescribed singular values (ties allowed), as ORDER_BASIS rows."""
+    rng = np.random.default_rng(seed)
+    u, _ = np.linalg.qr(rng.normal(size=(n, n)))
+    v, _ = np.linalg.qr(rng.normal(size=(5, 5)))
+    a_b = u[:, :5] @ np.diag(singular) @ v.T
+    return a_b * fixed.ORTHO_SCALE  # so that (design / ORTHO_SCALE) = a_b
+
+
+def test_a_singular_covariance_is_refused() -> None:
+    """Eigenvalues exactly 0 and 1: Cholesky may pass by roundoff, the fit must not."""
+    a = _design(NONPLANAR)[:2]
+    with pytest.raises(ValueError, match="positive definite"):
+        fixed.fit_fixed(a, np.zeros(2), np.full(2, math.sqrt(0.5)), covariance=np.full((2, 2), 0.5))
+
+
+def test_a_nearly_symmetric_covariance_uses_its_symmetric_part() -> None:
+    rng = np.random.default_rng(11)
+    a = _design(NONPLANAR)
+    n = len(a)
+    l_mat = np.tril(rng.normal(scale=0.1, size=(n, n)), -1) + np.diag(rng.uniform(0.3, 0.8, n))
+    cov = l_mat @ l_mat.T
+    skew = np.triu(np.full((n, n), 1e-14), 1)
+    y = a @ S_TRUE + l_mat @ rng.normal(size=n)
+    sigma = np.sqrt(np.diag(cov))
+    first = fixed.fit_fixed(a, y, sigma, covariance=cov + skew)
+    second = fixed.fit_fixed(a, y, sigma, covariance=cov + skew.T)
+    assert np.allclose(first.b, second.b, rtol=1e-10, atol=1e-13)
+
+
+def test_the_cap_is_checked_before_the_covariance_is_converted() -> None:
+    class Boom:
+        def __array__(self, *args: object, **kwargs: object) -> np.ndarray:
+            raise AssertionError("the covariance was converted before the cap was checked")
+
+    n = fixed.MAX_COVARIANCE_N + 1
+    with pytest.raises(ValueError, match="at most"):
+        fixed.fit_fixed(np.zeros((n, 5)), np.zeros(n), np.ones(n), covariance=Boom())  # type: ignore[arg-type]
+
+
+def test_whitening_at_the_covariance_limit_stays_within_the_memory_budget() -> None:
+    """D-11: peak 128 MB including the caller's N × N covariance (32 MB at N = 2000)."""
+    import tracemalloc
+
+    n = fixed.MAX_COVARIANCE_N
+    rng = np.random.default_rng(12)
+    a = rng.normal(size=(n, 5))
+    cov = np.diag(rng.uniform(0.5, 1.5, n))
+    cov[0, 1] = cov[1, 0] = 0.1
+    y = rng.normal(size=n)
+    sigma = np.sqrt(np.diag(cov))
+    tracemalloc.start()
+    fixed.fit_fixed(a, y, sigma, covariance=cov)
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    assert peak <= 96 * 2**20, f"{peak / 2**20:.0f} MB beyond the caller's covariance"
+
+
+def test_a_nearly_orthonormal_subspace_is_refused_or_made_exact() -> None:
+    """diag(1.000004, 1, 1, 1, 1) is not orthonormal; within 1e-13 it is orthonormalized, and the
+    estimate is then the Frobenius minimum-norm one: one row measuring b1 + b2 = 0.3 gives
+    b = (0.15, 0.15, 0, 0, 0)."""
+    design = (np.array([[1.0, 1.0, 0.0, 0.0, 0.0]])) * fixed.ORTHO_SCALE
+    with pytest.raises(ValueError, match="orthonormal"):
+        fixed.fit_fixed(design, np.array([0.3]), np.array([1.0]), np.diag([1.000004, 1, 1, 1, 1]))
+    near = np.eye(5) + np.diag([1e-14, 0, 0, 0, 0])
+    res = fixed.fit_fixed(design, np.array([0.3]), np.array([1.0]), near)
+    assert np.allclose(res.b, [0.15, 0.15, 0, 0, 0], atol=1e-15)
+    assert np.allclose(res.null_b.T @ res.b, 0, atol=1e-15)
+
+
+def test_the_retained_and_null_directions_are_orthonormal_and_annihilating() -> None:
+    a = _design(PLANAR)
+    sigma = np.full(len(a), 0.5)
+    rng = np.random.default_rng(13)
+    y = a @ S_PLANAR + rng.normal(size=len(a)) * sigma
+    res = fixed.fit_fixed(a, y, sigma)  # C1: rank 3, nullity 2
+    r, z = res.retained_b, res.null_b
+    assert np.allclose(r.T @ r, np.eye(3), atol=1e-12) and np.allclose(z.T @ z, np.eye(2), atol=1e-12)
+    assert np.allclose(r.T @ z, 0, atol=1e-12)
+    a_b = a / fixed.ORTHO_SCALE
+    assert np.max(np.abs(a_b @ z)) <= 1e-9 * np.max(np.abs(a_b))  # the design annihilates them
+    expected = np.linalg.pinv((a_b / sigma[:, None]), rcond=1e-10) @ (y / sigma)  # independent min-norm
+    assert np.allclose(res.b, expected, rtol=1e-9, atol=1e-12)
+
+
+def test_fewer_rows_than_parameters_keep_singular_vectors_paired() -> None:
+    a = _design(NONPLANAR)[:2]
+    y = a @ S_TRUE
+    res = fixed.fit_fixed(a, y, np.ones(2))
+    assert np.allclose(res.predictions, y, atol=1e-9)
+    a_b = a / fixed.ORTHO_SCALE
+    assert np.max(np.abs(a_b @ res.null_b)) <= 1e-9 * np.max(np.abs(a_b))
+
+
+def test_a_tiny_sigma_keeps_a_representable_uncertainty() -> None:
+    """A = I on ORDER_BASIS, σ = 1e-155: SE(Szz) is 1e-155, not 0 (s² would overflow)."""
+    res = fixed.fit_fixed(np.eye(5), np.full(5, 0.1), np.full(5, 1e-155))
+    assert res.rank_verified
+    se = res.components[0].se
+    assert se is not None and math.isclose(se, 1e-155, rel_tol=1e-12)
+
+
+def test_a_common_huge_scale_cancels() -> None:
+    a = _design(NONPLANAR)
+    y = a @ S_TRUE
+    plain = fixed.fit_fixed(a, y, np.full(len(a), 0.5))
+    scaled = fixed.fit_fixed(a * 1e300, y * 1e300, np.full(len(a), 0.5e300))
+    assert np.allclose(plain.b, scaled.b, rtol=1e-12, atol=1e-14)
+
+
+def test_an_unrepresentable_problem_is_refused() -> None:
+    with pytest.raises(ValueError, match="representable"):
+        fixed.fit_fixed(np.eye(5), np.full(5, 1e10), np.full(5, 1e-300))
+
+
+def test_both_interval_widths_are_exact_gaussian_quantiles() -> None:
+    a = _design(NONPLANAR)
+    rng = np.random.default_rng(14)
+    sigma = np.full(len(a), 0.5)
+    res = fixed.fit_fixed(a, a @ S_TRUE + rng.normal(size=len(a)) * sigma, sigma)
+    for c in res.components:
+        assert c.intervals is not None and c.se is not None
+        lo68, hi68 = c.intervals["68.3"]
+        lo95, hi95 = c.intervals["95"]
+        assert math.isclose(hi68 - lo68, 2.0 * c.se, rel_tol=1e-12)
+        assert math.isclose(hi95 - lo95, 2.0 * 1.959963984540054 * c.se, rel_tol=1e-12)
+
+
+def test_an_intermediate_p_value_is_the_chi2_tail() -> None:
+    """With ν = 2 the χ² survival function is exp(−χ²/2) exactly."""
+    a = _design(NONPLANAR)[:7]
+    rng = np.random.default_rng(15)
+    sigma = np.full(7, 0.5)
+    for _ in range(5):
+        res = fixed.fit_fixed(a, a @ S_TRUE + rng.normal(size=7) * sigma, sigma)
+        assert res.nu == 2 and res.p_value is not None
+        assert math.isclose(res.p_value, math.exp(-res.chi2 / 2), rel_tol=1e-10)
+
+
+def test_matched_functionals_agree_across_frames_with_tied_singular_values() -> None:
+    design = _synthetic_b_design((3.0, 3.0, 2.0, 2.0, 1.0), n=9, seed=16)
+    rng = np.random.default_rng(17)
+    y = rng.normal(size=9)
+    sigma = np.ones(9)
+    q = _random_rotation(rng)
+    r = fixed.rotation_b(q)
+    a_b = design / fixed.ORTHO_SCALE
+    rotated = (a_b @ r.T) * fixed.ORTHO_SCALE  # the same data in the rotated frame
+    first = fixed.fit_fixed(design, y, sigma)
+    second = fixed.fit_fixed(rotated, y, sigma)
+    assert first.covariance_b is not None and second.covariance_b is not None
+    for c in np.eye(5):
+        assert math.isclose(c @ first.b, (r @ c) @ second.b, rel_tol=1e-9, abs_tol=1e-12)
+        assert math.isclose(c @ first.covariance_b @ c, (r @ c) @ second.covariance_b @ (r @ c), rel_tol=1e-9)
+
+
+def test_strict_feasibility_needs_a_margin_over_rounding() -> None:
+    """The xy block has diagonals −1/2, 1/2 and off-diagonal 1e-9, only Syz free: every completion
+    has λ_min < −1/2 by interlacing, by about 1e-18. That is far inside ε, so the honest answer is
+    "feasible-within-tolerance", never a strict "feasible"."""
+    s = np.array([[-0.5, 1e-9, 0.0], [1e-9, 0.5, 0.0], [0.0, 0.0, 0.0]])
+    b0 = fixed.b_from_matrix(s)
+    b0[4] = 0.0
+    nulls = fixed.SUBSPACES["C1"][:, 4:]
+    assert fixed.admissibility(b0, nulls).status == "feasible-within-tolerance"
+
+
+def test_a_witness_away_from_the_fitted_point() -> None:
+    """S0 = diag(−0.6, 0.6, 0) is unphysical; along Szz the family reaches λ_min = −0.4."""
+    b0 = fixed.b_from_matrix(np.diag([-0.6, 0.6, 0.0]))
+    nulls = fixed.SUBSPACES["C1"][:, :1]
+    res = fixed.admissibility(b0, nulls)
+    assert res.status == "feasible" and res.representative_b is not None
+    assert fixed.lambda_min(res.representative_b) >= -0.5
+    assert math.isclose(res.lambda_min or 0.0, -0.4, abs_tol=1e-6)
+
+
+def test_the_dual_margin_rejects_a_near_separator() -> None:
+    """Z = e_z e_zᵀ is a valid dual for "everything but Szz free"; it certifies infeasibility only
+    when ⟨Z, S0⟩ = S0_zz is below −1/2 by more than the finite-precision margin."""
+    nulls = fixed.SUBSPACES["C1"][:, 1:]
+    z = np.diag([0.0, 0.0, 1.0])
+    near = fixed.b_from_s5(np.array([-0.5 - 1e-10, 0, 0, 0, 0]))
+    far = fixed.b_from_s5(np.array([-0.6, 0, 0, 0, 0]))
+    assert not fixed.certifies_infeasible(z, near, nulls)
+    assert fixed.certifies_infeasible(z, far, nulls)
+
+
+def test_tied_lowest_eigenvalues_never_give_a_wrong_answer() -> None:
+    """Round 71's example: diag(−.51, −.51, 1.02) + t·diag(1, −2, 1) has no physical member; with
+    tied lowest eigenvectors the simple dual may fail, so "undetermined" is allowed, never
+    "feasible"."""
+    n = np.diag([1.0, -2.0, 1.0]) / math.sqrt(6.0)
+    s0 = np.diag([-0.51, -0.51, 1.02])
+    s0 = s0 - float(np.sum(s0 * n)) * n  # the minimum-norm point of the family
+    res = fixed.admissibility(fixed.b_from_matrix(s0), fixed.b_from_matrix(n)[:, None])
+    assert res.status in ("infeasible", "undetermined")
+
+
+def test_certificates_are_fast() -> None:
+    import time
+
+    cases = [
+        (fixed.b_from_s5(np.array([-0.3, 0, 0, 0, 0])), fixed.SUBSPACES["C1"][:, 1:]),
+        (fixed.b_from_matrix(np.diag([-0.6, 0.6, 0.0])), fixed.SUBSPACES["C1"][:, :1]),
+        (fixed.b_from_s5(np.array([-0.9, 0, 0, 0, 0])), fixed.SUBSPACES["C1"][:, 1:]),
+    ]
+    for b0, nulls in cases:
+        start = time.process_time()
+        fixed.admissibility(b0, nulls)
+        assert time.process_time() - start <= 0.3  # D-11: 0.1 s on the named hardware, 3× margin
+
+
+def test_the_certificate_reason_names_the_actual_case() -> None:
+    """Zero data at nonzero rank: S = 0 belongs to the family, but the rank is not zero."""
+    a = _design(PLANAR)
+    res = fixed.fit_fixed(a, np.zeros(len(a)), np.full(len(a), 0.5))
+    assert res.numerical_rank == 3 and res.admissibility.status == "feasible"
+    assert "rank zero" not in res.admissibility.certificate
+    assert res.admissibility.family == "the family preserving the retained projection"
+
+
+def test_the_public_array_contract() -> None:
+    a = _design(NONPLANAR)
+    with pytest.raises(ValueError):
+        fixed.fit_fixed(a, (a @ S_TRUE)[:, None], np.full(len(a), 0.5))
+    res = fixed.fit_fixed(a, a @ S_TRUE, np.full(len(a), 0.5))
+    res.subspace[0, 0] = 99.0
+    assert fixed.SUBSPACES["C1"][0, 0] == 1.0
