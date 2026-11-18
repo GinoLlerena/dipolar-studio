@@ -363,6 +363,10 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
      and point them to `docs/beta/testers.md`. The beta ends when the 8CB exercise is reproduced
      independently at least twice with no open S1 issue (03 §8). Then the owner selects and
      re-baselines Phase 2's first verification release (V0 + V1).
+   - **Phase 2 (V0 + V1) approved on 2026-11-18:** `docs/phase2-proposal.md` (rounds 63–65,
+     `docs/validation/round63-phase2-proposal.md`). In progress: V0.1 (selection and access) and
+     V1.0 (design review). Open owner decisions: the transcription procedure (before V0.2), the
+     external-reproduction path (before V1.5), and when V1 code starts (before V1.1).
    - **(B, CI after round 56)** a camera gesture made within the round trip of the page's previous
      camera commit is refused as superseded and reverted (rounds 41–42 rule); worth revisiting.
    - **Use pnpm 9** (as CI): `node_modules` linked by pnpm 10 makes `pnpm add` fail.
