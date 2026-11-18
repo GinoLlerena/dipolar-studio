@@ -26,3 +26,22 @@ The reviewer confirmed the benchmark counts (3/1/2, 3/2/1, 1/1/0, given the obse
 the rank-5/3/1 fixtures as choices, the chemical/magnetic distinction, and that the proposal
 keeps the published comparisons, the status labels and the external-user gate. The deferral of
 fitted geometry and the change of transcription procedure are flagged as owner decisions.
+
+## Round 64 (on 624a903): NOT READY, 2 A + 2 B; fixed without re-review (the cap)
+
+The reviewer confirmed each round 63 fix and reproduced its checks:
+- the D2h rectangle counterexample, joint rank 3;
+- fluorobenzene's 6 classes and rank 2;
+- `fit()` failing at k = 0;
+- the order reductions;
+- the benchmark counts 3/1/2, 3/2/1, 1/1/0 and 6/2/4;
+- 23 tagged work steps (5 M1, 6 M2, 8 M3, 4 beta), 50 rounds and 29 634 inserted lines.
+
+| # | Class | Finding | Fix |
+|---|---|---|---|
+| 1 | A | V1.2 omitted **medium symmetry**, which plan §8 requires. In a chiral medium a Cs solute can need five order parameters and a C2v solute three, and mirror-related sites can become distinct. | This release is bounded to an **achiral uniaxial medium**. The assumption is stored with the project, and a chiral medium is refused, with a rejection test. The reduction table and the permutation classes are qualified ("the operations that survive in the medium"). Deriving the effective symmetry from molecule and medium is later work. |
+| 2 | A | The benzene degeneracy was stated as "radius times S". The couplings go as S_zz / R_H³. | Now written explicitly: predictions are unchanged when S′_zz = S_zz (R′_H / R_H)³. |
+| 3 | B | The interval assumptions omitted Gaussian errors with known covariance (and independence for a diagonal σ). The N − r = 0 case was unspecified. | Both added. With N − r = 0 there is no adequacy p-value and no claim of adequacy, as the fitter already does (`p_value=None`). |
+| 4 | B | "A rotated frame gives the same estimable quantities" had no comparison rule, since singular coordinates are not unique. | Compare the predictions, and the estimable subspace and covariance once transformed, never singular-coordinate labels or values literally. |
+
+The proposal goes to the owner with these fixes. Under the medium plan there is no third round.
