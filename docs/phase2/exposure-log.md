@@ -18,6 +18,7 @@ Each entry is appended and never edited. A correction is a new entry.
 | 2026-11-18 | the author agent (Claude) | Pizzirusso et al. (2012), Table 5 | benzene, tbb and acetylene rows | V0.1 survey |
 | 2026-11-18 | round 68 reviewer (GPT-6.2-Sol) | Taggar SI; Chandrakumar & Burnell Tables I–II; Pizzirusso Table 5 | all values | review of V0.1 |
 | 2026-11-18 | round 69 reviewer (GPT-6.2-Sol) | Taggar SI and paper Tables 1–2; Chandrakumar & Burnell Tables I–II and Figs. 2–3; the excluded sources' tables | all values | review of V0.1 |
+| 2026-11-18 | transcription task B (Codex, GPT-6.2-Sol) and the author agent (transcription A) | Chandrakumar & Burnell (1993), Tables I–II | all values (transcribed) | V0.2, decision 4 |
 
 **Kinds of access.**
 - **Retrieval-only** access (downloading, not reading values) does not expose a source.

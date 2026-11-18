@@ -51,8 +51,21 @@ jobs:
         run: |
           # GitHub attaches the tag's source archives to the release; .gitattributes keeps the 8CB
           # couplings out of them (round 61: the owner's choice is that the beta ships none).
-          if git archive HEAD | tar -t | grep -q "biphenyl-8CB-dipietro2013"; then
-            echo "the source archive contains the third-party 8CB dataset" >&2
+          # The V0 corpus (Phase 2) is validation-only too, and datasets-local/ is never tracked.
+          # Each command must succeed before the listing is searched (round 70: a failed archive
+          # must not pass the check).
+          set -euo pipefail
+          git archive --format=tar -o "$RUNNER_TEMP/source.tar" HEAD
+          tar -tf "$RUNNER_TEMP/source.tar" > "$RUNNER_TEMP/source.list"
+          test -s "$RUNNER_TEMP/source.list"
+          # grep exits 0 on a match, 1 on no match, 2 on an error: only 1 passes (round 71b).
+          status=0
+          grep -qE "biphenyl-8CB-dipietro2013|benzene-zli1132-taggar2006|datasets-local/" "$RUNNER_TEMP/source.list" || status=$?
+          if [ "$status" -eq 0 ]; then
+            echo "the source archive contains third-party data" >&2
+            exit 1
+          elif [ "$status" -ne 1 ]; then
+            echo "searching the source archive listing failed (grep status $status)" >&2
             exit 1
           fi
       - name: Build the wheels (page bundled)

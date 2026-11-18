@@ -31,3 +31,18 @@ references:
       name: "Université Paris-Sud / Università della Calabria"
     url: "http://hdl.handle.net/10955/1001"
     notes: "Source of the experimental biphenyl/8CB dipolar couplings in datasets/biphenyl-8CB-dipietro2013 (Table 3.1)."
+  - type: data
+    title: "Supporting Information: Testing Assumptions about Solute Concentration Dependence in Liquid Crystal NMR"
+    authors:
+      - family-names: Taggar
+        given-names: Amandeep S.
+      - family-names: Campbell
+        given-names: Christopher J.
+      - family-names: Yethiraj
+        given-names: Anand
+      - family-names: Burnell
+        given-names: E. Elliott
+    year: 2006
+    doi: "10.1021/jp052592j.s001"
+    license: CC-BY-NC-4.0
+    notes: "Source of the benzene dipolar couplings in datasets/benzene-zli1132-taggar2006 (Phase 2 V0 corpus, validation only). The article is J. Phys. Chem. B 110, 1363-1368 (2006)."

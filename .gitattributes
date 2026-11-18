@@ -5,3 +5,6 @@ web/src/generated/** linguist-generated=true
 # releases): the owner's choice is that the beta ships no 8CB couplings (beta step B4, round 61).
 datasets/biphenyl-8CB-dipietro2013 export-ignore
 datasets/biphenyl-8CB-dipietro2013/** export-ignore
+# Phase 2 V0 corpus: benzene (Taggar et al. 2006, SI under CC BY-NC 4.0), validation only.
+datasets/benzene-zli1132-taggar2006 export-ignore
+datasets/benzene-zli1132-taggar2006/** export-ignore
