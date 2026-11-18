@@ -1,6 +1,22 @@
 # Phase 2, first verification release (V0 + V1): a proposal
 
-**Status: draft for the owner (2026-11-18), reviewed in rounds 63–65.** Nothing here is approved.
+**Status: approved by the owner on 2026-11-18** ("follow the recommendations and start now"),
+after review rounds 63–65. What the approval covers:
+
+- **Decision 1, scope:** all parts approved — fixed geometry; an achiral, uniaxial medium; the
+  point groups C1, Cs, C2v, D2h, D3h and D6h; no fast motions; per-atom isotope identity.
+- **Decision 2, timing:** V0 and V1.0 start now.
+- **Decision 3, data policy:** the 8CB default.
+- **Decision 5:** the owner is the holdout custodian.
+- **Decision 7, order:** V0 + V1 before Phase 3.
+
+**Still open:**
+
+- **Decision 4,** the transcription procedure; it is needed before V0.2.
+- **Decision 6,** the external-reproduction path; it is needed before V1.5.
+- **When V1 code starts:** after the beta exit, or earlier with a `release/0.1` branch. This is
+  needed before V1.1.
+
 Plan §8 says that after the beta, the owner selects and re-baselines the first verification
 release, **V0 (benchmark corpus) plus V1 (rigid molecules from XYZ)**. This page proposes:
 
