@@ -1,0 +1,109 @@
+{
+  "about": "Phase 2 V0.3 preregistration, machine-readable. Frozen with docs/phase2/v0.3-preregistration.md; read by the V1.5 report. It holds no third-party values: targets are referenced by local path and SHA-256.",
+  "version": "prereg.1",
+  "frozen_on": "2026-11-19",
+  "amendments": [],
+  "model": {
+    "fit": "dipolar_core.fixed.fit_fixed",
+    "fixed_fit_version": "fixed-linear.1",
+    "adequacy_alpha": 0.001,
+    "weak_rtol": 1e-06,
+    "nuclide_table": "codata2018-iupac.1",
+    "isotope": "1H",
+    "motions": "none: a rigid, fixed geometry",
+    "medium": "achiral, uniaxial",
+    "per_condition": true
+  },
+  "error_model": {
+    "primary": "independent Gaussian errors, sigma as printed, at its printed scale",
+    "covariance": null,
+    "secondary_descriptive": "standard errors scaled by sqrt(chi2/nu) when nu > 0"
+  },
+  "geometry": {
+    "source": "J. Gauss and J. F. Stanton, J. Phys. Chem. A 104, 2865-2868 (2000), r_e",
+    "r_cc_angstrom": 1.3914,
+    "r_ch_angstrom": 1.0802,
+    "shape": "planar regular hexagon, each C-H bond radial; substituents ignored (no H-X pairs)"
+  },
+  "datasets": {
+    "benzene-taggar2006": {
+      "couplings": "datasets/benzene-zli1132-taggar2006/couplings.csv",
+      "point_group": "D6h",
+      "conditions": 15,
+      "observations_per_condition": 3,
+      "nu": 2,
+      "atoms": "H1-H6 consecutive on the ring",
+      "orbits": {"D12": ["H1", "H2"], "D13": ["H1", "H3"], "D14": ["H1", "H4"]},
+      "estimands": ["S_zz"],
+      "frame": "z normal to the ring (the V1 D6h frame and the paper's)",
+      "targets": {
+        "source": "Taggar et al. (2006), Tables 1-2, S_zz with its printed uncertainty",
+        "form": "table",
+        "local_path": "datasets-local/benzene-taggar2006-targets/targets.csv",
+        "sha256": "af653a83753142d130451ccff37d83b889df3d9892866f7890963d4c871efcfb",
+        "read_by": "tools/datasets/taggar2006_targets.py (two independent text-layer readings)",
+        "count": 15
+      },
+      "flags": {
+        "co_solutes": ["1/mix1", "2/mix2.1", "2/mix2.2", "2/mix2.3"],
+        "shared_tube": "run 1's single-solute series"
+      }
+    },
+    "odcb-chandrakumar1993": {
+      "couplings": "datasets-local/odcb-chandrakumar1993/couplings.csv",
+      "point_group": "C2v",
+      "conditions": 22,
+      "observations_per_condition": 4,
+      "nu": 2,
+      "atoms": "H1-H4 on consecutive ring carbons 3-6; Cl on carbons 1-2",
+      "orbits": {"D12=D34": ["H1", "H2"], "D13=D24": ["H1", "H3"], "D14": ["H1", "H4"], "D23": ["H2", "H3"]},
+      "estimands": ["S_zz", "S_xx-S_yy"],
+      "frame": "the paper's: z normal to the ring, y the in-plane C2 axis, x parallel to H2-H3",
+      "frame_map": "(x, y, z)_V1 = (z, x, y)_paper",
+      "conversion": {
+        "S_zz_paper": "(c - a) / 2",
+        "S_xx_minus_S_yy_paper": "-(3 a + c) / 2",
+        "where": "a = S_zz and c = S_xx - S_yy in the V1 C2v frame"
+      },
+      "targets": {
+        "source": "Chandrakumar & Burnell (1993), Fig. 3 (filled markers), cross-checked against Fig. 2",
+        "form": "figure",
+        "local_path": "datasets-local/odcb-chandrakumar1993/targets.csv",
+        "sha256": "1c7327c2d0167e2fa35f286f66594443759b7b3447fb021a09a5398fc770b14f",
+        "read_by": "tools/datasets/digitize_figure.py",
+        "count": 44,
+        "pending": 0
+      },
+      "flags": {
+        "near_duplicate": ["II/300", "II/302"],
+        "co_solutes": ["II/300 (trichlorobenzene)"],
+        "colon_tokens": "read as decimals (V0.2)",
+        "transcription": "two identical AI transcriptions; the owner's spot-check pending"
+      }
+    }
+  },
+  "criteria": {
+    "independent": {
+      "label": "independent support (declared geometry)",
+      "S_zz": "|S - S_pub| <= 0.05 |S_pub| + 2 p",
+      "S_xx-S_yy": "|S - S_pub| <= 0.05 |S_zz,pub| + 2 p",
+      "relative_tolerance": 0.05,
+      "p": "the target's precision: its printed sigma (table) or digitization precision (figure)"
+    },
+    "reproduction": {
+      "label": "reproduction (the authors' geometry and objective)",
+      "status": "pending until the authors' geometries are obtained",
+      "table": "|S - S_pub| <= max(printed sigma, half a unit in the last printed digit)",
+      "figure": "|S - S_pub| <= 2 p"
+    },
+    "dataset_label": {
+      "experimentally supported": "every compared target agrees, with the count of pending targets stated",
+      "unresolved failure": "any compared target disagrees and has no reviewed README entry",
+      "explained discrepancy": "a disagreement with a reviewed README entry; not counted as validation",
+      "pending": "no target can be compared"
+    },
+    "sensitivity": {
+      "odcb_near_duplicate": "the dataset label is recomputed without II/300 and without II/302; a change is reported as fragile"
+    }
+  }
+}

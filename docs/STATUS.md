@@ -373,7 +373,11 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
        V1.1, the fixed-geometry linear fit (`dipolar_core.fixed`, rounds 71–72,
        `docs/validation/round71-v1.1-fixed-fit.md`, tag `v1.1-fixed-fit`); the budgets are in
        `docs/validation/data/v11-fixed-benchmark.json`.
-     - **Next:** V0.3, the preregistration; then V1.2, symmetry and pair orbits.
+     - **In review:** V0.3, the preregistration (`docs/phase2/v0.3-preregistration.md` and its
+       JSON): model, declared geometry (Gauss & Stanton 2000 r_e), error model, criteria and
+       labels frozen; benzene targets read twice from the paper's text layer; ortho-dichlorobenzene
+       targets digitized from Fig. 3 (44, none pending), all local only.
+     - **Next:** V1.2, symmetry and pair orbits.
      - **Decided by the owner on 2026-11-18:**
        - D-1: carry projects over by export file;
        - decision 4: two independent AI transcriptions, with the owner's spot-check;
@@ -381,6 +385,8 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
      - **Open:**
        - the owner's 10-cell spot-check of the ortho-dichlorobenzene transcription
          (`datasets-local/odcb-chandrakumar1993/SPOT-CHECK.md`, local only);
+       - the owner's 3-cell spot-check of the benzene targets
+         (`datasets-local/benzene-taggar2006-targets/SPOT-CHECK.md`, local only);
        - library access for Diehl & Niederberger (1973) and Diehl & Khetrapal (1968);
        - the external-reproduction path (before V1.5).
    - **(B, CI after round 56)** a camera gesture made within the round trip of the page's previous
