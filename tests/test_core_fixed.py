@@ -692,3 +692,62 @@ def test_fixed_by_symmetry_is_reserved_for_structural_zeros() -> None:
     res = fixed.fit_fixed(a, a @ S_TRUE, np.full(len(a), 0.5), custom)
     status = {c.name: c.status for c in res.components}
     assert status["Sxy"] != "fixed-by-symmetry"
+
+
+def test_a_covariance_near_overflow_is_normalized_exactly() -> None:
+    """Round 72 (a surviving mutant): Σ = 4^511 Σ₀ has finite entries but an overflowing
+    ‖Σ‖∞, so only the power-of-4 normalization can test and factor it. The normalization is exact,
+    so the fit is bit-for-bit the fit of the unscaled problem."""
+    rng = np.random.default_rng(72)
+    n = 8
+    cov0 = 0.4 * np.eye(n) + 0.6  # (1 − ρ)I + ρJ with ρ = 0.6: positive definite, row sums 5.2
+    a0 = rng.normal(size=(n, 5))
+    y0 = a0 @ S_TRUE + rng.normal(size=n)
+    scale = 2.0**511
+    with np.errstate(over="ignore"):
+        assert np.isinf(np.sum(np.abs(cov0[0] * scale**2)))  # the unnormalized norm overflows
+    ref = fixed.fit_fixed(a0, y0, np.sqrt(np.diag(cov0)), covariance=cov0)
+    big = fixed.fit_fixed(a0 * scale, y0 * scale, np.sqrt(np.diag(cov0)) * scale, covariance=cov0 * scale**2)
+    assert np.array_equal(big.b, ref.b)
+    assert np.array_equal(big.retained_se, ref.retained_se)
+    assert big.chi2 == ref.chi2
+
+
+def test_a_design_whose_norm_overflows_still_reports_its_retained_estimates() -> None:
+    """Round 72 (a surviving mutant): every whitened entry is finite but ‖wa‖₂ is not. Without the
+    power-of-two normalization the singular values overflow and the fit is refused; with it, a
+    rank-deficient fit (no covariance is reported) returns its retained estimates, equal to the
+    estimates of the problem scaled down by the same power of two."""
+    rng = np.random.default_rng(73)
+    n = 4096
+    a0 = rng.normal(size=(n, 5))
+    a0[:, 4] = 0.0  # Syz is not estimable: rank 4 < 5, so the rank is unverified
+    y = rng.normal(size=n)
+    scale = 2.0**1018
+    with np.errstate(over="ignore"):
+        assert not np.isfinite(np.linalg.norm(a0[:, 0] * scale))
+    ref = fixed.fit_fixed(a0, y, np.ones(n))
+    big = fixed.fit_fixed(a0 * scale, y, np.ones(n))
+    assert not big.rank_verified and big.numerical_rank == 4 and big.covariance_b is None
+    np.testing.assert_allclose(big.b * scale, ref.b, rtol=1e-12, atol=0)
+    np.testing.assert_allclose(big.retained_se * scale, ref.retained_se, rtol=1e-12, atol=0)
+    assert big.chi2 == pytest.approx(ref.chi2, rel=1e-12)
+
+
+@pytest.mark.parametrize("order", ["C", "F"])
+def test_the_in_place_factorization_leaves_the_callers_covariance_alone(order: str) -> None:
+    """Round 72: the factorization works in place on its own workspace, never on the caller's
+    matrix, in either memory order."""
+    rng = np.random.default_rng(74)
+    n = 300  # larger than one row block
+    m = rng.normal(size=(n, n)) / math.sqrt(n)
+    cov = np.array(m @ m.T + np.eye(n), order=order)
+    before = cov.copy()
+    a = rng.normal(size=(n, 5))
+    res = fixed.fit_fixed(a, a @ S_TRUE, np.sqrt(np.diag(cov)), covariance=cov)
+    assert np.array_equal(cov, before)
+    lower = np.linalg.cholesky(before)
+    wa = np.linalg.solve(lower, a)
+    wy = np.linalg.solve(lower, a @ S_TRUE)
+    s5 = np.linalg.lstsq(wa, wy, rcond=None)[0]
+    np.testing.assert_allclose(res.s5, s5, rtol=1e-9, atol=1e-12)

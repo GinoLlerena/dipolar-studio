@@ -8,35 +8,54 @@
   "numpy": "2.5.4",
   "results": {
     "covariance_fit_N2000": {
-      "cpu_s_median": 1.2531370000000002,
-      "cpu_s_max": 1.290813,
-      "peak_mb": 91.56974792480469,
-      "budget": "128 MB peak including the caller's 32 MB covariance; i.e. 96 MB beyond it"
+      "cpu_s_median": 0.5751109999999999,
+      "cpu_s_max": 0.660531,
+      "peak_mb": 31.55926513671875,
+      "budget": "128 MB peak including the caller's 32 MB covariance; i.e. 96 MB beyond it",
+      "process": {
+        "peak_rss_before_mb": 74.84765625,
+        "peak_rss_after_mb": 137.12109375,
+        "increase_mb": 62.2734375
+      }
     },
     "diagonal_fit_N20000": {
-      "cpu_s_median": 0.008804000000000478,
-      "cpu_s_max": 0.011435000000000528,
-      "peak_mb": 3.9730262756347656,
+      "cpu_s_median": 0.009949999999999903,
+      "cpu_s_max": 0.012734999999999719,
+      "peak_mb": 4.736042022705078,
       "budget": "2 s, 100 MB"
     },
     "certificate_feasible_at_fitted_point": {
-      "cpu_s_median": 4.2999999999793204e-05,
-      "cpu_s_max": 8.400000000019503e-05,
-      "peak_mb": 0.0020389556884765625,
+      "cpu_s_median": 5.599999999983396e-05,
+      "cpu_s_max": 7.699999999966067e-05,
+      "peak_mb": 0.0021533966064453125,
       "status": "feasible",
       "budget": "0.1 s (the max includes the first call's one-off import of scipy.optimize)"
     },
     "certificate_feasible_away_from_fitted_point": {
-      "cpu_s_median": 0.005112999999999701,
-      "cpu_s_max": 0.18950099999999992,
-      "peak_mb": 0.009052276611328125,
+      "cpu_s_median": 0.007496000000000169,
+      "cpu_s_max": 0.24679699999999993,
+      "peak_mb": 0.009491920471191406,
       "status": "feasible",
       "budget": "0.1 s (the max includes the first call's one-off import of scipy.optimize)"
     },
     "certificate_infeasible_m4": {
-      "cpu_s_median": 0.012130999999999226,
-      "cpu_s_max": 0.01221499999999942,
-      "peak_mb": 0.010725975036621094,
+      "cpu_s_median": 0.00030799999999997496,
+      "cpu_s_max": 0.0003819999999996604,
+      "peak_mb": 0.007475852966308594,
+      "status": "infeasible",
+      "budget": "0.1 s (the max includes the first call's one-off import of scipy.optimize)"
+    },
+    "certificate_boundary_m4": {
+      "cpu_s_median": 0.07217000000000029,
+      "cpu_s_max": 0.07284300000000021,
+      "peak_mb": 0.012380599975585938,
+      "status": "feasible-within-tolerance",
+      "budget": "0.1 s (the max includes the first call's one-off import of scipy.optimize)"
+    },
+    "certificate_tied_eigenvectors_m1": {
+      "cpu_s_median": 0.00024999999999986144,
+      "cpu_s_max": 0.00026999999999999247,
+      "peak_mb": 0.007071495056152344,
       "status": "infeasible",
       "budget": "0.1 s (the max includes the first call's one-off import of scipy.optimize)"
     }

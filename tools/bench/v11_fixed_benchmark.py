@@ -9,9 +9,11 @@ during the call, excluding inputs allocated before it (numpy reports its allocat
 from __future__ import annotations
 
 import json
+import math
 import platform
 import statistics
 import subprocess
+import sys
 import time
 import tracemalloc
 from collections.abc import Callable
@@ -37,6 +39,32 @@ def measure(fn: Callable[[], object], repeats: int) -> dict[str, float]:
     return {"cpu_s_median": statistics.median(times), "cpu_s_max": max(times), "peak_mb": peak / 2**20}
 
 
+_RSS_CHILD = """
+import resource, sys, numpy as np
+from dipolar_core import fixed
+def rss():
+    r = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return r / 2**20 if sys.platform == "darwin" else r / 2**10  # bytes on macOS, KiB on Linux
+rng = np.random.default_rng(1)
+fixed.fit_fixed(rng.normal(size=(8, 5)), rng.normal(size=8), np.ones(8), covariance=np.eye(8))  # warm
+n = fixed.MAX_COVARIANCE_N
+cov = np.full((n, n), 0.0)  # written, so resident: np.diag's calloc pages are not (round 72)
+cov[np.diag_indices(n)] = rng.uniform(0.5, 1.5, n); cov[0, 1] = cov[1, 0] = 0.1
+a = rng.normal(size=(n, 5)); y = rng.normal(size=n); sigma = np.sqrt(np.diag(cov))
+before = rss()
+fixed.fit_fixed(a, y, sigma, covariance=cov)
+print(before, rss())
+"""
+
+
+def process_peak_rss() -> dict[str, float]:
+    """The process's peak resident memory around a dense N = 2000 covariance fit, in a fresh
+    process warmed with a small covariance fit, with the caller's matrix already allocated."""
+    out = subprocess.run([sys.executable, "-c", _RSS_CHILD], capture_output=True, text=True, check=True)
+    before, after = (float(v) for v in out.stdout.split())
+    return {"peak_rss_before_mb": before, "peak_rss_after_mb": after, "increase_mb": after - before}
+
+
 def cpu_name() -> str:
     try:
         return subprocess.run(
@@ -44,6 +72,13 @@ def cpu_name() -> str:
         ).stdout.strip()
     except OSError:
         return platform.processor()
+
+
+def tied_case() -> tuple[np.ndarray, np.ndarray]:
+    n = np.diag([1.0, -2.0, 1.0]) / math.sqrt(6.0)
+    s0 = np.diag([-0.51, -0.51, 1.02])
+    s0 = s0 - float(np.sum(s0 * n)) * n
+    return fixed.b_from_matrix(s0), fixed.b_from_matrix(n)[:, None]
 
 
 def main() -> int:
@@ -57,7 +92,8 @@ def main() -> int:
     y = rng.normal(size=n)
     sigma = np.sqrt(np.diag(cov))
     results["covariance_fit_N2000"] = measure(lambda: fixed.fit_fixed(a, y, sigma, covariance=cov), 3) | {
-        "budget": "128 MB peak including the caller's 32 MB covariance; i.e. 96 MB beyond it"
+        "budget": "128 MB peak including the caller's 32 MB covariance; i.e. 96 MB beyond it",
+        "process": process_peak_rss(),
     }
 
     n2 = 20_000
@@ -73,6 +109,8 @@ def main() -> int:
             fixed.SUBSPACES["C1"][:, :1],
         ),
         "infeasible_m4": (fixed.b_from_s5(np.array([-0.9, 0, 0, 0, 0])), fixed.SUBSPACES["C1"][:, 1:]),
+        "boundary_m4": (fixed.b_from_s5(np.array([-0.5, 0, 0, 0, 0])), fixed.SUBSPACES["C1"][:, 1:]),
+        "tied_eigenvectors_m1": tied_case(),
     }
     for name, (b0, nulls) in cases.items():
 

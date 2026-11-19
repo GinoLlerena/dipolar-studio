@@ -66,8 +66,10 @@ SUBSPACE_ATOL: Final = 1e-12
 #: A strict "feasible" needs λ_min ≥ −1/2 + EIGENVALUE_MARGIN: a bound on the eigenvalue error of a
 #: 3 × 3 symmetric matrix of norm ≤ √(3/2) (round 71); between the two it is "within tolerance".
 EIGENVALUE_MARGIN: Final = 1e-14
-#: Bounded certificate search: Nelder–Mead iterations per start, per null direction (D-11).
+#: Bounded certificate search: Nelder–Mead iterations per start, per null direction, and a cap on
+#: λ_min evaluations across all starts (D-11, round 72).
 SEARCH_ITERATIONS_PER_DIRECTION: Final = 100
+SEARCH_TOTAL_EVALUATIONS: Final = 1500
 #: Two-sided Gaussian quantiles for the reported intervals.
 INTERVAL_LEVELS: Final = {"68.3": 1.0, "95": 1.959963984540054}
 NAMES: Final = ("Szz", "Sxx-Syy", "Sxy", "Sxz", "Syz")
@@ -200,14 +202,32 @@ class FixedResult:
         return s5_from_b(self.b)
 
 
-def _cholesky_factor(sigma: Array, covariance: object) -> Array | None:
-    """The lower Cholesky factor L of a full covariance (Σ = L Lᵀ), or None for a diagonal σ.
+@dataclass(frozen=True, slots=True)
+class _Factor:
+    """Σ = 4^k · L Lᵀ, with L the Cholesky factor of the normalized matrix Σ / 4^k; and a lower
+    bound on λ_min(Σ) / 4^k from the shifted factorization."""
 
-    Checked in this order (round 71): the size cap before the covariance is even converted; its
-    shape and finiteness; its symmetry, relative to its largest entry (its symmetric part is then
-    used); its diagonal against σ; and positive definiteness with a scale-aware margin, since a
-    Cholesky factorization alone can succeed on an exactly singular matrix by roundoff. No inverse
-    is formed: the factor is applied by triangular solves.
+    lower: Array
+    root_scale: float  # 2^k
+    lambda_min_lower: float
+
+
+def _cholesky_factor(sigma: Array, covariance: object) -> _Factor | None:
+    """Factor a full covariance, or None for a diagonal σ (D-8; rounds 71 and 72).
+
+    In order:
+    1. the size cap, before the covariance is even converted;
+    2. its shape and finiteness;
+    3. its symmetry, relative to its largest entry, checked in row blocks (no N × N temporary);
+    4. its diagonal against σ;
+    5. its normalization by a power of 4 (exact, so every check is scale-invariant), into its
+       symmetric part;
+    6. positive definiteness: a Cholesky factorization of Σ_n − τI must succeed, with
+       τ = max(1e-12, 64·N·eps)·‖Σ_n‖∞. ‖Σ_n‖∞ ≥ λ_max, so this proves λ_min ≥ τ up to the
+       factorization's backward error, which is far below τ. Unlike an eigensolve, it needs no
+       extra N × N workspace and little time.
+
+    The workspace is the normalized symmetric copy and one factor; no inverse is formed.
     """
     if covariance is None:
         return None
@@ -217,23 +237,43 @@ def _cholesky_factor(sigma: Array, covariance: object) -> Array | None:
     cov = np.asarray(covariance, dtype=np.float64)
     if cov.shape != (n, n) or not np.all(np.isfinite(cov)):
         raise ValueError("the covariance must be a finite N × N matrix")
-    scale = float(np.max(np.abs(cov)))
-    asymmetry = max(float(np.max(np.abs(cov[k : k + 256] - cov[:, k : k + 256].T))) for k in range(0, n, 256))
-    if asymmetry > COVARIANCE_SYMMETRY_RTOL * scale:
+    largest = max(float(np.max(cov)), -float(np.min(cov)))
+    if not largest > 0:
+        raise ValueError("the covariance must be positive definite")
+    block = 64  # row blocks of 64 × N: about 1 MB temporaries at the cap (round 72: process memory)
+    asymmetry = max(float(np.max(np.abs(cov[k : k + block] - cov[:, k : k + block].T))) for k in range(0, n, block))
+    if asymmetry > COVARIANCE_SYMMETRY_RTOL * largest:
         raise ValueError("the covariance must be symmetric")
-    sym = cov + cov.T
-    sym *= 0.5
-    if not np.allclose(np.sqrt(np.diag(sym)), sigma, rtol=1e-12, atol=0.0):
+    if not np.allclose(np.sqrt(np.diag(cov)), sigma, rtol=1e-12, atol=0.0):
         raise ValueError("sigma must equal the square root of the covariance diagonal")
-    eigenvalues = np.linalg.eigvalsh(sym)
-    margin = max(COVARIANCE_PD_RTOL, 64 * n * float(np.finfo(np.float64).eps))
-    if not eigenvalues[-1] > 0 or eigenvalues[0] < margin * eigenvalues[-1]:
-        raise ValueError("the covariance must be positive definite (its smallest eigenvalue is not resolved)")
+    k = round(math.log2(largest) / 2)
+    factor = 0.5 * 4.0 ** (-k)  # a power of two: exact
+    from scipy.linalg import LinAlgError, cholesky
+
+    def symmetric_part(out: Array | None) -> Array:
+        """(Σ + Σᵀ)/2 / 4^k, built in row blocks into one N × N workspace."""
+        work = np.multiply(cov, factor, out=out)
+        for start in range(0, n, block):
+            work[start : start + block] += cov[:, start : start + block].T * factor
+        return work
+
+    sym = symmetric_part(None)
+    norm_inf = max(float(np.max(np.sum(np.abs(sym[k2 : k2 + block]), axis=1))) for k2 in range(0, n, block))
+    tau = max(COVARIANCE_PD_RTOL, 64 * n * float(np.finfo(np.float64).eps)) * norm_inf
+    # The shifted test factors the workspace in place (its transpose is the same symmetric matrix
+    # in Fortran order), then the workspace is rebuilt and factored in place again: one N × N
+    # buffer in all (round 72: process memory).
+    sym[np.diag_indices(n)] -= tau
     try:
-        out: Array = np.linalg.cholesky(sym)
-    except np.linalg.LinAlgError:
+        cholesky(sym.T, lower=True, overwrite_a=True, check_finite=False)
+    except LinAlgError:
+        raise ValueError("the covariance must be positive definite (its smallest eigenvalue is not resolved)") from None
+    sym = symmetric_part(sym)
+    try:
+        lower = cholesky(sym.T, lower=True, overwrite_a=True, check_finite=False)
+    except LinAlgError:
         raise ValueError("the covariance must be positive definite") from None
-    return out
+    return _Factor(lower, 2.0**k, tau)
 
 
 def _check_subspace(subspace: Array) -> Array:
@@ -244,6 +284,8 @@ def _check_subspace(subspace: Array) -> Array:
         raise ValueError("the subspace must be a finite 5 × d matrix with 1 ≤ d ≤ 5")
     if float(np.max(np.abs(c.T @ c - np.eye(c.shape[1])))) > SUBSPACE_ATOL:
         raise ValueError("the subspace's columns must be orthonormal in b")
+    if np.array_equal(c.T @ c, np.eye(c.shape[1])):
+        return c  # exactly orthonormal already (the built-in subspaces): keep its exact zeros
     q, r = np.linalg.qr(c)
     out: Array = q * np.where(np.diag(r) < 0, -1.0, 1.0)
     return out
@@ -286,25 +328,30 @@ def fit_fixed(
         raise ValueError("every sigma must be positive")
     c = _check_subspace(SUBSPACES["C1"] if subspace is None else subspace)
     d = c.shape[1]
-    chol = _cholesky_factor(sigma, covariance)
+    factor = _cholesky_factor(sigma, covariance)
 
     # Whiten first, then change basis: a common scale cancels before anything can overflow.
-    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-        if chol is None:
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore", under="ignore"):
+        if factor is None:
             wa5, wy = a5 / sigma[:, None], y / sigma
         else:
             from scipy.linalg import solve_triangular
 
-            wa5 = solve_triangular(chol, a5, lower=True, check_finite=False)
-            wy = solve_triangular(chol, y, lower=True, check_finite=False)
+            wa5 = solve_triangular(factor.lower, a5, lower=True, check_finite=False) / factor.root_scale
+            wy = solve_triangular(factor.lower, y, lower=True, check_finite=False) / factor.root_scale
         wa = (wa5 / ORTHO_SCALE) @ c  # N × d, in reduced b coordinates
     _finite("the whitened design and data", wa, wy)
-    # One SVD gives U, s and a complete right basis (d × d), so signs and ties stay paired.
-    u, s, vt = np.linalg.svd(wa, full_matrices=n < d)
+    # The SVD of a power-of-two normalization of the design (exact), so its singular values are
+    # finite (round 72); the true values are s_n · g. One SVD gives U, s and a complete right
+    # basis (d × d), so signs and ties stay paired.
+    largest = float(np.max(np.abs(wa))) if wa.size else 0.0
+    g = 2.0 ** round(math.log2(largest)) if largest > 0 else 1.0
+    u, s_n, vt = np.linalg.svd(wa / g, full_matrices=n < d)
     v_full = vt.T
-    s_max = float(s[0]) if s.size else 0.0
-    ratios = s / s_max if s_max > 0 else np.zeros_like(s)
-    keep = ratios > RANK_RTOL if s_max > 0 else np.zeros_like(s, dtype=bool)
+    s_max = float(s_n[0]) if s_n.size else 0.0
+    ratios = s_n / s_max if s_max > 0 else np.zeros_like(s_n)
+    _finite("the singular values", s_n, ratios)
+    keep = ratios > RANK_RTOL if s_max > 0 else np.zeros_like(s_n, dtype=bool)
     r = int(np.count_nonzero(keep))
 
     if r == 0:
@@ -317,8 +364,9 @@ def fit_fixed(
         reason = "verified: numerical rank equals the required rank, with margin"
     verified = r == d and r > 0 and ratios[d - 1] >= WEAK_RTOL
 
-    with np.errstate(over="ignore", invalid="ignore"):
-        coords = (u[:, :r].T @ wy) / s[:r]
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore", under="ignore"):
+        coords = (u[:, :r].T @ (wy / g)) / s_n[:r]
+        retained_se = (1.0 / s_n[:r]) / g
         v_r = v_full[:, :r]
         t = v_r @ coords
         b = c @ t
@@ -327,14 +375,31 @@ def fit_fixed(
         predictions = a5 @ s5_from_b(b)
         residuals = y - predictions
         wres = wy - wa @ t
-        chi2 = _norm2(wres) ** 2
-        # The covariance from the singular reciprocals (round 71: squaring s first can overflow).
-        scaled = retained_b / s[:r]
+        # Covariance and SEs from the singular reciprocals, scaled by g last (rounds 71 and 72).
+        unit = retained_b / s_n[:r]
+        scaled = unit / g
         covariance_b = scaled @ scaled.T if verified else None
     nu = n - d
-    _finite("the estimate, predictions and residuals", b, predictions, residuals, chi2)
+    _finite("the estimate, predictions and residuals", b, coords, predictions, residuals)
+    _finite("the uncertainties", retained_se)
+    if np.any(retained_se == 0) or (
+        covariance_b is not None
+        and (not np.all(np.isfinite(covariance_b)) or np.any(np.diag(c.T @ covariance_b @ c) <= 0))
+    ):
+        raise ValueError("the problem is not representable in floating point (the uncertainties)")
+    chi = _norm2(wres)
+    if chi > math.sqrt(float(np.finfo(np.float64).max)) or (chi > 0 and chi * chi == 0):
+        raise ValueError("the problem is not representable in floating point (χ²)")
+    chi2 = chi * chi
+    # A bound on the rounding error of the whitened residual (round 72): when σ is far below the
+    # precision of the data, it can exceed the residual itself, and then no adequacy decision can
+    # be made from χ².
+    eps = float(np.finfo(np.float64).eps)
+    with np.errstate(over="ignore", invalid="ignore"):
+        rounding = (8 + n) * eps * (np.abs(wy) + np.abs(wa) @ np.abs(t))
+    delta = _norm2(rounding) if np.all(np.isfinite(rounding)) else math.inf
 
-    components = tuple(_component(name, j, c, b, scaled if verified else None) for j, name in enumerate(NAMES))
+    components = tuple(_component(name, j, c, b, unit if verified else None, g) for j, name in enumerate(NAMES))
 
     p_value: float | None = None
     adequacy: AdequacyStatus
@@ -344,8 +409,13 @@ def fit_fixed(
     elif nu <= 0:
         adequacy, code = "no-dof", "NO_DOF"
     else:
-        p_value = float(chdtrc(nu, chi2))
-        adequacy = "inadequate" if p_value < ADEQUACY_ALPHA else "given"
+        low = float(chdtrc(nu, max(chi - delta, 0.0) ** 2))
+        high = float(chdtrc(nu, (chi + delta) ** 2)) if math.isfinite(delta) else 0.0
+        if (low < ADEQUACY_ALPHA) != (high < ADEQUACY_ALPHA):
+            adequacy, code = "withheld", "ADEQUACY_NUMERICAL"
+        else:
+            p_value = float(chdtrc(nu, chi2))
+            adequacy = "inadequate" if p_value < ADEQUACY_ALPHA else "given"
 
     return FixedResult(
         b=b,
@@ -357,7 +427,7 @@ def fit_fixed(
         singular_ratios=ratios,
         retained_b=retained_b,
         retained_estimates=coords,
-        retained_se=1.0 / s[:r],
+        retained_se=retained_se,
         null_b=null_b,
         covariance_b=covariance_b,
         components=components,
@@ -373,29 +443,41 @@ def fit_fixed(
     )
 
 
-def _component(name: str, j: int, c: Array, b: Array, scaled: Array | None) -> Component:
+def _component(name: str, j: int, c: Array, b: Array, unit: Array | None, g: float = 1.0) -> Component:
     """The named component s5_j = b_j / ORTHO_SCALE_j, as the functional e_j / scale_j in b.
 
     A component whose functional lies outside the declared subspace (projection ≤ 1e-12 of its
     norm) is fixed at 0 by the symmetry. For the built-in subspaces this is exact; a custom
     subspace with a tiny but nonzero component is treated the same way (round 71, documented).
-    ``scaled`` holds the retained directions divided by their singular values.
+    ``unit`` holds the retained directions divided by the normalized singular values; the true
+    SEs are those norms divided by g. "fixed-by-symmetry" is reserved for structural zeros: the
+    functional's projection onto the subspace is exactly zero (round 72).
     """
     coefficients = np.zeros(5)
     coefficients[j] = 1.0 / ORTHO_SCALE[j]
     inside = c @ (c.T @ coefficients)
-    if np.linalg.norm(inside) <= 1e-12 * np.linalg.norm(coefficients):
+    if not np.any(inside):
         return Component(name, "fixed-by-symmetry", coefficients, 0.0, None, None)
-    if scaled is None:
+    if unit is None:
         return Component(name, "unverified", coefficients, None, None, None)
     estimate = float(coefficients @ b)
-    se = _norm2(coefficients @ scaled)
+    with np.errstate(under="ignore", over="ignore"):
+        se = _norm2(coefficients @ unit) / g
+    if not (math.isfinite(se) and se > 0):
+        raise ValueError("the problem is not representable in floating point (an SE)")
     intervals = {level: (estimate - z * se, estimate + z * se) for level, z in INTERVAL_LEVELS.items()}
     return Component(name, "estimated", coefficients, estimate, se, intervals)
 
 
 def _strictly_physical(lam: float) -> bool:
+    """λ_min ≥ −1/2 for certain: the computed value minus its error bound (construction and
+    eigenvalue error of a 3 × 3 symmetric matrix of norm ≤ √(3/2)), as EIGENVALUE_MARGIN."""
     return lam - EIGENVALUE_MARGIN >= -0.5
+
+
+def _within_tolerance(lam: float) -> bool:
+    """λ_min ≥ −1/2 − ε for certain (round 72: the ε cutoff is guarded too)."""
+    return lam - EIGENVALUE_MARGIN >= -0.5 - FEASIBILITY_EPS
 
 
 def admissibility(b0: Array, null_b: Array) -> Admissibility:
@@ -403,20 +485,24 @@ def admissibility(b0: Array, null_b: Array) -> Admissibility:
 
     ``b0`` must be the minimum-norm point of the family (orthogonal to ``null_b``), and the null
     directions orthonormal. Physical tensors have ‖S‖_F ≤ √(3/2), so only the ball ‖c‖ ≤ √(3/2) of
-    the family can hold one. A strict "feasible" needs a margin over the eigenvalue error; within
-    ε of the boundary the answer is "feasible-within-tolerance"; "infeasible" needs a verified dual
-    certificate; anything else is "undetermined". The search is bounded and stops at the first
-    certificate.
+    the family can hold one. Every status is decided with the eigenvalue error bound: a strict
+    "feasible" or "admissible" needs λ_min − margin ≥ −1/2 (or −1/2 − ε for "within tolerance");
+    "infeasible" needs a verified dual certificate; anything unresolved is "undetermined". The
+    search tries the dual at the fitted point first and stops at the first certificate, with a cap
+    on the total work.
     """
     m = null_b.shape[1]
     if m == 0:
         lam = lambda_min(b0)
-        ok = lam >= -0.5 - FEASIBILITY_EPS
-        return Admissibility("admissible" if ok else "inadmissible", lam, None, "direct: the fitted tensor")
+        if _within_tolerance(lam):
+            return Admissibility("admissible", lam, None, "direct: the fitted tensor")
+        if lam + EIGENVALUE_MARGIN < -0.5 - FEASIBILITY_EPS:
+            return Admissibility("inadmissible", lam, None, "direct: the fitted tensor")
+        return Admissibility("undetermined", lam, None, "direct: the fitted tensor is at the ε cutoff")
     family_label = "the family preserving the retained projection"
-    lam0 = lambda_min(b0)
     if not np.any(b0):
         return Admissibility("feasible", 0.0, np.zeros(5), "S = 0 belongs to the family", family_label)
+    lam0 = lambda_min(b0)
     if _strictly_physical(lam0):
         return Admissibility("feasible", lam0, b0.copy(), "the fitted point itself is physical", family_label)
 
@@ -426,42 +512,65 @@ def admissibility(b0: Array, null_b: Array) -> Admissibility:
         out: Array = b0 + null_b @ coeffs
         return out
 
+    def infeasible(point: Array) -> Admissibility | None:
+        z = _dual_certificate(point, null_b)
+        if z is None or not certifies_infeasible(z, b0, null_b):
+            return None
+        value = float(np.sum(z * matrix_from_b(b0)))
+        text = f"a verified dual certificate: <Z, S0> = {value:.12g} < cutoff {_dual_cutoff(m):.12g}"
+        return Admissibility("infeasible", best_lam, None, text, family_label)
+
     best_c, best_lam = np.zeros(m), lam0
-    for c_start, lam in _search_lambda_min(family, m, radius):
+    found = infeasible(b0)
+    if found is not None:
+        return found
+    for point_c, lam in _search_lambda_min(family, m, radius):
         if lam > best_lam:
-            best_c, best_lam = c_start, lam
+            best_c, best_lam = point_c, lam
         if _strictly_physical(best_lam):
             return Admissibility("feasible", best_lam, family(best_c), "a verified feasible tensor", family_label)
-        z = _dual_certificate(family(best_c), null_b)
-        if z is not None and certifies_infeasible(z, b0, null_b):
-            value = float(np.sum(z * matrix_from_b(b0)))
-            return Admissibility(
-                "infeasible", best_lam, None, f"a verified dual certificate: <Z, S0> = {value:.6g}", family_label
-            )
-    if best_lam >= -0.5 - FEASIBILITY_EPS:
+        found = infeasible(family(best_c))
+        if found is not None:
+            return found
+    if _within_tolerance(best_lam):
         return Admissibility(
             "feasible-within-tolerance", best_lam, family(best_c), "a tensor within ε of the boundary", family_label
         )
     return Admissibility("undetermined", best_lam, None, "no certificate could be verified", family_label)
 
 
-def certifies_infeasible(z: Array, b0: Array, null_b: Array) -> bool:
-    """Does Z prove that no tensor of b0 + span(null_b) is physical? (D-9, round 67)
+def _dual_cutoff(m: int) -> float:
+    return -0.5 - (2.0 + math.sqrt(1.5 * m)) * FEASIBILITY_EPS - FEASIBILITY_DELTA
 
-    Z must satisfy, within ε: Z ⪰ 0, tr Z = 1 and ⟨Z, N_k⟩ = 0. Then for any physical completion
-    (‖c‖ ≤ √(3/2)), λ_min ≥ −1/2 would force ⟨Z, S0⟩ ≥ −1/2 − (2 + √(3m/2))ε; a value below that,
-    by the arithmetic margin δ, is a proof of infeasibility.
+
+def certifies_infeasible(z: Array, b0: Array, null_b: Array) -> bool:
+    """Does Z prove that no tensor of b0 + span(null_b) is physical? (D-9, rounds 67 and 72)
+
+    **Preconditions** (checked; a ValueError otherwise): the null directions are orthonormal in b,
+    and b0 is orthogonal to them (the minimum-norm point). **The witness** must be a finite,
+    symmetric 3 × 3 matrix; the same matrix is used for every check. It must satisfy, within ε:
+    Z ⪰ 0, tr Z = 1 and ⟨Z, N_k⟩ = 0. Then any physical completion (‖c‖ ≤ √(3/2)) would force
+    ⟨Z, S0⟩ ≥ −1/2 − (2 + √(3m/2))ε, so a value below that, by the arithmetic margin δ, proves
+    infeasibility.
     """
-    nulls = [matrix_from_b(null_b[:, k]) for k in range(null_b.shape[1])]
+    null_b = np.asarray(null_b, dtype=np.float64)
+    b0 = np.asarray(b0, dtype=np.float64)
+    m = null_b.shape[1]
+    if float(np.max(np.abs(null_b.T @ null_b - np.eye(m)), initial=0.0)) > 1e-12:
+        raise ValueError("the null directions must be orthonormal")
+    if float(np.max(np.abs(null_b.T @ b0), initial=0.0)) > 1e-12 * max(1.0, float(np.linalg.norm(b0))):
+        raise ValueError("b0 must be orthogonal to the null directions (the minimum-norm point)")
+    z = np.asarray(z, dtype=np.float64)
+    if z.shape != (3, 3) or not np.all(np.isfinite(z)) or not np.array_equal(z, z.T):
+        return False
+    nulls = [matrix_from_b(null_b[:, k]) for k in range(m)]
     if not (
         float(np.linalg.eigvalsh(z)[0]) >= -FEASIBILITY_EPS
         and abs(float(np.trace(z)) - 1.0) <= FEASIBILITY_EPS
         and all(abs(float(np.sum(z * nk))) <= FEASIBILITY_EPS for nk in nulls)
     ):
         return False
-    m = len(nulls)
-    bound = -0.5 - (2.0 + math.sqrt(1.5 * m)) * FEASIBILITY_EPS - FEASIBILITY_DELTA
-    return float(np.sum(z * matrix_from_b(b0))) < bound
+    return float(np.sum(z * matrix_from_b(b0))) < _dual_cutoff(m)
 
 
 def _search_lambda_min(family: Callable[[Array], Array], m: int, radius: float) -> Iterator[tuple[Array, float]]:
@@ -477,9 +586,13 @@ def _search_lambda_min(family: Callable[[Array], Array], m: int, radius: float) 
         return -lambda_min(family(clip(c)))
 
     starts = [np.zeros(m), *(radius / 2 * row for row in np.eye(m)), *(-radius / 2 * row for row in np.eye(m))]
-    options = {"xatol": 1e-12, "fatol": 1e-14, "maxiter": SEARCH_ITERATIONS_PER_DIRECTION * m}
+    remaining = SEARCH_TOTAL_EVALUATIONS
     for start in starts:
+        if remaining <= 0:
+            return
+        options = {"xatol": 1e-12, "fatol": 1e-14, "maxiter": SEARCH_ITERATIONS_PER_DIRECTION * m, "maxfev": remaining}
         res = minimize(objective, start, method="Nelder-Mead", options=options)
+        remaining -= int(res.nfev)
         best = clip(np.asarray(res.x, dtype=np.float64))
         yield best, lambda_min(family(best))
 
@@ -502,6 +615,7 @@ def _dual_certificate(b_star: Array, null_b: Array) -> Array | None:
     if low < 0:
         t = -low / (1.0 / 3.0 - low)
         z = (1.0 - t) * z + t * np.eye(3) / 3.0
+    z = (z + z.T) / 2  # exactly symmetric, as certifies_infeasible requires
     if (
         np.linalg.eigvalsh(z)[0] >= -FEASIBILITY_EPS
         and abs(float(np.trace(z)) - 1.0) <= FEASIBILITY_EPS
