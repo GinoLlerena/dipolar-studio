@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Phase 2 V0.3 preregistration",
+  "description": "Closed: every object forbids unknown keys, every number is a frozen constant, every hash is 64 hexadecimal digits (round 73, A4).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["about", "version", "frozen_on", "amendments", "model", "error_model", "geometry", "datasets", "digitization", "criteria"],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^(datasets|datasets-local)/[a-z0-9./_-]+\\.csv$"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "condition": {"type": "string", "pattern": "^(1|2|I|II)/[a-z0-9.]+$"},
+    "label": {"enum": ["unresolved failure", "explained discrepancy", "pending", "partially supported", "experimentally supported"]},
+    "atom": {"type": "string", "pattern": "^H[1-6]$"},
+    "matrix": {"type": "array", "items": {"type": "array", "items": {"type": "number"}}},
+    "targets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "form", "count", "pending"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^datasets-local/[a-z0-9./_-]+\\.csv$"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "form": {"enum": ["table", "figure"]},
+        "count": {"type": "integer", "minimum": 0},
+        "pending": {"type": "integer", "minimum": 0}
+      }
+    },
+    "dataset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["couplings", "point_group", "conditions", "observations_per_condition", "nu", "ring_positions", "orbits", "estimands", "frame", "frame_map_matrix", "conversion_matrix", "roster_cells", "targets", "flags"],
+      "properties": {
+        "couplings": {"$ref": "#/$defs/file"},
+        "point_group": {"enum": ["D6h", "C2v"]},
+        "conditions": {"type": "integer", "minimum": 1},
+        "observations_per_condition": {"type": "integer", "minimum": 1},
+        "nu": {"type": "integer", "minimum": 0},
+        "ring_positions": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/atom"},
+          "additionalProperties": {"enum": [0, 60, 120, 180, 240, 300]}
+        },
+        "orbits": {
+          "type": "object",
+          "propertyNames": {"pattern": "^D[1-6]{2}(=D[1-6]{2})*$"},
+          "additionalProperties": {"type": "array", "items": {"$ref": "#/$defs/atom"}, "minItems": 2, "maxItems": 2}
+        },
+        "estimands": {"type": "array", "items": {"enum": ["S_zz", "S_xx-S_yy"]}, "minItems": 1},
+        "frame": {"type": "string", "pattern": "^[A-Za-z0-9 ,:;'()=/-]+$"},
+        "frame_map_matrix": {"$ref": "#/$defs/matrix"},
+        "conversion_matrix": {"$ref": "#/$defs/matrix"},
+        "roster_cells": {"type": "integer", "minimum": 1},
+        "targets": {"$ref": "#/$defs/targets"},
+        "flags": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "co_solutes": {"type": "array", "items": {"$ref": "#/$defs/condition"}},
+            "near_duplicate": {"type": "array", "items": {"$ref": "#/$defs/condition"}},
+            "shared_tube": {"const": "run 1 single-solute series"},
+            "colon_tokens": {"const": "read as decimals (V0.2)"},
+            "transcription": {"const": "two identical AI transcriptions; owner spot-check pending"}
+          }
+        }
+      }
+    }
+  },
+  "properties": {
+    "about": {"type": "string"},
+    "version": {"type": "string", "pattern": "^prereg\\.[0-9]+$"},
+    "frozen_on": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "amendments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["date", "kind", "reason", "before_sha256", "after_sha256", "post_hoc"],
+        "properties": {
+          "date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+          "kind": {"enum": ["protocol", "data correction", "target correction"]},
+          "reason": {"type": "string"},
+          "evidence": {"type": "string"},
+          "before_sha256": {"$ref": "#/$defs/sha256"},
+          "after_sha256": {"$ref": "#/$defs/sha256"},
+          "post_hoc": {"type": "boolean"}
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fit", "fixed_fit_version", "adequacy_alpha", "weak_rtol", "nuclide_table", "isotope", "motions", "medium", "per_condition"],
+      "properties": {
+        "fit": {"const": "dipolar_core.fixed.fit_fixed"},
+        "fixed_fit_version": {"const": "fixed-linear.1"},
+        "adequacy_alpha": {"const": 0.001},
+        "weak_rtol": {"const": 1e-06},
+        "nuclide_table": {"const": "codata2018-iupac.1"},
+        "isotope": {"const": "1H"},
+        "motions": {"const": "none"},
+        "medium": {"const": "achiral uniaxial"},
+        "per_condition": {"const": true}
+      }
+    },
+    "error_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary", "covariance", "secondary_descriptive", "paper_frame_errors"],
+      "properties": {
+        "primary": {"const": "independent Gaussian, sigma as printed"},
+        "covariance": {"type": "null"},
+        "secondary_descriptive": {"const": "standard errors scaled by sqrt(chi2/nu)"},
+        "paper_frame_errors": {"const": "the full fitted covariance, transformed by the conversion matrix"}
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "r_cc_angstrom", "r_ch_angstrom", "shape"],
+      "properties": {
+        "source": {"const": "Gauss and Stanton, J. Phys. Chem. A 104, 2865 (2000), r_e"},
+        "r_cc_angstrom": {"const": 1.3914},
+        "r_ch_angstrom": {"const": 1.0802},
+        "shape": {"const": "planar regular hexagon, radial C-H"}
+      }
+    },
+    "datasets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["benzene-taggar2006", "odcb-chandrakumar1993"],
+      "properties": {
+        "benzene-taggar2006": {"$ref": "#/$defs/dataset"},
+        "odcb-chandrakumar1993": {"$ref": "#/$defs/dataset"}
+      }
+    },
+    "digitization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary_figure", "cross_check_figure", "match_tolerance_T_r", "fig2_match_kelvin", "fig2_disagreement_factor"],
+      "properties": {
+        "primary_figure": {"const": "Fig. 3"},
+        "cross_check_figure": {"const": "Fig. 2"},
+        "match_tolerance_T_r": {"const": 0.0015},
+        "fig2_match_kelvin": {"const": 1},
+        "fig2_disagreement_factor": {"const": 2}
+      }
+    },
+    "criteria": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["independent", "reproduction", "eligibility", "label_precedence", "sensitivity"],
+      "properties": {
+        "independent": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label", "relative_tolerance", "precision_factor", "S_zz_margin", "S_xx-S_yy_margin"],
+          "properties": {
+            "label": {"const": "independent support (declared geometry)"},
+            "relative_tolerance": {"const": 0.05},
+            "precision_factor": {"const": 2},
+            "S_zz_margin": {"const": "relative_tolerance * |S_zz,pub| + precision_factor * p"},
+            "S_xx-S_yy_margin": {"const": "relative_tolerance * |S_zz,pub| + precision_factor * p (an axial-scale heuristic)"}
+          }
+        },
+        "reproduction": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label", "requires", "table_margin", "figure_margin", "fallback_label"],
+          "properties": {
+            "label": {"const": "reproduction (the authors' analysis)"},
+            "requires": {"const": ["geometry", "objective", "weights", "corrections"]},
+            "table_margin": {"const": "max(printed sigma, half a unit in the last printed digit)"},
+            "figure_margin": {"const": "precision_factor * p"},
+            "fallback_label": {"const": "approximate reproduction (assumed weights 1/sigma^2)"}
+          }
+        },
+        "eligibility": {"const": ["rank-unverified", "no-target", "s_zz-target-pending"]},
+        "label_precedence": {"const": ["unresolved failure", "explained discrepancy", "pending", "partially supported", "experimentally supported"]},
+        "sensitivity": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "odcb-chandrakumar1993": {"type": "array", "items": {"$ref": "#/$defs/condition"}}
+          }
+        }
+      }
+    }
+  }
+}
