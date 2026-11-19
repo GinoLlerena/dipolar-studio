@@ -684,6 +684,10 @@ def _near(value: float, bound: float) -> bool:
 
 # --------------------------------------------------------------------------- the fit
 def fit(problem: Problem, settings: Settings | None = None) -> FitResult:
+    if problem.k == 0:
+        raise ValueError(
+            "a problem with no geometry parameter is a linear fit: use dipolar_core.fixed.fit_fixed (Phase 2 V1.1)"
+        )
     settings = settings or Settings()
     sc = scan(problem, settings)
     trials = [_refine(problem, sc.points[i], settings) for i in (*sc.starts, *sc.rank_starts)]

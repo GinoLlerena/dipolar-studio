@@ -369,14 +369,18 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
        `v1.0-design`); V0.1, selection and access (`docs/phase2/v0.1-selection.md`, rounds
        68–69, tag `v0.1-selection`). The selected development data are Taggar et al. (2006)
        benzene (the SI, CC BY-NC 4.0) and Chandrakumar & Burnell (1993) ortho-dichlorobenzene
-       (© ISMAR, local only).
+       (© ISMAR, local only). V0.2, the corpus (`docs/phase2/v0.2-corpus.md`, rounds 70–71b).
+       V1.1, the fixed-geometry linear fit (`dipolar_core.fixed`, rounds 71–72,
+       `docs/validation/round71-v1.1-fixed-fit.md`, tag `v1.1-fixed-fit`); the budgets are in
+       `docs/validation/data/v11-fixed-benchmark.json`.
+     - **Next:** V0.3, the preregistration; then V1.2, symmetry and pair orbits.
      - **Decided by the owner on 2026-11-18:**
        - D-1: carry projects over by export file;
        - decision 4: two independent AI transcriptions, with the owner's spot-check;
        - V1 code starts now on `main`; beta fixes go to `release/0.1` (from `v0.1.0b1`).
-     - **In progress:** V0.2 (benzene parsed from the SI; ortho-dichlorobenzene transcribed and
-       kept local).
      - **Open:**
+       - the owner's 10-cell spot-check of the ortho-dichlorobenzene transcription
+         (`datasets-local/odcb-chandrakumar1993/SPOT-CHECK.md`, local only);
        - library access for Diehl & Niederberger (1973) and Diehl & Khetrapal (1968);
        - the external-reproduction path (before V1.5).
    - **(B, CI after round 56)** a camera gesture made within the round trip of the page's previous
