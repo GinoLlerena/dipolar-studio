@@ -220,6 +220,8 @@ COINCIDENCES = {
     ("web/e2e/tutorial.spec.ts", "36b17256198109a4"),
 }
 FIRST_EXPOSURE = "2026-11-18"
+#: Generated dependency locks: hashes, URLs and timestamps, no prose (a timestamp matched).
+GENERATED = {"uv.lock", "web/pnpm-lock.yaml", "pnpm-lock.yaml"}
 LOCAL = ROOT / "datasets-local"
 RESTRICTED = (
     LOCAL / "odcb-chandrakumar1993" / "couplings.csv",
@@ -267,7 +269,7 @@ def _scan(names: list[str], tokens: set[str]) -> list[tuple[str, int, str]]:
     hits = []
     for name in names:
         path = ROOT / name
-        if not name or not path.is_file() or path.stat().st_size > 2_000_000:
+        if not name or name in GENERATED or not path.is_file() or path.stat().st_size > 2_000_000:
             continue
         try:
             text = path.read_text(encoding="utf-8")

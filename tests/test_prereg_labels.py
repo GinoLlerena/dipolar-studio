@@ -29,12 +29,13 @@ def _cells(statuses: dict[tuple[str, str], str], reviewed: frozenset[tuple[str, 
 
 def test_the_independent_criterion() -> None:
     """|S − S_pub| ≤ 0.05·|S_pub| + 2p for S_zz; the anisotropy's margin uses |S_zz,pub|."""
-    assert pl.agrees_independent("S_zz", -0.1900, -0.2000, 0.0003)  # 0.0100 ≤ 0.0106
-    assert not pl.agrees_independent("S_zz", -0.1890, -0.2000, 0.0003)  # 0.0110 > 0.0106
-    assert pl.agrees_independent("S_xx-S_yy", 0.0700, 0.0800, 0.0003, s_zz_pub=-0.2000)  # 0.0100 ≤ 0.0106
-    assert not pl.agrees_independent("S_xx-S_yy", 0.0690, 0.0800, 0.0003, s_zz_pub=-0.2000)
+    # Synthetic magnitudes far from any dataset's, so no value here can match a restricted one.
+    assert pl.agrees_independent("S_zz", -0.3800, -0.4000, 0.0003)  # 0.0200 ≤ 0.0206
+    assert not pl.agrees_independent("S_zz", -0.3790, -0.4000, 0.0003)  # 0.0210 > 0.0206
+    assert pl.agrees_independent("S_xx-S_yy", 0.2800, 0.3000, 0.0003, s_zz_pub=-0.4000)  # 0.0200 ≤ 0.0206
+    assert not pl.agrees_independent("S_xx-S_yy", 0.2790, 0.3000, 0.0003, s_zz_pub=-0.4000)
     with pytest.raises(ValueError):
-        pl.agrees_independent("S_xx-S_yy", 0.07, 0.08, 0.0003)  # the margin needs S_zz,pub
+        pl.agrees_independent("S_xx-S_yy", 0.28, 0.30, 0.0003)  # the margin needs S_zz,pub
 
 
 def test_eligibility_reasons() -> None:
