@@ -631,3 +631,110 @@ def test_operations_carry_no_roundoff_residue() -> None:
         for g in sym.operations(group):
             entries = np.abs(g).ravel()
             assert np.all((entries == 0.0) | (entries >= 0.5 - 1e-12)), group
+
+
+# ---- Round 76 gates (frozen before the fixes) -------------------------------------------------------
+
+
+def _three_protons() -> sym.Validated:
+    xyz = np.array([[0.0, 0, 0], [2.5, 0, 0], [0.4, 2.2, 0.3]])
+    return sym.validate(xyz, ["H"] * 3, [None] * 3, sym.Declaration("C1", np.eye(3)))
+
+
+@pytest.mark.parametrize("unit", ["ns", "D"])
+def test_numpy_durations_are_not_indices(unit: str) -> None:
+    v = _three_protons()
+    bad = np.timedelta64(1, unit)
+    for call in (lambda: v.pair_orbit(bad, 0), lambda: sym.fixed_rows(v, [(bad, 0)], K)):  # type: ignore[arg-type]
+        with pytest.raises(sym.SymmetryError) as err:
+            call()
+        assert err.value.code == "OBSERVATION_INVALID_INDEX"
+    assert sym.fixed_rows(v, [(np.uint8(0), np.int32(2))], K).keys == ((0, 2),)
+
+
+@pytest.mark.parametrize("pair", [(1,), (0, 1, 2), 5])
+def test_malformed_pairs_are_refused(pair: object) -> None:
+    with pytest.raises(sym.SymmetryError) as err:
+        sym.fixed_rows(_three_protons(), [pair], K)  # type: ignore[list-item]
+    assert err.value.code == "OBSERVATION_INVALID_INDEX"
+
+
+def test_the_fit_admission_limit_is_enforced_before_the_rows() -> None:
+    """D-11: at most 20 000 rows; 20 001 is FIT_TOO_LARGE, refused before any allocation."""
+    rng = np.random.default_rng(31)
+    xyz = rng.uniform(-60.0, 60.0, size=(201, 3))
+    v = sym.validate(xyz, ["H"] * 201, [None] * 201, sym.Declaration("C1", np.eye(3)))
+    pairs = [(i, j) for i in range(201) for j in range(i + 1, 201)][:20_001]
+    assert sym.MAX_FIT_ROWS == 20_000
+    with pytest.raises(sym.SymmetryError) as err:
+        sym.fixed_rows(v, pairs, K)
+    assert err.value.code == "FIT_TOO_LARGE"
+    assert sym.fixed_rows(v, pairs[:20_000], K).design_s5.shape == (20_000, 5)
+
+
+def test_bad_coordinates_have_their_own_code() -> None:
+    for xyz, n in ((np.zeros((3, 2)), 3), (np.zeros((2, 3)), 3), (np.full((3, 3), np.nan), 3)):
+        with pytest.raises(sym.SymmetryError) as err:
+            sym.validate(xyz, ["H"] * n, [None] * n, sym.Declaration("C1", np.eye(3)))
+        assert err.value.code == "GEOMETRY_INVALID"
+
+
+def test_mass_numbers_are_strict_integers() -> None:
+    for mass in (True, 13.0, "13"):
+        with pytest.raises(sym.SymmetryError) as err:
+            sym.normalize_isotope("C", mass)  # type: ignore[arg-type]
+        assert err.value.code == "ISOTOPE_NOT_SUPPORTED", mass
+    assert sym.normalize_isotope("C", np.int64(13)) == ("C", 13)
+
+
+def test_the_polar_factor_not_another_orthogonalization() -> None:
+    """Axes R·(I + εS), S symmetric, within the tolerance: the polar factor is R itself; a QR or
+    Gram–Schmidt factor differs at O(ε)."""
+    r = _rotation(41)
+    s = np.array([[1.0, 0.4, -0.2], [0.4, -0.7, 0.3], [-0.2, 0.3, 0.5]])
+    axes = r @ (np.eye(3) + 2e-10 * s)
+    elements, masses, xyz = benzene()
+    xyz_in = xyz @ r  # the fixture in an input frame whose symmetry axes are the rows of r
+    v = sym.validate(xyz_in, elements, masses, sym.Declaration("D6h", axes))
+    assert np.max(np.abs(v.rotation - r)) < 1e-15
+
+
+def test_the_returned_centroid_and_site_representatives() -> None:
+    elements, masses, xyz = dcb14()
+    xyz_in, q = _to_input(xyz, seed=17)
+    v = sym.validate(xyz_in, elements, masses, sym.Declaration("D2h", q))
+    assert np.allclose(v.centroid, xyz_in.mean(axis=0), atol=1e-12)
+    assert list(v.site_orbit) == [0, 1, 1, 0, 1, 1, 6, 7, 7, 6, 7, 7]  # all four protons are equivalent
+
+
+def test_a_second_candidate_exactly_on_the_cutoff_is_ambiguous() -> None:
+    tol = 0.0625
+    points = np.array([[0.0, 0.0, 0.0], [tol, 0.0, 0.0], [5.0, 0.0, 0.0]])
+    with pytest.raises(sym.SymmetryError) as err:
+        sym.match_operation(points, [("H", None)] * 3, points, tol)
+    assert err.value.code == "SYMMETRY_AMBIGUOUS"
+
+
+def test_the_refusal_prints_the_distance_exactly() -> None:
+    tol = 0.0625
+    d = float(np.nextafter(tol, 1.0))
+    points = np.array([[0.0, 0.0, 0.0], [5.0, 0.0, 0.0]])
+    mapped = points + np.array([[d, 0.0, 0.0], [0.0, 0.0, 0.0]])
+    with pytest.raises(sym.SymmetryError) as err:
+        sym.match_operation(points, [("H", None)] * 2, mapped, tol)
+    assert repr(d) in str(err.value) and repr(tol) in str(err.value)
+
+
+def test_returned_arrays_cannot_change_later_results() -> None:
+    elements, masses, xyz = benzene()
+    v = sym.validate(xyz, elements, masses, sym.Declaration("D6h", np.eye(3)))
+    rows = sym.fixed_rows(v, [(6, 7)], K)
+    before = fixed.SUBSPACES["D6h"].copy()
+    try:
+        rows.subspace[:] = 0.0
+    except ValueError:
+        pass  # read-only is fine too
+    assert np.array_equal(fixed.SUBSPACES["D6h"], before)
+    for array in (v.averaged, v.permutations, v.site_orbit, v.rotation, v.centroid):
+        with pytest.raises(ValueError):
+            array[...] = 0  # the validated result is immutable
