@@ -1,0 +1,22 @@
+{
+  "hardware": {
+    "cpu": "Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz",
+    "machine": "x86_64",
+    "python": "3.12.3"
+  },
+  "numpy": "2.5.4",
+  "results": {
+    "validation_D6h_984_atoms": {
+      "cpu_s_median": 0.09104100000000004,
+      "cpu_s_max": 0.10208600000000001,
+      "peak_mb": 0.39978694915771484,
+      "budget": "1 s CPU, 200 MB (1000 atoms, 24 operations)"
+    },
+    "pair_orbit_lookup": {
+      "pairs": 787,
+      "cpu_us_per_pair_median": 35.790343074968305,
+      "operations": 24,
+      "budget": "O(|G|) per observed pair"
+    }
+  }
+}

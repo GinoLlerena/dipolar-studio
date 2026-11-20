@@ -465,3 +465,25 @@ def test_validation_of_1000_atoms_in_d6h_stays_within_budget() -> None:
     tracemalloc.stop()
     assert cpu <= 2.0  # D-11: 1 s on the named hardware, 2× margin
     assert peak <= 200 * 2**20
+
+
+def test_validation_runs_the_action_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Added after the freeze (a surviving mutant removed the call): validate must refuse matches
+    that are permutations but not an action. Reached here by a patched matcher, since a valid
+    geometry cannot produce them."""
+    elements, masses, xyz = benzene()
+    real = sym.match_operation
+    calls = {"n": 0}
+
+    def skewed(points, keys, mapped, tol):  # type: ignore[no-untyped-def]
+        perm = real(points, keys, mapped, tol)
+        calls["n"] += 1
+        if calls["n"] == 2:  # one non-identity operation: swap two of its images
+            perm = perm.copy()
+            perm[[6, 7]] = perm[[7, 6]]
+        return perm
+
+    monkeypatch.setattr(sym, "match_operation", skewed)
+    with pytest.raises(sym.SymmetryError) as err:
+        sym.validate(xyz, elements, masses, sym.Declaration("D6h", np.eye(3)))
+    assert err.value.code == "SYMMETRY_NOT_AN_ACTION"
