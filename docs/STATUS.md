@@ -381,12 +381,14 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
        scan of every tracked blob (`tools/datasets/restricted_scan.py`).
      - **Done:** V1.2, symmetry and permutation classes (`dipolar_core.symmetry`; rounds 75–76,
        `docs/validation/round75-v1.2-symmetry.md`; tag `v1.2-symmetry`).
-     - **Reviewed, awaiting the owner's merge decision:** V1.3, the application (branch `v1.3-application`; rounds 77–78, both NOT READY, all findings fixed under the cap;
-       `docs/validation/round77-v1.3-application.md`): model `fixed`, project schema v3, the
+     - **Done:** V1.3, the application (PR #25, tag `v1.3-application`; rounds 77–78, both NOT READY,
+       every finding fixed freeze-first, merged on the owner's decision; record
+       `docs/validation/round77-v1.3-application.md`, budgets
+       `docs/validation/data/v13-application-benchmark.json`): model `fixed`, project schema v3, the
        symmetry and isotope declarations (`molecule.set_symmetry`, `molecule.set_isotope`,
-       `couplings.remove`), rows keyed by pair orbit, `FixedRunOut` and its φ-free report, 0.1
-       directories refused unchanged (D-1, `dipolar_app.directory`), contract 0.11.0 (breaking,
-       `docs/contract-changelog.md`). Gate tests: `packages/dipolar-app/tests/test_app_v13_fixed.py`.
+       `molecule.declarations`, `couplings.remove`), rows keyed by pair orbit, `FixedRunOut` and its
+       φ-free report, 0.1 directories refused unchanged (D-1, `dipolar_app.directory`), contract 0.11.0
+       (breaking, `docs/contract-changelog.md`). Gate tests: `packages/dipolar-app/tests/test_app_v13_fixed.py`.
      - **Next:** V1.4, the browser and the robot (a Fit workspace without φ, the estimable
        combinations panel, a one-ring Structure view, a robot tutorial on three browsers).
      - **Decided by the owner on 2026-11-18:**
