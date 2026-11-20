@@ -410,16 +410,15 @@ class OrbitIndex:
         reconciliation asks for one pair at a time), remembered per pair."""
         if not self.complete:
             raise ValueError("every H atom must be a spin for the pair orbits to be complete")
-        ra, rb = self.rank[a], self.rank[b]
-        own = min(ra, rb) * self.n + max(ra, rb)
-        found = self._orbits.get(own)
+        ra, rb, n = self.rank[a], self.rank[b], self.n
+        codes = {x * n + y if x < y else y * n + x for x, y in zip(self.columns[ra], self.columns[rb], strict=True)}
+        key = min(codes)
+        found = self._orbits.get(key)  # one entry per orbit, whichever member asked (round 78)
         if found is None:
-            n = self.n
-            members = sorted(
-                {x * n + y if x < y else y * n + x for x, y in zip(self.columns[ra], self.columns[rb], strict=True)}
-            )
-            found = self.pair(members[0]), frozenset(frozenset(self.pair(c)) for c in members)
-            self._orbits[own] = found
+            if len(self._orbits) >= MAX_ORBIT_MEMO:
+                self._orbits.clear()  # a bound: a later request recomputes in O(|G|)
+            found = self.pair(key), frozenset(frozenset(self.pair(c)) for c in sorted(codes))
+            self._orbits[key] = found
         return found
 
     def entry_code(self, entry: str) -> int | None:
@@ -448,17 +447,28 @@ class OrbitIndex:
         out = []
         for code in members:
             a, b = code // self.n, code % self.n
-            entry = f"{self.label[a]}-{self.label[b]}"
-            if self.entry_code(entry) != code:
+            # Either endpoint order names the pair: the first that parses back to it (round 78).
+            entry = next(
+                (
+                    e
+                    for e in (f"{self.label[a]}-{self.label[b]}", f"{self.label[b]}-{self.label[a]}")
+                    if self.entry_code(e) == code
+                ),
+                None,
+            )
+            if entry is None:
                 raise ValueError(
-                    f"the class entry {entry!r} for the pair orbit is ambiguous with these spin labels; "
-                    "rename the spins so that no 'A-B' entry splits two ways"
+                    f"the pair {self.label[a]}–{self.label[b]} of the pair orbit cannot be written as an "
+                    "unambiguous class entry with these spin labels; rename the spins so that no 'A-B' entry "
+                    "splits two ways"
                 )
             out.append(entry)
         return tuple(out)
 
 
 _ORBIT_INDEXES = ByIdentity(size=8)
+#: The per-molecule orbit memo holds at most this many orbits (round 78).
+MAX_ORBIT_MEMO = 100_000
 
 
 def orbit_index(project: Project) -> OrbitIndex:
@@ -492,6 +502,17 @@ def _coupling_codes(project: Project) -> tuple[OrbitIndex, list[tuple[int, ...]]
     return index, [
         tuple(x for x, k in zip(col, flags, strict=True) if k) for col, flags in zip(columns, keep, strict=True)
     ]
+
+
+def coupling_keys(project: Project) -> tuple[tuple[str, str], ...]:
+    """Each coupling's D-5 key alone (the fit needs no memberships; round 78)."""
+    index = orbit_index(project)
+    if not project.couplings:
+        return ()
+    rank = index.rank
+    a = np.array([rank[c.spin_a] for c in project.couplings], dtype=np.intp)
+    b = np.array([rank[c.spin_b] for c in project.couplings], dtype=np.intp)
+    return tuple(index.pair(int(code)) for code in index.codes(a, b).min(axis=0).tolist())
 
 
 def coupling_orbits(project: Project) -> list[tuple[tuple[str, str], Orbit]]:
@@ -604,15 +625,33 @@ def canonicalize_for_fixed(project: Project) -> Project:
     return project.model_copy(update={"couplings": tuple(out)})
 
 
+def _atom_orbits(project: Project) -> list[tuple[int, ...]]:
+    """Each coupling's full pair orbit in atom indices (sorted pair codes). Without a declaration a
+    pair's orbit is the pair itself. Atom indices, not spins: a draft may leave an H atom without a
+    spin, and an orbit through it is still compared (round 78)."""
+    g = project.molecule.geometry
+    if not isinstance(g, ImportedGeometry) or not project.couplings:
+        return [() for _ in project.couplings]
+    n = len(g.atoms)
+    atom_of = {s.id: int(s.atom) for s in project.molecule.spins if s.atom is not None}
+    a = np.array([atom_of[c.spin_a] for c in project.couplings], dtype=np.int64)
+    b = np.array([atom_of[c.spin_b] for c in project.couplings], dtype=np.int64)
+    if project.molecule.symmetry is None:
+        perms = np.arange(n, dtype=np.int64)[None, :]
+    else:
+        perms = validated_symmetry(project).permutations.astype(np.int64)
+    pa, pb = perms[:, a], perms[:, b]
+    codes = np.sort(np.minimum(pa, pb) * n + np.maximum(pa, pb), axis=0)
+    return [tuple(sorted(set(column))) for column in codes.T.tolist()]
+
+
 def orbit_changes(before: Project, after: Project) -> list[str]:
     """The rows whose full pair-orbit membership differs between two projects (a merge, a split or
-    an expansion: D-3 declaration and isotope edits). Without a declaration a pair's orbit is the
-    pair itself."""
+    an expansion: D-3 declaration and isotope edits), compared in atom indices."""
     if not before.couplings:
         return []
-    _, old = coupling_codes(before)
-    _, new = coupling_codes(after)
-    return [c.id for c, a, b in zip(after.couplings, old, new, strict=True) if a != b]
+    old, new = _atom_orbits(before), _atom_orbits(after)
+    return [c.id for c, x, y in zip(after.couplings, old, new, strict=True) if x != y]
 
 
 def invalid_classes(project: Project) -> list[str]:
@@ -652,36 +691,61 @@ def fixed_problem_for(project: Project) -> FixedProblem:
     return value
 
 
+@dataclass(frozen=True, slots=True)
+class FixedColumns:
+    """A fixed-geometry project's observations as plain columns: what the fit reads of them."""
+
+    ids: list[str]
+    spin_a: list[str]
+    spin_b: list[str]
+    values: list[float]
+    sigmas: list[float]
+
+    @staticmethod
+    def of(project: Project) -> FixedColumns:
+        cs = project.couplings
+        return FixedColumns(
+            [c.id for c in cs],
+            [c.spin_a for c in cs],
+            [c.spin_b for c in cs],
+            [c.value.value for c in cs],
+            [c.sigma.value for c in cs],
+        )
+
+
 def _fixed_problem_for(project: Project, *, check: bool = True) -> FixedProblem:
-    """``check=False`` is for the job worker only: its input is the session's committed project,
-    validated when it was committed, so the classes are not checked again (round 77, the D-11
-    budget). The declared symmetry, the rows and their keys are still computed from the input, and
+    if check and len(project.couplings) <= MAX_FIT_ROWS:
+        validate_project(project)
+    return fixed_problem_from(project, FixedColumns.of(project))
+
+
+def fixed_problem_from(project: Project, columns: FixedColumns) -> FixedProblem:
+    """The fixed-geometry problem from a project's molecule and model and its observation columns.
+    The job worker calls it with its committed input (``jobs.job_input``: the session's state,
+    validated on commit, sent as columns; rounds 77–78); everything else validates first
+    (``fixed_problem_for``). The declared symmetry, the rows and their keys are computed here, and
     the core still refuses bad endpoints, non-proton pairs and repeated orbits."""
     from dipolar_core.nuclides import dipolar_constant_hz_a3
     from dipolar_core.symmetry import fixed_rows
 
     if project.model.kind != "fixed":
         raise ValueError("the project's model is not a fixed-geometry fit")
-    if len(project.couplings) > MAX_FIT_ROWS:  # D-11, before any work (also checked by the core)
-        raise SymmetryError(
-            "FIT_TOO_LARGE",
-            f"{len(project.couplings)} observations: at most {MAX_FIT_ROWS} rows are fitted",
-        )
-    if check:
-        validate_project(project)
-    elif project.molecule.symmetry is None:
+    n = len(columns.ids)
+    if n > MAX_FIT_ROWS:  # D-11, before any work (also checked by the core)
+        raise SymmetryError("FIT_TOO_LARGE", f"{n} observations: at most {MAX_FIT_ROWS} rows are fitted")
+    if project.molecule.symmetry is None:
         raise ValueError("a fixed-geometry fit needs the molecule's declared symmetry")
-    if not project.couplings:
+    if not n:
         raise ValueError("the project has no couplings to fit")
     validated = validated_symmetry(project)
     atom_of = {s.id: s.atom for s in project.molecule.spins}
-    pairs = [(int(atom_of[c.spin_a]), int(atom_of[c.spin_b])) for c in project.couplings]  # type: ignore[arg-type]
+    pairs = [(int(atom_of[a]), int(atom_of[b])) for a, b in zip(columns.spin_a, columns.spin_b, strict=True)]  # type: ignore[arg-type]
     rows = fixed_rows(validated, pairs, dipolar_constant_hz_a3("1H", "1H"))
-    y = np.array([c.value.value for c in project.couplings])
-    sigma = np.array([c.sigma.value for c in project.couplings])
-    index, orbits = coupling_codes(project)
-    keys = tuple(index.pair(m[0]) for m in orbits)
-    return FixedProblem(validated, rows, y, sigma, keys)
+    index = orbit_index(project)
+    ra = np.array([index.rank[x] for x in columns.spin_a], dtype=np.intp)
+    rb = np.array([index.rank[x] for x in columns.spin_b], dtype=np.intp)
+    keys = tuple(index.pair(int(code)) for code in index.codes(ra, rb).min(axis=0).tolist())
+    return FixedProblem(validated, rows, np.array(columns.values), np.array(columns.sigmas), keys)
 
 
 _PROBLEMS = ByIdentity()

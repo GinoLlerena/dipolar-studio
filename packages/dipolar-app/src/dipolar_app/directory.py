@@ -15,13 +15,15 @@ directory is opened only when each of these is positively written by this versio
 - the snapshot and the next snapshot of an interrupted compaction, when present (``project_schema``,
   ``snapshot_schema`` and the numerical context).
 
-**A directory with no readable record** (round 77) is opened only when its version is known:
+**A directory with no readable record** (rounds 77–78) is opened only when its version is known:
 
 - a first record without its final newline (a record cut short, never acknowledged) is judged by
   its metadata when it parses, and otherwise by its bytes: it must carry this version's
-  ``journal_schema``, ``project_schema`` and numerical context, or the directory is refused;
-- with no record and no snapshot, the directory may hold only the lock file, a ready file, an empty
-  journal, empty directories, and torn-record quarantines of this version. Anything else (result
+  ``journal_schema``, ``project_schema`` and numerical context, or follow a snapshot of this
+  version (an append after a compaction) with no other version's metadata in its bytes;
+- with no record and no snapshot, the directory may hold only the lock file, a ready file of this
+  version (contract 0.11.0 or later: 0.1's is never overwritten), an empty journal, empty
+  directories, and torn-record quarantines of this version. Anything else (result
   blobs, archives, a quarantine of unknown version) is refused: opening would recover, collect or
   overwrite it. A directory that this version left with an unrecognizable torn first record is
   refused too; it holds nothing acknowledged, and moving its files away opens it as new.
@@ -78,26 +80,44 @@ def _torn_is_current(raw: bytes) -> bool:
     )
 
 
-def _first_record(journal: Path) -> tuple[dict[str, Any] | None, bool]:
-    """(the journal's first complete record, whether it holds any bytes at all). A first record
-    without its newline is refused here unless it was written by this version."""
+def _explicitly_other(raw: bytes) -> bool:
+    """Whether the bytes of a record cut short show another version's metadata (a schema or a
+    context that is not this version's), as far as they go."""
+    import re
+
+    try:
+        record = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        record = None
+    if isinstance(record, dict):
+        return not _torn_is_current(raw)
+    for key, current in (("journal_schema", JOURNAL_SCHEMA_VERSION), ("project_schema", PROJECT_SCHEMA_VERSION)):
+        found = re.search(rb'"' + key.encode() + rb'":(-?[0-9]+)[,}]', raw)
+        if found is not None and int(found.group(1)) != current:
+            return True
+    marker = b'"numerical_context":'
+    at = raw.find(marker)
+    if at != -1:
+        tail, expected = raw[at:], _markers()[2]
+        if not (expected.startswith(tail) or tail.startswith(expected)):
+            return True
+    return False
+
+
+def _first_record(journal: Path) -> tuple[dict[str, Any] | None, bytes | None]:
+    """(the journal's first complete record, the bytes of a first record cut short)."""
     try:
         handle = journal.open("rb")
     except FileNotFoundError:
-        return None, False
+        return None, None
     with handle:
         line = handle.readline(MAX_FIRST_RECORD + 1)
     if not line:
-        return None, False
+        return None, None
     if not line.endswith(b"\n"):
         if len(line) > MAX_FIRST_RECORD:
             raise DirectoryRefused(f"{journal.name}: its first record is larger than this version reads; not opened")
-        if not _torn_is_current(line):
-            raise DirectoryRefused(
-                f"{journal.name} holds only a record cut short, not written by this version (it may be "
-                f"Dipolar Studio 0.1's). {PHASE1_MESSAGE}"
-            )
-        return None, True  # this version's own unacknowledged record: recovery quarantines it
+        return None, line
     try:
         record = json.loads(line)
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -107,7 +127,7 @@ def _first_record(journal: Path) -> tuple[dict[str, Any] | None, bool]:
         ) from None
     if not isinstance(record, dict):
         raise DirectoryRefused(f"{journal.name}: its first line is not a record; the directory was not changed")
-    return record, True
+    return record, None
 
 
 def _header(path: Path) -> dict[str, Any] | None:
@@ -149,8 +169,21 @@ def _verdict(name: str, project_schema: object, store_schema: object, store_curr
     raise DirectoryRefused(PHASE1_MESSAGE)
 
 
-#: What a directory with no record may hold and still open as new.
-_FRESH_FILES = frozenset({JOURNAL_NAME, "serve.lock", "serve.ready.json"})
+#: What a directory with no record may hold and still open as new (the ready file is checked).
+_FRESH_FILES = frozenset({JOURNAL_NAME, "serve.lock"})
+READY_NAME = "serve.ready.json"
+#: The first contract version of Phase 2 V1: a ready file from an earlier one is 0.1's (round 78).
+FIRST_CONTRACT = (0, 11, 0)
+
+
+def _ready_is_current(raw: bytes) -> bool:
+    """Whether a (stale) ready file was written by this version or a later one."""
+    try:
+        ready = json.loads(raw)
+        parts = tuple(int(x) for x in str(ready["contract_version"]).split("."))
+    except (json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, ValueError):
+        return False
+    return len(parts) == 3 and parts >= FIRST_CONTRACT
 
 
 def _check_fresh(project_dir: Path) -> None:
@@ -160,6 +193,8 @@ def _check_fresh(project_dir: Path) -> None:
             continue
         name = path.relative_to(project_dir).as_posix()
         if name in _FRESH_FILES:
+            continue
+        if name == READY_NAME and _ready_is_current(path.read_bytes()):
             continue
         if name.startswith(f"{JOURNAL_NAME}.torn-") and _torn_is_current(path.read_bytes()):
             continue
@@ -174,7 +209,19 @@ def check_directory(project_dir: Path) -> None:
     docstring). Reads only."""
     from dipolar_app.snapshot import NEXT_NAME, SNAPSHOT_NAME, SNAPSHOT_SCHEMA_VERSION
 
-    record, has_bytes = _first_record(project_dir / JOURNAL_NAME)
+    snapshots = 0
+    for name in (SNAPSHOT_NAME, NEXT_NAME):
+        body = _header(project_dir / name)
+        if body is not None:
+            _verdict(
+                name,
+                body.get("project_schema"),
+                body.get("snapshot_schema"),
+                SNAPSHOT_SCHEMA_VERSION,
+                body.get("numerical_context"),
+            )
+            snapshots += 1  # positively this version's
+    record, torn = _first_record(project_dir / JOURNAL_NAME)
     if record is not None:
         _verdict(
             JOURNAL_NAME,
@@ -183,17 +230,14 @@ def check_directory(project_dir: Path) -> None:
             JOURNAL_SCHEMA_VERSION,
             record.get("numerical_context"),
         )
-    snapshots = 0
-    for name in (SNAPSHOT_NAME, NEXT_NAME):
-        body = _header(project_dir / name)
-        if body is not None:
-            snapshots += 1
-            _verdict(
-                name,
-                body.get("project_schema"),
-                body.get("snapshot_schema"),
-                SNAPSHOT_SCHEMA_VERSION,
-                body.get("numerical_context"),
+    elif torn is not None:
+        # A first record cut short was never acknowledged. It is this version's when its own bytes
+        # say so, or when a snapshot of this version precedes it (an append after a compaction,
+        # round 78) and its bytes show no other version's metadata. Recovery then quarantines it.
+        if _explicitly_other(torn) or not (_torn_is_current(torn) or snapshots):
+            raise DirectoryRefused(
+                f"{JOURNAL_NAME} holds only a record cut short, not written by this version (it may be "
+                f"Dipolar Studio 0.1's). {PHASE1_MESSAGE}"
             )
-    if record is None and not has_bytes and not snapshots:
+    elif not snapshots:
         _check_fresh(project_dir)

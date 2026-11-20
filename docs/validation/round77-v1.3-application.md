@@ -174,3 +174,50 @@ run, proposal creation and in the worker's `compute`.
   predates V1.3.
 - A V1 directory whose very first record was cut short before its version keys is refused, although
   it holds nothing acknowledged. Moving its files away opens it as new.
+
+## Round 78 (on 1613391): NOT READY, 6 A + 5 B — the final round
+
+**The reviewer confirmed:**
+- every round-77 fix on its own probes:
+  - both entry points refusing legacy journals and snapshots byte for byte, including a journal cut
+    short before its version fields;
+  - populated drafts refusing orbit-changing declarations;
+  - C-12 and H-1 normalized;
+  - a load listing all conflicting rows, the reversed duplicate included;
+  - all 34 successful non-fixed operation shapes valid against the 0.10.0 schemas;
+  - the readers rejecting mismatched blobs;
+- the vectorized core `fixed_rows`, equal to the previous implementation in 2030 probes (keys,
+  multiplicities, design bytes and first-error order);
+- the freeze order and the legitimacy of the earlier test corrections. Its reservations about three
+  of them are findings 6 to 8 below.
+
+**Freeze order (round 78).**
+1. One gate per finding was committed first, in `a68f38e`. Nine failed on the round-78 code; the
+   rectangle and scaling gates passed and are kept as guards.
+2. The round-77 ambiguity gate was corrected per finding 4: its refusal case now uses labels for
+   which both endpoint orders are ambiguous.
+3. The fixes came after.
+4. One more gate was corrected afterwards: the round-77 fit budget now measures the worker's
+   computation, `compute_text` on the committed job input with decoding included. That is stricter.
+
+| # | Class | Finding | Fix |
+|---|---|---|---|
+| 1 | A | A V1 directory whose first post-compaction append was cut short was refused. | The snapshots are judged first. A torn first record is accepted when its own bytes are this version's, or when it follows a snapshot of this version and its bytes show no other version's metadata (no other `journal_schema` or `project_schema`, and no numerical context other than a prefix of this version's). Recovery then quarantines it. |
+| 2 | A | A journal-empty directory with 0.1's ready file opened, and its ready file was overwritten. | A fresh directory may hold a ready file only of contract 0.11.0 or later. Otherwise it is refused unchanged, by `Studio.local` and by `serve`. |
+| 3 | A | A draft declaration edit was refused because an unrelated H atom had no spin. | Declaration and isotope edits compare the observed pairs' full orbits in atom indices (`science._atom_orbits`). Complete proton coverage is still required for `fixed`. |
+| 4 | A | Reconciliation and import disagreed for an explicit class with hyphenated labels, and generation failed where the reverse spelling parses. | An entry is written in whichever endpoint order parses back to its pair. Under `fixed`, an explicit class that matches the orbit is stored as the orbit (and kept verbatim in `source_equivalent_pairs`). Reconciliation runs the same generation, so the two agree. |
+| 5 | A | A non-string `element` made the default-mass normalization raise `TypeError` (HTTP 500). | Only string elements are normalized; the schema reports the rest (`INVALID_ARGUMENT`). |
+| 6 | A | The worker at the D6h limit: 1.89 s and 180 MB with decoding, 3.91 s cold. | A committed fixed job's input is the molecule and model with its observations as columns (`jobs.job_input`, 1.4 MiB instead of 10.8 MiB). The worker writes the result rows as JSON text one at a time (`compute_fixed_text`); the parent decodes the whole result with `FixedRunOut`. Each pair's orbit key comes without its memberships. **Measured in fresh processes:** 1.15 s CPU, decoding included (least of three), and a 56 MiB traced peak. Imports take 1.32 s, the same for every job; they are recorded, not counted (`v13-application-benchmark.json`). |
+| 7 | B | Reconciliation grew with the spin count through a linear spin lookup per row. | `Project.spin` and `Project.coupling` use an index kept per project object. A gate compares 250 and 1000 protons at 20 000 rows. |
+| 8 | B | The corrected transition gate lost its multi-pair success case. | A gate on an exact D2h rectangle: leaving `fixed` keeps a two-pair class. At 0.004 Å off, leaving is refused atomically. |
+| 9 | B | The orbit memo stored one orbit per representative asked. | One entry per orbit key, bounded at 100 000 (`MAX_ORBIT_MEMO`). |
+| 10 | B | The unchecked path was reachable with a detached project. | `compute_fixed(project)` always validates. Only the committed job input, the columnar form `jobs.job_input` makes, skips the class check; a project given to the worker as a project is validated. |
+| 11 | B | An outside `gc.enable()` during a pause that began disabled left the collector enabled. | Every pause disables the collector, and the outermost pause restores exactly the state it recorded. |
+
+**Also documented (B):**
+- The core's certificate timing test can fail on a heavily loaded machine; this predates V1.3.
+- The chromium tutorial test timed out once at a load average of 28, while the reviewer's suites
+  ran on the same machine; it passes alone.
+
+Round 78 was the last round allowed by the medium plan. Its findings were fixed as recorded here,
+without another review.

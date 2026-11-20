@@ -36,5 +36,22 @@
       "reconcile_cpu_s": 23.94,
       "import_cpu_s": 35.04
     }
+  },
+  "worker_d6h_limit_round78": {
+    "path": "jobs.compute_text on jobs.job_input (decode, fit, serialize), fresh process each",
+    "job_input_mib": 1.42,
+    "cpu_s_runs": [
+      1.353,
+      1.211,
+      1.149
+    ],
+    "cpu_s_min": 1.149,
+    "traced_peak_mib": 56.3,
+    "result_mib": 6.77,
+    "imports_cpu_s_not_counted": 1.32,
+    "budget": {
+      "cpu_s": 2.0,
+      "memory_mb": 100
+    }
   }
 }

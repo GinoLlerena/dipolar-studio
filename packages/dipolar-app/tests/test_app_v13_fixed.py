@@ -1287,18 +1287,18 @@ def test_r77_the_fit_budget_holds_at_the_d6h_limit() -> None:
     import tracemalloc
 
     from dipolar_app.formats import loads_project
-    from dipolar_app.project import Project
-    from dipolar_app.science_ops import compute_fixed
+    from dipolar_app.jobs import compute_text, job_input
 
-    project_json = loads_project(d6h_document(20_000)).model_dump_json()
+    # Corrected after round 78: the worker's computation is compute_text on its committed input
+    # (decoding included), no longer compute_fixed on a parsed project.
+    job = job_input(loads_project(d6h_document(20_000)))
     import scipy.special  # noqa: F401  (imported outside the measurement, as in a warm worker)
 
     def run(trace: bool) -> tuple[str, float, int]:
-        project = Project.model_validate_json(project_json)  # the input, about 84 MiB at this limit
         if trace:
             tracemalloc.start()
         start = time.process_time()
-        text = json.dumps(compute_fixed(project, 1, "sha256:x").model_dump(mode="json"))
+        text = compute_text("fit", job, {}, 1, "sha256:x")
         cpu = time.process_time() - start
         peak = tracemalloc.get_traced_memory()[1] if trace else 0
         if trace:

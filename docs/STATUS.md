@@ -342,7 +342,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 1105 passed (V1.3)
+   uv sync --locked && uv run pytest -q -m "not slow"   # 1124 passed (V1.3, after round 78)
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
    (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 65 web tests
    (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 117 browser tests
@@ -381,7 +381,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
        scan of every tracked blob (`tools/datasets/restricted_scan.py`).
      - **Done:** V1.2, symmetry and permutation classes (`dipolar_core.symmetry`; rounds 75–76,
        `docs/validation/round75-v1.2-symmetry.md`; tag `v1.2-symmetry`).
-     - **In review:** V1.3, the application (branch `v1.3-application`; rounds 77–78,
+     - **Reviewed, awaiting the owner's merge decision:** V1.3, the application (branch `v1.3-application`; rounds 77–78, both NOT READY, all findings fixed under the cap;
        `docs/validation/round77-v1.3-application.md`): model `fixed`, project schema v3, the
        symmetry and isotope declarations (`molecule.set_symmetry`, `molecule.set_isotope`,
        `couplings.remove`), rows keyed by pair orbit, `FixedRunOut` and its φ-free report, 0.1

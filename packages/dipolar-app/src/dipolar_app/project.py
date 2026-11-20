@@ -170,10 +170,13 @@ class Project(Wire):
     next_coupling_id: Annotated[int, Field(ge=1)] = 1
 
     def spin(self, spin_id: str) -> Spin | None:
-        return next((s for s in self.molecule.spins if s.id == spin_id), None)
+        """By ID, through an index kept per project object (round 78: no scan of the spins per row)."""
+        index: dict[str, Spin] = _SPIN_INDEX.get(self, lambda: {s.id: s for s in self.molecule.spins})
+        return index.get(spin_id)
 
     def coupling(self, coupling_id: str) -> Coupling | None:
-        return next((c for c in self.couplings if c.id == coupling_id), None)
+        index: dict[str, Coupling] = _COUPLING_INDEX.get(self, lambda: {c.id: c for c in self.couplings})
+        return index.get(coupling_id)
 
     def label_of(self, object_id: str) -> tuple[str, str] | None:
         """Return (kind, display label) for a spin or coupling ID, or None if absent."""
@@ -218,6 +221,8 @@ class ByIdentity:
 
 
 _SCIENCE_HASHES = ByIdentity()
+_SPIN_INDEX = ByIdentity()
+_COUPLING_INDEX = ByIdentity()
 _CONTENT_HASHES = ByIdentity()
 
 
@@ -343,12 +348,12 @@ def paused_gc() -> Iterator[None]:
     with _GC_LOCK:
         if _GC_PAUSES == 0:
             _GC_WAS_ENABLED = gc.isenabled()
-            gc.disable()
+        gc.disable()  # also when an outside call re-enabled it during an enclosing pause
         _GC_PAUSES += 1
     try:
         yield
     finally:
         with _GC_LOCK:
             _GC_PAUSES -= 1
-            if _GC_PAUSES == 0 and _GC_WAS_ENABLED:
-                gc.enable()
+            if _GC_PAUSES == 0:  # the outermost pause restores the state it recorded (round 78)
+                (gc.enable if _GC_WAS_ENABLED else gc.disable)()

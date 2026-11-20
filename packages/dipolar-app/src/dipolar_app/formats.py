@@ -361,11 +361,10 @@ def _resolved(
                     ErrorCode.OBSERVATIONS_CONFLICT,
                 )
             _check_orbit_fields(row, members, mapping, label_of)
-            if row.equivalent_pairs is None:
-                try:
-                    orbit_of.class_of(members)  # the class an import would store must parse back
-                except ValueError as exc:
-                    raise FormatError(f"row {row.row}: {exc}") from None
+            try:
+                orbit_of.class_of(members)  # the class an import stores must parse back (rounds 77–78)
+            except ValueError as exc:
+                raise FormatError(f"row {row.row}: {exc}") from None
         out[key] = row
     return out
 
@@ -386,8 +385,8 @@ def _incoming_class(
     if orbit_of is None:
         return row.multiplicity_or_one, _translated_class(row, mapping, label_of)
     _, members = orbit_of.of(mapping[row.spin_a], mapping[row.spin_b])
-    if row.equivalent_pairs is not None:
-        return len(members), _translated_class(row, mapping, label_of)
+    # An explicit class has matched the orbit as sets; it is stored as the orbit in the project's
+    # labels (one spelling, always parseable), and kept verbatim in source_equivalent_pairs (round 78).
     return len(members), orbit_of.class_of(members)
 
 
@@ -611,8 +610,8 @@ def _normalize_default_masses(project_data: dict[str, Any]) -> None:
     if not isinstance(atoms, list):
         return
     for atom in atoms:
-        if not isinstance(atom, dict) or atom.get("element") not in ISOTOPES:
-            continue
+        if not isinstance(atom, dict) or not isinstance(atom.get("element"), str) or atom["element"] not in ISOTOPES:
+            continue  # a malformed atom is the schema's to report (round 78)
         mass = atom.get("mass_number")
         if type(mass) is int and mass == ISOTOPES[atom["element"]][0]:
             del atom["mass_number"]

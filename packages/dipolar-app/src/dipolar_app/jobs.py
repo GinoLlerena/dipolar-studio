@@ -46,7 +46,7 @@ import time
 from dataclasses import dataclass, field
 from multiprocessing.connection import wait as wait_for_objects
 from multiprocessing.process import BaseProcess
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 from dipolar_app.errors import OperationError
 from dipolar_app.policy import Principal, Tier
@@ -66,19 +66,61 @@ def now_iso() -> str:
     return dt.datetime.now(dt.UTC).isoformat()
 
 
-def compute(kind: str, project_json: str, options: dict[str, Any], revision: int, science_hash: str) -> dict[str, Any]:
-    """Compute one job from its input snapshot. Raises ``OperationError`` for a reported failure."""
+#: The job input of a committed fixed-geometry project (round 78): the project with its classes
+#: left out. They are derived from the declared symmetry and were validated on commit, and they are
+#: most of a large project's size (about 474 000 entries at the D6h limit).
+FIXED_INPUT_PREFIX: Final = '{"committed_fixed_input":'
+
+
+def job_input(project: Project) -> str:
+    """The worker's input for a committed project (the session's state, validated on commit). A
+    fixed-geometry project goes as its molecule and model, with its observations as plain columns."""
+    if project.model.kind != "fixed":
+        return project.model_dump_json()
+    from dipolar_app.science import FixedColumns
+
+    columns = FixedColumns.of(project)
+    data = {
+        "project": project.model_copy(update={"couplings": ()}).model_dump(mode="json"),
+        "columns": {
+            "ids": columns.ids,
+            "spin_a": columns.spin_a,
+            "spin_b": columns.spin_b,
+            "values": columns.values,
+            "sigmas": columns.sigmas,
+        },
+    }
+    return FIXED_INPUT_PREFIX + json.dumps(data, ensure_ascii=False, allow_nan=False) + "}"
+
+
+def compute_text(kind: str, job_json: str, options: dict[str, Any], revision: int, science_hash: str) -> str:
+    """Compute one job from its input and return the result as JSON text (the worker writes it as
+    it is). Raises ``OperationError`` for a reported failure. Only the committed fixed input skips
+    the class check; a project given here as a project is validated (round 78)."""
     if kind != "fit":
         raise ValueError(f"unknown job kind {kind!r}")
     from dipolar_app.project import paused_gc
-    from dipolar_app.science_ops import compute_fit, compute_fixed
+    from dipolar_app.science import FixedColumns
+    from dipolar_app.science_ops import compute_fit, compute_fixed, compute_fixed_text
 
     with paused_gc():  # bounded work over many small objects (round 77)
-        project = Project.model_validate_json(project_json)
+        if job_json.startswith(FIXED_INPUT_PREFIX) and job_json.endswith("}"):
+            data = json.loads(job_json[len(FIXED_INPUT_PREFIX) : -1])
+            project = Project.model_validate(data["project"])
+            c = data["columns"]
+            columns = FixedColumns(c["ids"], c["spin_a"], c["spin_b"], c["values"], c["sigmas"])
+            return compute_fixed_text(project, columns, revision, science_hash)
+        project = Project.model_validate_json(job_json)
         if project.model.kind == "fixed":  # the same admission check as fit.run (D-11), before any row
-            return compute_fixed(project, revision, science_hash).model_dump(mode="json")
-    result = compute_fit(project, bool(options.get("intervals", False)), revision, science_hash)
-    return result.model_dump(mode="json")
+            return compute_fixed(project, revision, science_hash).model_dump_json()
+        result = compute_fit(project, bool(options.get("intervals", False)), revision, science_hash)
+        return result.model_dump_json()
+
+
+def compute(kind: str, project_json: str, options: dict[str, Any], revision: int, science_hash: str) -> dict[str, Any]:
+    """``compute_text`` as JSON data (the thread-mode worker)."""
+    out: dict[str, Any] = json.loads(compute_text(kind, project_json, options, revision, science_hash))
+    return out
 
 
 def _child(input_path: str, path: str) -> None:
@@ -89,13 +131,13 @@ def _child(input_path: str, path: str) -> None:
     try:
         with open(input_path, encoding="utf-8") as handle:
             kind, project_json, options, revision, science_hash = json.load(handle)
-        outcome: list[Any] = ["ok", compute(kind, project_json, options, revision, science_hash)]
+        text = '["ok",' + compute_text(kind, project_json, options, revision, science_hash) + "]"
     except OperationError as exc:
-        outcome = ["error", exc.code.value, exc.message]
+        text = json.dumps(["error", exc.code.value, exc.message], allow_nan=False)
     except BaseException as exc:  # reported to the parent, which fails the job
-        outcome = ["error", "INTERNAL", f"the computation failed ({type(exc).__name__})"]
+        text = json.dumps(["error", "INTERNAL", f"the computation failed ({type(exc).__name__})"])
     with open(path, "w", encoding="utf-8") as handle:
-        json.dump(outcome, handle, allow_nan=False)
+        handle.write(text)
 
 
 #: The largest outcome file the parent reads (a fit result is tens of kilobytes; round 34).
@@ -170,7 +212,7 @@ class JobRunner:
                 task = _Task(
                     data["id"],
                     data["kind"],
-                    state.project.model_dump_json(),
+                    job_input(state.project),
                     dict(data["options"]),
                     data["science_revision"],
                     data["science_hash"],

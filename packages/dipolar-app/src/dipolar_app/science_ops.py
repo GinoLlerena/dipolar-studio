@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from functools import lru_cache
 from typing import Annotated, Literal
 
@@ -66,8 +66,11 @@ from dipolar_app.registry import Context
 from dipolar_app.reporting import interval_policy
 from dipolar_app.schemas import Angstrom, CouplingId, Degrees, Hertz, Length, Revision, SpinId, Wire, deg, hz
 from dipolar_app.science import (
+    FixedColumns,
+    FixedProblem,
     canonicalize_for_fixed,
     fixed_problem_for,
+    fixed_problem_from,
     invalid_classes,
     orbit_changes,
     orbit_index,
@@ -1631,24 +1634,45 @@ def _vector(values: np.ndarray) -> Vector5:
 
 
 def compute_fixed(project: Project, science_revision: int, science_hash: str) -> FixedRunOut:
-    """The fixed-geometry fit of ``project`` (D-8 to D-10), as a job computes it. Pure, like
-    ``compute_fit``. The admission limit is checked first (``FIT_TOO_LARGE``)."""
+    """The fixed-geometry fit of ``project`` (D-8 to D-10). Pure, like ``compute_fit``. The admission
+    limit is checked first (``FIT_TOO_LARGE``), then the project is validated."""
     with paused_gc():
-        return _compute_fixed(project, science_revision, science_hash)
+        try:
+            problem = fixed_problem_for(project)
+        except ValueError as exc:
+            raise _not_fittable(exc) from None
+        header, rows = _fixed_result(project, FixedColumns.of(project), problem, science_revision, science_hash)
+        return header.model_copy(update={"rows": _ROWS.validate_python(list(rows))})
 
 
-def _compute_fixed(project: Project, science_revision: int, science_hash: str) -> FixedRunOut:
+def compute_fixed_text(project: Project, columns: FixedColumns, science_revision: int, science_hash: str) -> str:
+    """The job worker's fixed-geometry fit, from its committed input (``jobs.job_input``: the
+    session's validated state, its observations as columns), as the result's JSON text. The rows
+    are written one at a time, never held as objects (round 78: the D-11 memory budget at 20 000
+    rows); the parent decodes the whole result with ``FixedRunOut``."""
+    try:
+        problem = fixed_problem_from(project, columns)
+    except ValueError as exc:
+        raise _not_fittable(exc) from None
+    header, rows = _fixed_result(project, columns, problem, science_revision, science_hash)
+    body = ",".join(json.dumps(row, ensure_ascii=False, allow_nan=False, separators=(",", ":")) for row in rows)
+    # '"rows":[]' with unescaped quotes can only be the rows key: string values escape their quotes.
+    return header.model_dump_json().replace('"rows":[]', '"rows":[' + body + "]", 1)
+
+
+def _not_fittable(exc: ValueError) -> OperationError:
+    code, details = refusal(exc)
+    if code is ErrorCode.INVALID_ARGUMENT:
+        code = ErrorCode.PROJECT_NOT_READY
+    return OperationError(code, f"the project cannot be fitted yet: {exc}", details=details)
+
+
+def _fixed_result(
+    project: Project, columns: FixedColumns, problem: FixedProblem, science_revision: int, science_hash: str
+) -> tuple[FixedRunOut, Iterator[dict[str, object]]]:
+    """The result without its rows, and the rows as plain data, one at a time."""
     from dipolar_core.fixed import FIXED_FIT_VERSION, fit_fixed
 
-    from dipolar_app.science import _fixed_problem_for
-
-    try:
-        problem = _fixed_problem_for(project, check=False)  # the worker's input was validated on commit
-    except ValueError as exc:
-        code, details = refusal(exc)
-        if code is ErrorCode.INVALID_ARGUMENT:
-            code = ErrorCode.PROJECT_NOT_READY
-        raise OperationError(code, f"the project cannot be fitted yet: {exc}", details=details) from None
     try:
         result = fit_fixed(problem.rows.design_s5, problem.y, problem.sigma, problem.rows.subspace)
     except ValueError as exc:
@@ -1740,33 +1764,33 @@ def _compute_fixed(project: Project, science_revision: int, science_hash: str) -
         warnings.append(FixedWarning(code="SYMMETRIZED", message=moved))
     declared = project.molecule.symmetry
     assert declared is not None
-    # Validated in one call by pydantic's core (about 20 000 rows; round 77: building them one by one
-    # took most of the fit's time).
-    rows = _ROWS.validate_python(
-        [
-            {
-                "coupling_id": c.id,
-                "pair": (c.spin_a, c.spin_b),
-                "orbit": problem.keys[i],
+
+    def rows() -> Iterator[dict[str, object]]:
+        for coupling_id, a, b, key, multiplicity, observed, sigma, predicted, residual in zip(
+            columns.ids,
+            columns.spin_a,
+            columns.spin_b,
+            problem.keys,
+            problem.rows.multiplicities,
+            columns.values,
+            columns.sigmas,
+            result.predictions.tolist(),
+            result.residuals.tolist(),
+            strict=True,
+        ):
+            yield {
+                "coupling_id": coupling_id,
+                "pair": [a, b],
+                "orbit": list(key),
                 "multiplicity": multiplicity,
-                "observed": c.value,
-                "sigma": c.sigma,
+                "observed": {"value": observed, "unit": "Hz"},
+                "sigma": {"value": sigma, "unit": "Hz"},
                 "predicted": {"value": predicted, "unit": "Hz"},
                 "residual": {"value": residual, "unit": "Hz"},
-                "normalized_residual": residual / c.sigma.value,
+                "normalized_residual": residual / sigma,
             }
-            for i, (c, multiplicity, predicted, residual) in enumerate(
-                zip(
-                    project.couplings,
-                    problem.rows.multiplicities,
-                    result.predictions.tolist(),
-                    result.residuals.tolist(),
-                    strict=True,
-                )
-            )
-        ]
-    )
-    return FixedRunOut(
+
+    header = FixedRunOut(
         science_revision=science_revision,
         science_hash=science_hash,
         model=FixedModelOut(kind="fixed", order="point-group", frame="symmetry"),
@@ -1793,7 +1817,7 @@ def _compute_fixed(project: Project, science_revision: int, science_hash: str) -
             certificate=adm.certificate,
             family=adm.family,
         ),
-        rows=rows,
+        rows=(),
         spins=tuple(FixedSpin(id=s.id, label=short(s.label)) for s in project.molecule.spins),
         rms_residual=hz(math.sqrt(float(np.mean(result.residuals**2)))),
         symmetry=FixedSymmetry(
@@ -1813,6 +1837,7 @@ def _compute_fixed(project: Project, science_revision: int, science_hash: str) -
             "coordinates is then estimable."
         ),
     )
+    return header, rows()
 
 
 # --------------------------------------------------------------------------- molecule.declarations (V1.3)
