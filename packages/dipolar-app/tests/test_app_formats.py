@@ -178,7 +178,7 @@ def test_project_files_round_trip_exactly() -> None:
     ("mutate", "message"),
     [
         (lambda d: d.update(format="other"), "not a project file"),
-        (lambda d: d.update(schema_version=3), "reads up to 2"),
+        (lambda d: d.update(schema_version=4), "reads up to 3"),
         (lambda d: d.update(schema_version=True), "positive integer"),
         (lambda d: d.update(extra=1), "unexpected top-level fields"),
         (lambda d: d["project"].update(colour="red"), "Extra inputs are not permitted"),
@@ -196,8 +196,8 @@ def test_non_finite_numbers_and_an_unreachable_old_schema_are_refused(monkeypatc
     with pytest.raises(FormatError, match="non-finite"):
         loads_project(dumps_project(EXAMPLE).replace("-1124.726", "NaN", 1))
     current = dumps_project(EXAMPLE)
-    monkeypatch.setattr(formats, "PROJECT_SCHEMA_VERSION", 3)
-    with pytest.raises(FormatError, match="no migration from schema 2"):
+    monkeypatch.setattr(formats, "PROJECT_SCHEMA_VERSION", 4)
+    with pytest.raises(FormatError, match="no migration from schema 3"):
         loads_project(current)
 
 
@@ -254,7 +254,7 @@ def test_inconsistent_projects_are_refused() -> None:
         }
     )
     validate_project(no_torsion)  # a draft without a torsion is a valid project…
-    with pytest.raises(ValueError, match="needs a declared torsion"):
+    with pytest.raises(ValueError, match="declare a torsion"):
         problem_for(no_torsion)  # …that is not yet ready to fit
     on_carbon = imported.molecule.spins[0].model_copy(update={"atom": 0})
     bad_spin = imported.model_copy(
@@ -270,20 +270,17 @@ def test_inconsistent_projects_are_refused() -> None:
 V1_JOURNAL = Path(__file__).parent / "data" / "schema-v1.events.jsonl"
 
 
-def test_a_schema_v1_journal_still_replays(tmp_path: Path) -> None:
-    """Round 22, finding 1. This journal was written by the pre-step-4 code (order
-    "diagonal-bisector", no new fields). Its hash is checked against the payload as stored, then
-    the project is migrated. A new command after it, and a second reopen, both work."""
-    from dipolar_app.journal import Journal
+def test_a_schema_v1_journal_is_no_longer_replayed(tmp_path: Path) -> None:
+    """Round 22, finding 1, retired by Phase 2 D-1/D-2: this journal was written by the pre-step-4
+    code under the 0.1 numerical context, and V1 never replays a record written under another
+    context. Its project still loads from an export file (``test_a_v1_project_file_is_migrated``)."""
+    from dipolar_app.journal import Journal, JournalCorrupt
     from dipolar_app.session import Session
 
     copy = tmp_path / "events.jsonl"
     copy.write_bytes(V1_JOURNAL.read_bytes())
-    session = Session(Journal(copy), contract_version="0.1.0")
-    project = session.state.project
-    assert project is not None and project.schema_version == 2
-    assert project.model.order == "bisector-diagonal" and project.next_coupling_id == 15
-    assert Session(Journal(copy), contract_version="0.1.0").state.science_hash == session.state.science_hash
+    with pytest.raises(JournalCorrupt, match="different numerical context"):
+        Session(Journal(copy), contract_version="0.1.0")
 
 
 def test_a_tampered_v1_journal_is_still_refused(tmp_path: Path) -> None:
@@ -295,7 +292,7 @@ def test_a_tampered_v1_journal_is_still_refused(tmp_path: Path) -> None:
     del record["checksum"]
     copy = tmp_path / "events.jsonl"
     Journal(copy).append(record)
-    with pytest.raises(JournalCorrupt, match="does not reproduce"):
+    with pytest.raises(JournalCorrupt, match=r"numerical context|does not reproduce"):
         Session(Journal(copy), contract_version="0.1.0")
 
 
@@ -303,7 +300,7 @@ def test_a_v1_project_file_is_migrated() -> None:
     record = json.loads(V1_JOURNAL.read_text(encoding="utf-8").splitlines()[0])
     document = {"format": "dipolar-studio-project", "schema_version": 1, "project": record["events"][0]["project"]}
     project = loads_project(json.dumps(document))
-    assert project.schema_version == 2 and project.model.order == "bisector-diagonal"
+    assert project.schema_version == 3 and project.model.order == "bisector-diagonal"
 
 
 def test_deleted_coupling_ids_are_never_reused() -> None:
@@ -419,7 +416,7 @@ def _journal_with(tmp_path: Path, mutate) -> Path:  # type: ignore[no-untyped-de
     ("mutate", "message"),
     [
         (lambda r: r.update(project_schema=2), "does not match project_schema 2"),
-        (lambda r: r.update(project_schema=3), "unsupported project_schema 3"),
+        (lambda r: r.update(project_schema=4), "unsupported project_schema 4"),
         (lambda r: r.update(project_schema="1"), "unsupported project_schema '1'"),
         (lambda r: r.pop("project_schema"), "unsupported project_schema None"),
         (lambda r: r["events"][0]["project"].update(schema_version=2), "does not match project_schema 1"),

@@ -55,6 +55,14 @@ under c2z or c1 on imported coordinates, where those pairs are no longer equival
 does hold for your geometry and order model is accepted. When unsure, give each measured coupling
 for one pair: that is always accepted.
 
+**Fixed-geometry fits** (a rigid molecule with a declared symmetry; after 0.1) key each row
+by its **pair orbit**: the pairs the declared point group makes equivalent. One measured value per
+orbit is accepted; two rows in one orbit are refused (repeat measurements of an orbit are not
+accepted in this release). Leave `multiplicity` and `equivalent_pairs` empty and they are filled in
+from the orbit; if you give them, they must match the orbit (the pairs in any order), or the import
+is refused and the message names the difference. A row for another pair of an orbit you already
+have updates that row and keeps its coupling ID.
+
 Limits: up to 100 000 couplings in a project, and a couplings file of up to 1 MiB.
 
 ## Geometry: XYZ
@@ -74,7 +82,8 @@ H 2.037577 0.681764 -0.901000
 (Abridged from `datasets/biphenyl-synthetic/biphenyl.xyz` in the repository, the tutorial's
 geometry.)
 
-- Elements: H, D, C, N, O, F, P, S, Cl, Br, I. Up to 1 000 atoms.
+- Elements: H, D, B, C, N, O, F, Si, P, S, Cl, Br, I. Up to 1 000 atoms. `D` is deuterium (an atom,
+  not a proton). Other isotopes (¹³C, ¹⁵N) are set after the import, on the atom.
 - Coordinates are plain decimals, as above.
 - Every hydrogen becomes a proton of the project. Declare the fitted torsion with four atom
   indices (counted from 0 in the order of the file): a, i, j, b, where i–j is the rotating bond.
@@ -85,3 +94,8 @@ geometry.)
 sources, and the model. **Load a project file…** reads it back, also into another installation.
 Files are versioned: an older file is upgraded when it is read; a file from a newer version is
 refused rather than guessed at.
+
+**Projects from 0.1.** Later versions do not open a project directory written by 0.1 (their numbers
+are computed under a newer numerical context). Open the directory with 0.1, export the project, and
+load the file into a new directory with the new version. The old directory is left unchanged; its
+undo history and runs stay there.

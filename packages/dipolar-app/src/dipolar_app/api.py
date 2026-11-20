@@ -94,10 +94,10 @@ class _Local:
         self._session: Session | None = None
         self._runner: JobRunner | None = None
         if project_dir is not None:
-            from dipolar_app.instance import lock_project
+            from dipolar_app.instance import lock_checked
 
             make_durable_dirs(project_dir)
-            self._lock_fd = lock_project(project_dir)
+            self._lock_fd = lock_checked(project_dir)  # a 0.1 directory is refused here, unchanged (D-1)
         try:  # everything after the lock: a failure releases it (round 55)
             journal = None if project_dir is None else Journal(project_dir / "project.events.jsonl")
             self._session = Session(journal, contract_version=CONTRACT_VERSION)

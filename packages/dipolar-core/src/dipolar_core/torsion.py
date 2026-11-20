@@ -36,15 +36,18 @@ from dipolar_core.problem import Problem
 Array = NDArray[np.float64]
 
 #: Single-bond covalent radii in Å (Cordero et al., Dalton Trans. 2008, 2832), for bond perception.
+#: Every element of the isotope table (``dipolar_core.symmetry.ISOTOPES``) has one (V1.3: B, Si).
 COVALENT_RADII_A: Final = {
     "H": 0.31,
     "D": 0.31,
+    "B": 0.84,
     "C": 0.76,
     "N": 0.71,
     "O": 0.66,
     "F": 0.57,
     "P": 1.07,
     "S": 1.05,
+    "Si": 1.11,
     "Cl": 1.02,
     "Br": 1.20,
     "I": 1.39,

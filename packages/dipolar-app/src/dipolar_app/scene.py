@@ -28,7 +28,6 @@ ones.
 
 from __future__ import annotations
 
-import json
 import math
 import re
 from collections.abc import Sequence
@@ -173,9 +172,16 @@ def _active_run(state: SessionState, blobs: Any) -> tuple[Any, dict[str, Any] | 
     """The latest run and its result (None when there is no run or its blob is unreadable)."""
     if not state.runs:
         return None, None
+    from dipolar_app.science_ops import decode_result
+
     run = state.runs[-1]
     text = blobs.text(run.result_sha256)
-    return run, (json.loads(text) if text is not None else None)
+    if text is None:
+        return run, None
+    try:  # the run's own decoder: a blob that does not match its record is unreadable (round 77)
+        return run, decode_result(run.model_kind, text).model_dump(mode="json")
+    except ValueError:
+        return run, None
 
 
 def geometry(project: Project, phi_deg: float) -> tuple[list[str], list[str], list[Vec3], list[tuple[int, int]]]:
@@ -209,7 +215,7 @@ def displayed_phi(state: SessionState, result: dict[str, Any] | None, current: b
     """φ from the run only when the run is current *and* its result is readable."""
     project = state.project
     assert project is not None
-    if result is not None and current:
+    if result is not None and current and "theta" in result:  # a fixed-geometry run has no torsion
         return float(result["theta"][0]["value"]), "run"
     g = project.molecule.geometry
     if isinstance(g, ImportedGeometry) and g.torsion is not None:
@@ -220,6 +226,25 @@ def displayed_phi(state: SessionState, result: dict[str, Any] | None, current: b
 
 
 def _fit_summary(result: dict[str, Any]) -> dict[str, Any]:
+    if "rows" in result:  # a fixed-geometry run (V1.3): a linear fit, so no search and no bound
+        adequacy, admissibility = result["adequacy"], result["admissibility"]["status"]
+        verified = result["rank"]["verified"]
+        return {
+            "adequate": {"given": True, "inadequate": False}.get(adequacy["status"]),
+            "p_value": adequacy["p_value"],
+            "regular": verified,
+            "identifiable": verified and not result["null_directions_b"],
+            "converged": True,
+            "at_bound": [],
+            "physically_admissible": {
+                "admissible": True,
+                "feasible": True,
+                "feasible-within-tolerance": True,
+                "inadmissible": False,
+                "infeasible": False,
+            }.get(admissibility),
+            "notes": [short(w["message"]) for w in result["warnings"]][:8],
+        }
     v = result["validity"]
     return {
         "adequate": result["adequate"],
@@ -257,7 +282,8 @@ def build_scene(state: SessionState, blobs: Any) -> dict[str, Any]:
     if problem is not None:  # an auto-fitted camera is checked like any other (round 36)
         raise ValueError(problem)
     projected = project(camera, width, height, coords)
-    residuals = {c["id"]: c["residual"]["value"] for c in result["couplings"]} if usable and result else {}
+    rows = (result.get("rows") or result.get("couplings") or []) if usable and result else []
+    residuals = {c.get("coupling_id", c.get("id")): c["residual"]["value"] for c in rows}
     labels = {s.id: short(s.label) for s in prj.molecule.spins}
     position = dict(zip(ids, coords, strict=True))
     return {

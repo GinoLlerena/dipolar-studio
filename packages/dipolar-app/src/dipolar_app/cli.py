@@ -38,8 +38,9 @@ from typing import Any
 import uvicorn
 
 from dipolar_app.auth import LAUNCH_CODE_TTL_S, Credentials
+from dipolar_app.directory import DirectoryRefused
 from dipolar_app.http import create_app
-from dipolar_app.instance import InstanceRunning, lock_project
+from dipolar_app.instance import InstanceRunning, lock_checked
 from dipolar_app.jobs import JobRunner
 from dipolar_app.journal import Journal, make_durable_dirs
 from dipolar_app.operations import build_registry
@@ -59,6 +60,7 @@ PRINCIPALS = {
 BUNDLED_STATIC = Path(__file__).resolve().parent / "static"  # filled by tools/package/build.sh
 EXIT_INSTANCE_RUNNING = 3
 EXIT_STALE = 4
+EXIT_DIRECTORY_REFUSED = 5  # a project directory written by another version (D-1)
 
 
 LAUNCH_DIR_NAME = "browser-launch"
@@ -174,7 +176,9 @@ class _Server(uvicorn.Server):
 
 def serve(project_dir: Path, ready_file: Path, static_dir: Path | None, *, open_browser: bool = False) -> None:
     make_durable_dirs(project_dir)  # every new directory is fsynced into its parent (round 34)
-    lock_fd = lock_project(project_dir)  # before anything that touches the journal or the ready file
+    # Before anything that touches the journal or the ready file; a directory written by 0.1 is
+    # refused here, unchanged (D-1).
+    lock_fd = lock_checked(project_dir)
     # Holding the lock proves no live instance owns an existing ready file: it is stale (a crash).
     ready_file.unlink(missing_ok=True)
     registry = build_registry()
@@ -314,6 +318,9 @@ def main(argv: list[str] | None = None) -> int:
         except InstanceRunning as exc:
             print(f"dipolar serve: {exc}; use `dipolar open --project-dir {ns.project_dir}`", file=sys.stderr)
             return EXIT_INSTANCE_RUNNING
+        except DirectoryRefused as exc:
+            print(f"dipolar serve: {exc}", file=sys.stderr)
+            return EXIT_DIRECTORY_REFUSED
     elif ns.command == "open":
         ready_file = ns.ready_file or ns.project_dir / "serve.ready.json"
         try:

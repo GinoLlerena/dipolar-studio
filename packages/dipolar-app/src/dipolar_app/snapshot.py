@@ -64,7 +64,8 @@ from dipolar_app.session import (
 )
 
 SNAPSHOT_FORMAT = "dipolar-session-snapshot"
-SNAPSHOT_SCHEMA_VERSION = 1
+#: 2 (Phase 2 V1.3): jobs and runs carry their model kind.
+SNAPSHOT_SCHEMA_VERSION = 2
 SNAPSHOT_NAME = "project.snapshot.json"
 NEXT_NAME = "project.snapshot.next.json"
 ARCHIVE_DIR = "archive"

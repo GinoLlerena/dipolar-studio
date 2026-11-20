@@ -7,7 +7,12 @@
   - required columns: spin_a, spin_b, D_obs_Hz, sigma_Hz;
   - optional columns: sigma_source, multiplicity, equivalent_pairs (space-separated),
     observable (only "D"), unit (only "Hz");
+  - an absent column or an empty cell is *omitted*, kept distinct from "1" (D-5);
   - unknown columns are reported, not silently used.
+- **Rows keyed by pair orbit** (fixed-geometry fits, D-5): with an ``OrbitOf`` function,
+  reconciliation matches rows by pair orbit, so another member of an observed orbit updates that
+  row; two rows in one orbit are refused; an omitted multiplicity or class is filled in from the
+  orbit, and an explicit one must match it (as sets) or the import is refused with the difference.
 - **Reconciliation (D5)** (``reconcile``):
   - imported labels are only proposed against the project's spins; the mapping applies only
     after the caller confirms it;
@@ -31,6 +36,9 @@ from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Final
 
+from dipolar_core.symmetry import ISOTOPES
+
+from dipolar_app.errors import ErrorCode
 from dipolar_app.project import (
     MAX_ATOMS,
     MAX_CLASS_SIZE,
@@ -48,7 +56,26 @@ PROJECT_FORMAT: Final = "dipolar-studio-project"
 MAX_PROJECT_BYTES: Final = 64 * 2**20
 REQUIRED_COLUMNS: Final = ("spin_a", "spin_b", "D_obs_Hz", "sigma_Hz")
 OPTIONAL_COLUMNS: Final = ("sigma_source", "multiplicity", "equivalent_pairs", "observable", "unit")
-ELEMENTS: Final = frozenset({"H", "D", "C", "N", "O", "F", "P", "S", "Cl", "Br", "I"})
+#: The XYZ elements: the core's isotope table (D-6; round 76: B and Si were missing).
+ELEMENTS: Final = frozenset(ISOTOPES)
+
+Members = frozenset[frozenset[str]]
+
+
+@dataclass(frozen=True)
+class Orbits:
+    """The pair orbits of a fixed-geometry project, prepared once per reconciliation (D-5).
+
+    ``of(a, b)`` gives (key, members) of a pair of spins: the key is the smallest sorted spin-ID
+    pair. ``class_of(members)`` gives the class that stands for an omitted ``equivalent_pairs``
+    (empty for a single pair); it raises ValueError when the labels cannot express it unambiguously.
+    """
+
+    of: Callable[[str, str], tuple[tuple[str, str], Members]]
+    class_of: Callable[[Members], tuple[str, ...]]
+
+
+OrbitOf = Orbits
 
 # A plain decimal number in ASCII (M3 step 2): float() alone also accepts "1_000", Unicode digits,
 # "inf" and "nan". A decimal comma ("1,5") is never guessed: in this comma-separated format it
@@ -57,7 +84,14 @@ _DECIMAL = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)
 
 
 class FormatError(ValueError):
-    """A file that does not follow its format; the message names the line or row."""
+    """A file that does not follow its format; the message names the line or row. ``code`` and
+    ``details`` carry a refusal's own envelope code when it has one (``science.refusal``)."""
+
+    def __init__(self, message: str, code: ErrorCode | None = None, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        if code is not None:
+            self.code = code
+        self.details = details or {}
 
 
 # --------------------------------------------------------------------------- XYZ
@@ -109,8 +143,16 @@ class CouplingRow:
     value_hz: float
     sigma_hz: float
     sigma_source: str
-    multiplicity: int
-    equivalent_pairs: tuple[str, ...]
+    multiplicity: int | None  # None: omitted (an absent column or an empty cell), never "1"
+    equivalent_pairs: tuple[str, ...] | None  # None: omitted
+
+    @property
+    def class_entries(self) -> tuple[str, ...]:
+        return self.equivalent_pairs or ()
+
+    @property
+    def multiplicity_or_one(self) -> int:
+        return 1 if self.multiplicity is None else self.multiplicity
 
 
 @dataclass(frozen=True)
@@ -171,9 +213,11 @@ def _parse_couplings(text: str, default_sigma_source: str) -> CouplingTable:
         sigma = _number(raw["sigma_Hz"], "sigma_Hz", number)
         if sigma <= 0:
             raise FormatError(f"row {number}: sigma_Hz must be positive")
-        multiplicity_text = raw.get("multiplicity", "").strip() or "1"
+        multiplicity_text = raw.get("multiplicity", "").strip()
         # ASCII digits only, bounded before int() (round 27): no Unicode digits, no huge numbers.
-        if not re.fullmatch(r"[0-9]{1,7}", multiplicity_text) or not 1 <= int(multiplicity_text) <= MAX_CLASS_SIZE:
+        if multiplicity_text and (
+            not re.fullmatch(r"[0-9]{1,7}", multiplicity_text) or not 1 <= int(multiplicity_text) <= MAX_CLASS_SIZE
+        ):
             raise FormatError(f"row {number}: multiplicity must be an integer from 1 to {MAX_CLASS_SIZE}")
         equivalent = tuple(raw.get("equivalent_pairs", "").split())
         if len(equivalent) > MAX_CLASS_SIZE:
@@ -186,8 +230,8 @@ def _parse_couplings(text: str, default_sigma_source: str) -> CouplingTable:
                 value_hz=_number(raw["D_obs_Hz"], "D_obs_Hz", number),
                 sigma_hz=sigma,
                 sigma_source=raw.get("sigma_source", "").strip() or default_sigma_source,
-                multiplicity=int(multiplicity_text),
-                equivalent_pairs=equivalent,
+                multiplicity=int(multiplicity_text) if multiplicity_text else None,
+                equivalent_pairs=equivalent or None,
             )
         )
     if not rows:
@@ -212,6 +256,8 @@ class ImportDiff:
     # what the import would set next to what the project has (M3 step 2).
     incoming: Mapping[tuple[str, str], CouplingRow] = field(default_factory=dict, repr=False)
     table: CouplingTable | None = field(default=None, repr=False)
+    # The project's couplings by the same keys (pairs, or pair-orbit keys for a fixed model).
+    current: Mapping[tuple[str, str], Coupling] = field(default_factory=dict, repr=False)
 
 
 def _pair_key(a: str, b: str) -> tuple[str, str]:
@@ -221,7 +267,7 @@ def _pair_key(a: str, b: str) -> tuple[str, str]:
 
 def _class_labels(row: CouplingRow, labels: Collection[str]) -> list[tuple[str, str]]:
     """The row's equivalent pairs split into imported labels (``split_pair_label``)."""
-    return [split_pair_label(entry, labels) for entry in row.equivalent_pairs]
+    return [split_pair_label(entry, labels) for entry in row.class_entries]
 
 
 def _translated_class(row: CouplingRow, mapping: Mapping[str, str], label_of: Mapping[str, str]) -> tuple[str, ...]:
@@ -238,7 +284,46 @@ def _labels_in_order(row: CouplingRow, mapping: Mapping[str, str], c: Coupling) 
     return (row.spin_a, row.spin_b) if mapping[row.spin_a] == c.spin_a else (row.spin_b, row.spin_a)
 
 
-def _resolved(table: CouplingTable, mapping: Mapping[str, str], project: Project) -> dict[tuple[str, str], CouplingRow]:
+def _check_orbit_fields(
+    row: CouplingRow,
+    members: frozenset[frozenset[str]],
+    mapping: Mapping[str, str],
+    label_of: Mapping[str, str],
+) -> None:
+    """D-5: an explicit multiplicity or class must match the row's pair orbit (as unordered sets);
+    an omitted one is filled in from it."""
+    if row.multiplicity is not None and row.multiplicity != len(members):
+        raise FormatError(
+            f"row {row.row}: multiplicity {row.multiplicity}, but the pair orbit of {row.spin_a}–{row.spin_b} has "
+            f"{len(members)} pairs under the declared symmetry (leave it empty to fill it in)",
+            ErrorCode.OBSERVATIONS_CONFLICT,
+        )
+    if row.equivalent_pairs is None:
+        return
+    try:
+        given = {frozenset((mapping[a], mapping[b])) for a, b in _class_labels(row, mapping.keys())}
+    except ValueError as exc:
+        raise FormatError(f"row {row.row}: {exc}") from None
+    if given != members or len(given) != len(row.equivalent_pairs):
+
+        def names(pairs: set[frozenset[str]]) -> list[str]:
+            return sorted("-".join(label_of[x] for x in sorted(p)) for p in pairs)
+
+        repeated = "; a pair is repeated" if len(given) != len(row.equivalent_pairs) else ""
+        raise FormatError(
+            f"row {row.row}: equivalent_pairs must be the pair orbit of {row.spin_a}–{row.spin_b} under the declared "
+            f"symmetry (compared as sets); missing {names(set(members - given))}, not in the orbit "
+            f"{names(given - set(members))}{repeated}",
+            ErrorCode.OBSERVATIONS_CONFLICT,
+        )
+
+
+def _resolved(
+    table: CouplingTable, mapping: Mapping[str, str], project: Project, orbit_of: OrbitOf | None = None
+) -> dict[tuple[str, str], CouplingRow]:
+    """The rows by key (their pair, or under a fixed-geometry model their pair-orbit key), with the
+    mapping, repeats and the orbit fields checked; the same checks for reconciliation and import."""
+    label_of = {s.id: s.label for s in project.molecule.spins}
     targets = list(mapping.values())
     if len(set(targets)) != len(targets):
         raise FormatError("the mapping must be one-to-one: two labels map to the same spin")
@@ -260,23 +345,64 @@ def _resolved(table: CouplingTable, mapping: Mapping[str, str], project: Project
             ids.append(mapping[label])
         if ids[0] == ids[1]:
             raise FormatError(f"row {row.row}: both labels map to the same spin {ids[0]}")
-        key = _pair_key(ids[0], ids[1])
-        if key in out:
-            raise FormatError(
-                f"row {row.row}: the pair {row.spin_a}–{row.spin_b} repeats row {out[key].row} "
-                "(merge symmetry copies into one row with a multiplicity)"
-            )
+        if orbit_of is None:
+            key = _pair_key(ids[0], ids[1])
+            if key in out:
+                raise FormatError(
+                    f"row {row.row}: the pair {row.spin_a}–{row.spin_b} repeats row {out[key].row} "
+                    "(merge symmetry copies into one row with a multiplicity)"
+                )
+        else:
+            key, members = orbit_of.of(ids[0], ids[1])
+            if key in out:
+                raise FormatError(
+                    f"row {row.row}: the pair {row.spin_a}–{row.spin_b} is in the pair orbit of row {out[key].row}: "
+                    "repeat measurements of one pair orbit are not accepted in this release",
+                    ErrorCode.OBSERVATIONS_CONFLICT,
+                )
+            _check_orbit_fields(row, members, mapping, label_of)
+            try:
+                orbit_of.class_of(members)  # the class an import stores must parse back (rounds 77–78)
+            except ValueError as exc:
+                raise FormatError(f"row {row.row}: {exc}") from None
         out[key] = row
     return out
 
 
-def reconcile(table: CouplingTable, project: Project, mapping: Mapping[str, str] | None = None) -> ImportDiff:
-    """Propose a mapping (exact label matches only) and, if every label is mapped, the diff."""
+def _current(project: Project, orbit_of: OrbitOf | None) -> dict[tuple[str, str], Coupling]:
+    if orbit_of is None:
+        return {_pair_key(c.spin_a, c.spin_b): c for c in project.couplings}
+    return {orbit_of.of(c.spin_a, c.spin_b)[0]: c for c in project.couplings}
+
+
+def _incoming_class(
+    row: CouplingRow,
+    mapping: Mapping[str, str],
+    label_of: Mapping[str, str],
+    orbit_of: OrbitOf | None,
+) -> tuple[int, tuple[str, ...]]:
+    """(multiplicity, class in the project's labels) that applying ``row`` stores."""
+    if orbit_of is None:
+        return row.multiplicity_or_one, _translated_class(row, mapping, label_of)
+    _, members = orbit_of.of(mapping[row.spin_a], mapping[row.spin_b])
+    # An explicit class has matched the orbit as sets; it is stored as the orbit in the project's
+    # labels (one spelling, always parseable), and kept verbatim in source_equivalent_pairs (round 78).
+    return len(members), orbit_of.class_of(members)
+
+
+def reconcile(
+    table: CouplingTable,
+    project: Project,
+    mapping: Mapping[str, str] | None = None,
+    orbit_of: OrbitOf | None = None,
+) -> ImportDiff:
+    """Propose a mapping (exact label matches only) and, if every label is mapped, the diff. With
+    ``orbit_of`` (a fixed-geometry model), rows are keyed by pair orbit (D-5)."""
     own = {label for row in table.rows for label in (row.spin_a, row.spin_b)}
     universe = own | {s.label for s in project.molecule.spins} | set(mapping or ())
     found, unresolved = set(own), []
     for row in table.rows:
-        for entry in row.equivalent_pairs:
+        for entry in row.class_entries:
             try:
                 found.update(split_pair_label(entry, universe))
             except ValueError:
@@ -291,24 +417,21 @@ def reconcile(table: CouplingTable, project: Project, mapping: Mapping[str, str]
     if unmatched or unresolved:
         return ImportDiff(proposed, unmatched, tuple(unresolved), table=table)
     label_of = {s.id: s.label for s in project.molecule.spins}
-    incoming = _resolved(table, effective, project)
-    current = {_pair_key(c.spin_a, c.spin_b): c for c in project.couplings}
+    incoming = _resolved(table, effective, project, orbit_of)
+    current = _current(project, orbit_of)
     changed: list[tuple[str, str]] = []
     unchanged: list[tuple[str, str]] = []
     for key in sorted(incoming.keys() & current.keys()):
         row, c = incoming[key], current[key]
         # Every field that apply_import replaces (round 22): science and provenance alike.
-        new = (
-            row.value_hz,
-            row.sigma_hz,
-            row.sigma_source,
-            row.multiplicity,
-            _translated_class(row, effective, label_of),
-        )
+        multiplicity, members = _incoming_class(row, effective, label_of, orbit_of)
+        new = (row.value_hz, row.sigma_hz, row.sigma_source, multiplicity, members)
         old = (c.value.value, c.sigma.value, c.sigma_source, c.multiplicity, c.equivalent_pairs)
+        same_pair = {effective[row.spin_a], effective[row.spin_b]} == {c.spin_a, c.spin_b}
         # Provenance counts too, except its first population (None → labels), documented (round 24).
         same = (
             new == old
+            and same_pair  # another member of the orbit replaces the row's pair (D-5)
             and c.source_labels in (None, _labels_in_order(row, effective, c))
             and c.source_equivalent_pairs in (None, row.equivalent_pairs or None)
         )
@@ -322,17 +445,25 @@ def reconcile(table: CouplingTable, project: Project, mapping: Mapping[str, str]
         unchanged=tuple(unchanged),
         table=table,
         incoming=incoming,
+        current=current,
     )
 
 
-def apply_import(project: Project, table: CouplingTable, confirmed_mapping: Mapping[str, str]) -> Project:
+def apply_import(
+    project: Project,
+    table: CouplingTable,
+    confirmed_mapping: Mapping[str, str],
+    orbit_of: OrbitOf | None = None,
+) -> Project:
     """Replace the project's couplings with the imported ones, under a mapping the user confirmed.
 
     A pair already in the project keeps its coupling ID (a stable reference, D5). A new pair gets
-    the next free ID. The imported labels are kept verbatim in ``source_labels``.
+    the next free ID. The imported labels are kept verbatim in ``source_labels``. With ``orbit_of``
+    (a fixed-geometry model), a row of an observed pair orbit keeps that row's ID and takes the
+    imported pair, and its class is the orbit (D-5).
     """
-    _resolved(table, confirmed_mapping, project)  # validates the mapping and rejects duplicates
-    current = {_pair_key(c.spin_a, c.spin_b): c for c in project.couplings}
+    _resolved(table, confirmed_mapping, project, orbit_of)  # validates the mapping and rejects duplicates
+    current = _current(project, orbit_of)
     label_of = {s.id: s.label for s in project.molecule.spins}
     used = [int(c.id[4:]) for c in project.couplings]
     next_id = max(project.next_coupling_id, max(used, default=0) + 1)  # never reuse a number
@@ -340,13 +471,14 @@ def apply_import(project: Project, table: CouplingTable, confirmed_mapping: Mapp
     for row in table.rows:  # file order
         a, b = confirmed_mapping[row.spin_a], confirmed_mapping[row.spin_b]
         source = (row.spin_a, row.spin_b)
-        key = _pair_key(a, b)
+        key = _pair_key(a, b) if orbit_of is None else orbit_of.of(a, b)[0]
         if key in current:
             cid = current[key].id
             if (current[key].spin_a, current[key].spin_b) == (b, a):  # keep the stored orientation
                 a, b, source = b, a, (row.spin_b, row.spin_a)
         else:
             cid, next_id = f"cpl_{next_id:06d}", next_id + 1
+        multiplicity, members = _incoming_class(row, confirmed_mapping, label_of, orbit_of)
         couplings.append(
             Coupling(
                 id=cid,
@@ -356,8 +488,8 @@ def apply_import(project: Project, table: CouplingTable, confirmed_mapping: Mapp
                 value=Hertz(value=row.value_hz, unit="Hz"),
                 sigma=Hertz(value=row.sigma_hz, unit="Hz"),
                 sigma_source=row.sigma_source,
-                multiplicity=row.multiplicity,
-                equivalent_pairs=_translated_class(row, confirmed_mapping, label_of),
+                multiplicity=multiplicity,
+                equivalent_pairs=members,
                 source_labels=source,
                 source_equivalent_pairs=row.equivalent_pairs or None,
             )
@@ -368,8 +500,19 @@ def apply_import(project: Project, table: CouplingTable, confirmed_mapping: Mapp
 # --------------------------------------------------------------------------- project files (D6)
 #: Upgrade steps: MIGRATIONS[v] turns a version-v document into version v + 1.
 MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
-    1: lambda document: {**document, "project": migrate_project(document["project"])},
+    1: lambda document: {**document, "project": _project_to(2, document["project"])},
+    2: lambda document: {**document, "project": migrate_project(document["project"])},
 }
+
+
+def _project_to(version: int, project: Any) -> Any:
+    """One step of ``migrate_project``: the v1 payload as v2 (the file migrates one version at a
+    time, and its project with it)."""
+    if not isinstance(project, dict):
+        raise ValueError("the project must be a JSON object")
+    upgraded = migrate_project(project)
+    upgraded["schema_version"] = version
+    return upgraded
 
 
 def _json_depth_exceeds(text: str, limit: int) -> bool:
@@ -446,12 +589,32 @@ def loads_project(text: str) -> Project:
     project_data = document["project"]
     if not isinstance(project_data, dict) or project_data.get("schema_version") != PROJECT_SCHEMA_VERSION:
         raise FormatError("the project's own schema_version must match the file's")
+    _normalize_default_masses(project_data)
     project = Project.model_validate_json(canonical_json(project_data), strict=True)
     try:
         validate_project(project)
     except ValueError as exc:
-        raise FormatError(f"inconsistent project: {exc}") from None
+        from dipolar_app.science import refusal
+
+        code, details = refusal(exc)
+        raise FormatError(f"inconsistent project: {exc}", code, details) from None
     return project
+
+
+def _normalize_default_masses(project_data: dict[str, Any]) -> None:
+    """D-6: a default mass number written out (C-12, H-1) is the default isotope, spelled absent, so
+    both spellings load to one identity (round 77). Anything else is left for validation."""
+    molecule = project_data.get("molecule")
+    geometry = molecule.get("geometry") if isinstance(molecule, dict) else None
+    atoms = geometry.get("atoms") if isinstance(geometry, dict) else None
+    if not isinstance(atoms, list):
+        return
+    for atom in atoms:
+        if not isinstance(atom, dict) or not isinstance(atom.get("element"), str) or atom["element"] not in ISOTOPES:
+            continue  # a malformed atom is the schema's to report (round 78)
+        mass = atom.get("mass_number")
+        if type(mass) is int and mass == ISOTOPES[atom["element"]][0]:
+            del atom["mass_number"]
 
 
 def project_from_xyz(
@@ -483,7 +646,7 @@ def project_from_xyz(
     if len({s.label for s in spins}) != len(spins):
         raise FormatError("spin labels must be unique")
     return Project(
-        schema_version=2,
+        schema_version=3,
         name=name,
         source=source,
         molecule=Molecule(

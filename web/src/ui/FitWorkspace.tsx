@@ -52,7 +52,7 @@ export function FitWorkspace({ studio, state }: Props) {
         ) : (
           <p className="empty">{strings.noRuns}</p>
         )}
-        {view?.project_open && <PreviewPane studio={studio} state={state} />}
+        {view?.project_open && state.project?.model.kind !== "fixed" && <PreviewPane studio={studio} state={state} />}
       </div>
     </div>
   );
@@ -226,6 +226,7 @@ function RunDetail({ studio, state, run, result }: Props & { run: RunOut; result
       </div>
     );
   }
+  if (!result && state.fixedResults[run.id]) return <p className="muted">{strings.fixedRunNote}</p>;
   if (!result) return <p className="muted">{strings.loadingRun}</p>;
   const selected = new Set(state.view?.selection.map((s) => s.id) ?? []);
   const flags = result.validity;
@@ -502,8 +503,9 @@ type Previewed = { out: PreviewOut; error: null } | { out: null; error: ErrorBod
  * after any science change the preview and the landscape are read again. */
 function PreviewPane({ studio, state }: Props) {
   const { view, project } = state;
-  const lo = project?.model.phi_domain[0].value ?? 0;
-  const hi = project?.model.phi_domain[1].value ?? 90;
+  const domain = project && project.model.kind !== "fixed" ? project.model.phi_domain : undefined;
+  const lo = domain?.[0].value ?? 0;
+  const hi = domain?.[1].value ?? 90;
   const run = view?.run && !view.run.stale ? state.results[view.run.run_id] : undefined;
   const fitted = run?.theta.find((t) => t.name === "phi_deg")?.value ?? null;
 

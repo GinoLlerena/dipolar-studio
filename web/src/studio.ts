@@ -15,6 +15,7 @@ import {
   type Envelope,
   type ErrorBody,
   type FitRunOut,
+  type FixedRunOut,
   type JobOut,
   type LogOut,
   type OperationName,
@@ -45,11 +46,18 @@ export interface StudioState {
   proposals: ProposalOut[];
   /** Fit results by run ID. A run's result is immutable (stored by content hash). */
   results: Readonly<Record<string, FitRunOut>>;
+  /** Fixed-geometry results by run ID (contract 0.11.0; shown in full from V1.4). */
+  fixedResults: Readonly<Record<string, FixedRunOut>>;
   /** Runs whose result could not be read; retried on every (re)connection or on request. */
   failedResults: Readonly<Record<string, ErrorBody | null>>;
   error: ErrorBody | null;
   /** The operation a button started and that has not answered yet. */
   busy: OperationName | null;
+}
+
+/** A fixed-geometry run's result (run.get, contract 0.11.0): decided by its model kind. */
+function isFixed(result: FitRunOut | FixedRunOut): result is FixedRunOut {
+  return result.model.kind === "fixed";
 }
 
 /** Without a byte for this long (the server pings every 15 s), the stream is reopened. */
@@ -85,6 +93,7 @@ export class Studio {
     jobs: [],
     proposals: [],
     results: {},
+    fixedResults: {},
     failedResults: {},
     error: null,
     busy: null,
@@ -326,7 +335,7 @@ export class Studio {
   /** Fetches a run's result once; it never changes, so it is kept. A failed read is recorded
    * (the page says so instead of "loading" forever) and retried on reconnection or on request. */
   async loadResult(runId: string, retry = false): Promise<void> {
-    if (this.state.results[runId] || this.fetchingRuns.has(runId)) return;
+    if (this.state.results[runId] || this.state.fixedResults[runId] || this.fetchingRuns.has(runId)) return;
     if (runId in this.state.failedResults && !retry) return;
     this.fetchingRuns.add(runId);
     let failure: ErrorBody | null = null;
@@ -337,7 +346,10 @@ export class Studio {
         return envelope;
       });
       const { [runId]: _, ...failed } = this.state.failedResults;
-      if (got) this.set({ results: { ...this.state.results, [runId]: got.result }, failedResults: failed });
+      const result = got?.result as FitRunOut | FixedRunOut | undefined;
+      if (result && isFixed(result))
+        this.set({ fixedResults: { ...this.state.fixedResults, [runId]: result }, failedResults: failed });
+      else if (result) this.set({ results: { ...this.state.results, [runId]: result }, failedResults: failed });
       else this.set({ failedResults: { ...failed, [runId]: failure } });
     } finally {
       this.fetchingRuns.delete(runId);

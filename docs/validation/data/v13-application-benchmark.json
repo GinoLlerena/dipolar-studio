@@ -1,0 +1,57 @@
+{
+  "step": "V1.3 round 77 fixes",
+  "hardware": "Intel i7-8750H (named hardware), macOS, loaded desktop",
+  "python": "3.12.3",
+  "fit_d6h_limit": {
+    "atoms": 1000,
+    "group": "D6h",
+    "rows": 20000,
+    "class_entries": 474060,
+    "input_json_mib": 10.83,
+    "cpu_s_min_of_3": 1.469,
+    "cpu_s_runs": [
+      1.469,
+      1.609,
+      1.831
+    ],
+    "traced_peak_mib_fit_only": 85.3,
+    "result_mib": 7.38,
+    "budget": {
+      "cpu_s": 2.0,
+      "memory_mb": 100
+    }
+  },
+  "reconciliation_c1_1000_spins_20000_rows": {
+    "note": "see test_r77_reconciliation_is_linear_in_the_rows",
+    "fixed_minus_draft_cpu_s_limit": 1.0,
+    "fixed_c1": {
+      "reconcile_cpu_s": 1.687,
+      "import_cpu_s": 2.936
+    },
+    "draft_0_1_path": {
+      "reconcile_cpu_s": 1.892,
+      "import_cpu_s": 2.992
+    },
+    "round77_reported_fixed": {
+      "reconcile_cpu_s": 23.94,
+      "import_cpu_s": 35.04
+    }
+  },
+  "worker_d6h_limit_round78": {
+    "path": "jobs.compute_text on jobs.job_input (decode, fit, serialize), fresh process each",
+    "job_input_mib": 1.42,
+    "cpu_s_runs": [
+      1.353,
+      1.211,
+      1.149
+    ],
+    "cpu_s_min": 1.149,
+    "traced_peak_mib": 56.3,
+    "result_mib": 6.77,
+    "imports_cpu_s_not_counted": 1.32,
+    "budget": {
+      "cpu_s": 2.0,
+      "memory_mb": 100
+    }
+  }
+}

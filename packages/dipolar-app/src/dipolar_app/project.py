@@ -2,22 +2,28 @@
 
 from __future__ import annotations
 
+import contextlib
+import gc
 import hashlib
 import json
 import threading
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Iterator
 from importlib import resources
 from typing import Annotated, Any, Literal
 
 from dipolar_core.context import numerical_context
-from pydantic import Field
+from pydantic import Field, StrictInt
 
 from dipolar_app.schemas import Angstrom, CouplingId, ExampleName, Hertz, SpinId, Wire
 
 #: v2 (M1 step 4): the order model "diagonal-bisector" was renamed "bisector-diagonal"; imported
 #: geometry, spin atoms, source labels, the model's kind/frame, and ``next_coupling_id`` were
-#: added. ``migrate_project`` upgrades v1 documents, including those stored in journals.
-PROJECT_SCHEMA_VERSION = 2
+#: added. ``migrate_project`` upgrades v1 documents.
+#: v3 (Phase 2 V1.3): an atom's mass number, the molecule's declared symmetry, and the model kind
+#: "fixed" (order "point-group", frame "symmetry", no torsion domain). Every v2 document is a v3
+#: document with the version changed. Only export files are migrated: a 0.1 project directory is
+#: never opened (D-1), so no journal record or snapshot is ever migrated.
+PROJECT_SCHEMA_VERSION = 3
 
 #: Size caps, enforced by the schema on every path (round 24). Bond perception is quadratic in the
 #: atom count, so this cap bounds memory (about 24 MB at 1000 atoms).
@@ -72,11 +78,18 @@ def short(label: str) -> str:
     return label if len(label) <= MAX_LABEL_OUT else label[: MAX_LABEL_OUT - 1] + "…"
 
 
+def _absent(value: object) -> bool:
+    return value is None
+
+
 class Atom(Wire):
     element: Annotated[str, Field(min_length=1, max_length=2)]
     x: Coordinate  # Å, in the input frame (the frame of the order tensor)
     y: Coordinate
     z: Coordinate
+    #: The isotope (D-6): absent for the element's default; one spelling per identity, so a default
+    #: written out is refused on load (``dipolar_core.symmetry.ISOTOPES``). Strict integers only.
+    mass_number: Annotated[StrictInt, Field(ge=1, le=999)] | None = Field(default=None, exclude_if=_absent)
 
 
 class ImportedGeometry(Wire):
@@ -88,9 +101,27 @@ class ImportedGeometry(Wire):
     torsion: tuple[int, int, int, int] | None = None
 
 
+Axis = tuple[float, float, float]
+
+
+class SymmetrySpec(Wire):
+    """A declared point group (D-4), validated against the geometry by ``dipolar_core.symmetry``.
+
+    The point group and medium are kept as written, so an unsupported one is refused with its own
+    code (``POINT_GROUP_NOT_SUPPORTED``, ``MEDIUM_NOT_SUPPORTED``), never as a malformed field.
+    """
+
+    point_group: Annotated[str, Field(min_length=1, max_length=16)]
+    axes: tuple[Axis, Axis, Axis]  # rows x, y, z of the symmetry frame, in input coordinates
+    tolerance: Angstrom
+    medium: Annotated[str, Field(min_length=1, max_length=64)]
+
+
 class Molecule(Wire):
     geometry: BiphenylTemplate | ImportedGeometry
     spins: Annotated[tuple[Spin, ...], Field(max_length=MAX_ATOMS)]
+    #: Imported geometry without a torsion only (D-3); required by the fixed-geometry model.
+    symmetry: SymmetrySpec | None = Field(default=None, exclude_if=_absent)
 
 
 class Coupling(Wire):
@@ -110,22 +141,25 @@ class Coupling(Wire):
 
 
 class ModelSpec(Wire):
-    """The fitted model (``dipolar_core.biphenyl`` and ``dipolar_core.torsion``).
+    """The fitted model (``dipolar_core.biphenyl``, ``dipolar_core.torsion``, ``dipolar_core.fixed``).
 
-    - ``kind``: "rigid" (one conformer) or "jump4" (the symmetric four-site jump, template only).
-    - ``order``: "bisector-diagonal" (legacy "D4"; template only), "c2z" (legacy "D2") or "c1".
-    - ``frame``: "bisector" or "ring-a" for the template; "input" for imported coordinates.
-    - ``phi_domain_deg``: the fitted torsion interval.
+    - ``kind``: "rigid" (one conformer), "jump4" (the symmetric four-site jump, template only) or
+      "fixed" (imported geometry with no torsion: the order tensor alone, D-3).
+    - ``order``: "bisector-diagonal" (legacy "D4"; template only), "c2z" (legacy "D2"), "c1", or
+      "point-group" (fixed: the declared symmetry restricts the tensor).
+    - ``frame``: "bisector" or "ring-a" for the template; "input" for imported coordinates;
+      "symmetry" (fixed: the declared symmetry frame).
+    - ``phi_domain_deg``: the fitted torsion interval; absent for "fixed", required otherwise.
     """
 
-    kind: Literal["rigid", "jump4"]
-    order: Literal["bisector-diagonal", "c2z", "c1"]
-    frame: Literal["bisector", "ring-a", "input"] = "bisector"
-    phi_domain_deg: tuple[float, float]
+    kind: Literal["rigid", "jump4", "fixed"]
+    order: Literal["bisector-diagonal", "c2z", "c1", "point-group"]
+    frame: Literal["bisector", "ring-a", "input", "symmetry"] = "bisector"
+    phi_domain_deg: tuple[float, float] | None = Field(default=None, exclude_if=_absent)
 
 
 class Project(Wire):
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     name: str
     source: str
     molecule: Molecule
@@ -136,10 +170,13 @@ class Project(Wire):
     next_coupling_id: Annotated[int, Field(ge=1)] = 1
 
     def spin(self, spin_id: str) -> Spin | None:
-        return next((s for s in self.molecule.spins if s.id == spin_id), None)
+        """By ID, through an index kept per project object (round 78: no scan of the spins per row)."""
+        index: dict[str, Spin] = _SPIN_INDEX.get(self, lambda: {s.id: s for s in self.molecule.spins})
+        return index.get(spin_id)
 
     def coupling(self, coupling_id: str) -> Coupling | None:
-        return next((c for c in self.couplings if c.id == coupling_id), None)
+        index: dict[str, Coupling] = _COUPLING_INDEX.get(self, lambda: {c.id: c for c in self.couplings})
+        return index.get(coupling_id)
 
     def label_of(self, object_id: str) -> tuple[str, str] | None:
         """Return (kind, display label) for a spin or coupling ID, or None if absent."""
@@ -184,6 +221,8 @@ class ByIdentity:
 
 
 _SCIENCE_HASHES = ByIdentity()
+_SPIN_INDEX = ByIdentity()
+_COUPLING_INDEX = ByIdentity()
 _CONTENT_HASHES = ByIdentity()
 
 
@@ -249,7 +288,9 @@ def migrate_project(data: dict[str, Any]) -> dict[str, Any]:
             if isinstance(c, dict) and str(c.get("id", "")).startswith("cpl_")
         ]
         data["next_coupling_id"] = max(numbers, default=0) + 1
-        data["schema_version"] = 2
+        data["schema_version"] = version = 2
+    if version == 2:
+        data["schema_version"] = 3  # v3 only adds optional fields and the model kind "fixed"
     return data
 
 
@@ -274,7 +315,7 @@ def load_example(name: ExampleName) -> Project:
         for i, row in enumerate(raw["couplings"])
     )
     return Project(
-        schema_version=2,
+        schema_version=3,
         next_coupling_id=len(couplings) + 1,
         name=raw["name"],
         source=raw["source"],
@@ -290,3 +331,29 @@ def load_example(name: ExampleName) -> Project:
         couplings=couplings,
         model=ModelSpec(kind="rigid", order="bisector-diagonal", phi_domain_deg=(0.0, 90.0)),
     )
+
+
+_GC_LOCK = threading.Lock()
+_GC_PAUSES = 0
+_GC_WAS_ENABLED = False
+
+
+@contextlib.contextmanager
+def paused_gc() -> Iterator[None]:
+    """Pause the cyclic garbage collector during a bounded computation over many small objects (a
+    20 000-row fixed fit or import: the collector took about 40 % of the time; round 77). Reference
+    counting still frees memory; the collector resumes, and runs, when the last pause ends. Pauses
+    nest across threads: the collector's state is restored only by the last one."""
+    global _GC_PAUSES, _GC_WAS_ENABLED
+    with _GC_LOCK:
+        if _GC_PAUSES == 0:
+            _GC_WAS_ENABLED = gc.isenabled()
+        gc.disable()  # also when an outside call re-enabled it during an enclosing pause
+        _GC_PAUSES += 1
+    try:
+        yield
+    finally:
+        with _GC_LOCK:
+            _GC_PAUSES -= 1
+            if _GC_PAUSES == 0:  # the outermost pause restores the state it recorded (round 78)
+                (gc.enable if _GC_WAS_ENABLED else gc.disable)()

@@ -16,6 +16,7 @@ Evidence:
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any
@@ -63,10 +64,38 @@ def opened_client(principal: Principal = USER, journal: Journal | None = None) -
 
 #: Operations whose example needs an imported project rather than the opened template example.
 NEEDS_IMPORTED = {"molecule.set_torsion"}
+#: Operations whose examples need imported benzene (V1.3: the fixed-geometry declarations).
+NEEDS_BENZENE = {"molecule.set_symmetry", "molecule.set_isotope"}
+IDENTITY = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+#: Benzene in its D6h frame (z normal, x through carbon 0): six carbons, then six hydrogens.
+BENZENE_XYZ = "12\nbenzene\n" + "".join(
+    f"{e} {float(r * math.cos(math.radians(60 * k)))!r} {float(r * math.sin(math.radians(60 * k)))!r} 0.0\n"
+    for e, r in (("C", 1.3914), ("H", 2.4716))
+    for k in range(6)
+)
 
 
-def client_for(name: str) -> LocalClient:
-    """A client whose session is at science revision 1 with a project the example can use."""
+def benzene_client(group: str | None = None, axes: list[list[float]] | None = None) -> LocalClient:
+    """Imported benzene at science revision 1, or 2 with a declared symmetry."""
+    session = Session(None, contract_version=CONTRACT_VERSION)
+    JobRunner(session, mode="thread")
+    c = LocalClient(REGISTRY, session, USER)
+    args = {"xyz": BENZENE_XYZ, "name": "benzene", "expected_science_revision": 0}
+    assert c.call("project.import_xyz", args)["ok"]
+    if group is not None:
+        symmetry = {"point_group": group, "axes": axes or IDENTITY}
+        assert c.call("molecule.set_symmetry", {"symmetry": symmetry, "expected_science_revision": 1})["ok"]
+    return c
+
+
+def client_for(name: str, example: dict[str, Any] | None = None) -> LocalClient:
+    """A client whose session has a project the example can use."""
+    if name == "model.set" and example is not None and example.get("kind") == "fixed":
+        return benzene_client("D6h")
+    if name == "molecule.set_isotope":  # carbon 0 lies on the C2 axis of this C2v frame
+        return benzene_client("C2v", [[0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]])
+    if name in NEEDS_BENZENE:
+        return benzene_client()
     if name not in NEEDS_IMPORTED:
         return opened_client()
     session = Session(None, contract_version=CONTRACT_VERSION)
@@ -84,10 +113,10 @@ JUMP = {
 }
 
 
-def prepared(name: str) -> tuple[LocalClient, dict[str, Any]]:
+def prepared(name: str, example: dict[str, Any] | None = None) -> tuple[LocalClient, dict[str, Any]]:
     """A client in a state the operation's examples can use, and its first example with the
     current science revision filled in (M2 step 2: undo needs a change, accept needs a proposal)."""
-    c = client_for(name)
+    c = client_for(name, example)
     if name in ("history.undo", "history.redo"):
         assert c.call("model.set", {**JUMP, "expected_science_revision": 1})["ok"]
         if name == "history.redo":
@@ -124,13 +153,13 @@ def test_examples_and_results_match_the_published_schemas(name: str) -> None:
     for example in op["examples"]:
         assert_valid(op["input_schema"], example)
         assert_valid(SNAPSHOT["envelopes"]["request"], {"args": example})
-        c, revisions = prepared(name)
+        c, revisions = prepared(name, example)
         envelope = c.call(name, example_args(name, example, revisions))
         assert envelope["ok"], envelope
         assert_valid(SNAPSHOT["envelopes"]["success"], envelope)
         assert_valid(op["output_schema"], envelope["result"])
         if op["kind"] == "command":  # the dry-run report validates too
-            c, revisions = prepared(name)
+            c, revisions = prepared(name, example)
             dry = c.call(name, example_args(name, example, revisions), dry_run=True)
             assert dry["ok"] and dry["dry_run"] is not None, dry
             assert_valid(SNAPSHOT["envelopes"]["success"], dry)
@@ -210,6 +239,32 @@ def produce_every_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict
 
     monkeypatch.setattr(os, "fsync", broken_fsync)
     keep(failing.call("view.select", {"ids": ["cpl_000001"]}))  # JOURNAL_FAILED
+    monkeypatch.undo()
+
+    # V1.3: the fixed-geometry codes.
+    benzene = benzene_client("D6h")
+    revision = 2
+    keep(benzene.call("molecule.set_isotope", {"atom": 0, "mass_number": 13, "expected_science_revision": revision}))
+    # SYMMETRY_NOT_SATISFIED: carbon-13 breaks D6h
+    keep(benzene.call("molecule.set_isotope", {"atom": 0, "mass_number": 14, "expected_science_revision": revision}))
+    # ISOTOPE_NOT_SUPPORTED
+    for symmetry in ({"point_group": "C3v", "axes": IDENTITY}, {"point_group": "D6h", "medium": "chiral"}):
+        keep(benzene.call("molecule.set_symmetry", {"symmetry": symmetry, "expected_science_revision": revision}))
+    # POINT_GROUP_NOT_SUPPORTED, MEDIUM_NOT_SUPPORTED
+    csv = "spin_a,spin_b,D_obs_Hz,sigma_Hz\nH7,H8,-100.0,1.0\nH8,H9,-100.0,1.0\n"
+    mapping = {f"H{k}": f"spn_{k - 6:06d}" for k in (7, 8, 9)}
+    assert benzene.call("couplings.import", {"csv": csv, "confirmed_mapping": mapping, "expected_science_revision": 2})[
+        "ok"
+    ]
+    fixed = {"kind": "fixed", "order": "point-group", "frame": "symmetry", "expected_science_revision": 3}
+    keep(benzene.call("model.set", fixed))  # OBSERVATIONS_CONFLICT: two rows in the ortho orbit
+    assert benzene.call("couplings.remove", {"coupling_ids": ["cpl_000002"], "expected_science_revision": 3})["ok"]
+    assert benzene.call("model.set", {**fixed, "expected_science_revision": 4})["ok"]
+    keep(benzene.call("fit.preview", {"phi": {"value": 0.0, "unit": "deg"}}))  # NO_TORSION
+    import dipolar_core.symmetry
+
+    monkeypatch.setattr(dipolar_core.symmetry, "MAX_FIT_ROWS", 0)
+    keep(benzene.call("fit.run", {"expected_science_revision": 5}))  # FIT_TOO_LARGE (the limit lowered)
     monkeypatch.undo()
 
     for code in (ErrorCode.UNAUTHENTICATED, ErrorCode.PAYLOAD_TOO_LARGE, ErrorCode.INTERNAL):  # HTTP adapter only

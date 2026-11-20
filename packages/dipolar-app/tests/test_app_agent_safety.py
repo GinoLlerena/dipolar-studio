@@ -174,7 +174,7 @@ def test_journal_records_are_replayed_with_their_requests(tmp_path: Path) -> Non
     _, c = journaled(tmp_path)
     ok(c.call("model.set", model("jump", 1), request_id="a"))
     last = records(tmp_path)[-1]
-    assert last["journal_schema"] == 2 and last["request"]["id"] == "a"
+    assert last["journal_schema"] == 3 and last["request"]["id"] == "a"
     assert last["request"]["outcome"]["model"]["kind"] == "jump4"
 
 

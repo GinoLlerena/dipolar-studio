@@ -193,6 +193,9 @@ class Job:
     science_hash: str
     input_hash: str  # D11 canonical hash: science, options, solver version, numerical context
     options_json: str
+    #: The input project's model kind ("rigid", "jump4" or "fixed"), recorded at submission. Its run
+    #: result is decoded by it (trusted metadata, never the blob: D-10).
+    model_kind: str
     status: JobStatus = "queued"
     finished_at: str | None = None
     run_id: str | None = None
@@ -216,6 +219,7 @@ class Run:
     science_hash: str
     input_hash: str
     result_sha256: str
+    model_kind: str  # the job's (see Job.model_kind)
     content_hash: str | None = None  # the job's (see Job.content_hash)
 
 
@@ -375,6 +379,7 @@ def apply_event(state: SessionState, event: Event) -> SessionState:
             science_hash=data["science_hash"],
             input_hash=data["input_hash"],
             options_json=canonical_json(data["options"]),
+            model_kind=data["model_kind"],
             # The submission is applied to the state the job computes from, so its content can be
             # derived here, also on replay; checked against the recorded hash to be sure.
             content_hash=state.content_hash if state.science_hash == data["science_hash"] else None,
@@ -410,6 +415,7 @@ def _finish_job(state: SessionState, event: Event) -> SessionState:
             science_hash=target.science_hash,
             input_hash=target.input_hash,
             result_sha256=run_data["result_sha256"],
+            model_kind=target.model_kind,
             content_hash=target.content_hash,
         )
         runs, next_run, run_id = (*state.runs, run)[-MAX_RUNS:], next_run + 1, run.id

@@ -1,0 +1,180 @@
+{
+  "format": "dipolar-studio-project",
+  "project": {
+    "couplings": [
+      {
+        "equivalent_pairs": [],
+        "id": "cpl_000001",
+        "multiplicity": 1,
+        "observable": "D",
+        "sigma": {
+          "unit": "Hz",
+          "value": 2.0
+        },
+        "sigma_source": "not stated",
+        "source_equivalent_pairs": null,
+        "source_labels": [
+          "H3",
+          "H4"
+        ],
+        "spin_a": "spn_000001",
+        "spin_b": "spn_000002",
+        "value": {
+          "unit": "Hz",
+          "value": -1500.0
+        }
+      },
+      {
+        "equivalent_pairs": [],
+        "id": "cpl_000002",
+        "multiplicity": 1,
+        "observable": "D",
+        "sigma": {
+          "unit": "Hz",
+          "value": 1.5
+        },
+        "sigma_source": "not stated",
+        "source_equivalent_pairs": null,
+        "source_labels": [
+          "H3",
+          "H6"
+        ],
+        "spin_a": "spn_000001",
+        "spin_b": "spn_000004",
+        "value": {
+          "unit": "Hz",
+          "value": 310.0
+        }
+      },
+      {
+        "equivalent_pairs": [],
+        "id": "cpl_000003",
+        "multiplicity": 1,
+        "observable": "D",
+        "sigma": {
+          "unit": "Hz",
+          "value": 1.0
+        },
+        "sigma_source": "not stated",
+        "source_equivalent_pairs": null,
+        "source_labels": [
+          "H4",
+          "H7"
+        ],
+        "spin_a": "spn_000002",
+        "spin_b": "spn_000005",
+        "value": {
+          "unit": "Hz",
+          "value": -120.0
+        }
+      }
+    ],
+    "model": {
+      "frame": "input",
+      "kind": "rigid",
+      "order": "c1",
+      "phi_domain_deg": [
+        -180.0,
+        180.0
+      ]
+    },
+    "molecule": {
+      "geometry": {
+        "atoms": [
+          {
+            "element": "C",
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          {
+            "element": "C",
+            "x": 1.54,
+            "y": 0.0,
+            "z": 0.0
+          },
+          {
+            "element": "H",
+            "x": -0.36,
+            "y": 1.03,
+            "z": 0.0
+          },
+          {
+            "element": "H",
+            "x": -0.36,
+            "y": -0.515,
+            "z": 0.892
+          },
+          {
+            "element": "H",
+            "x": -0.36,
+            "y": -0.515,
+            "z": -0.892
+          },
+          {
+            "element": "H",
+            "x": 1.9,
+            "y": -1.03,
+            "z": 0.0
+          },
+          {
+            "element": "H",
+            "x": 1.9,
+            "y": 0.515,
+            "z": 0.892
+          },
+          {
+            "element": "H",
+            "x": 1.9,
+            "y": 0.515,
+            "z": -0.892
+          }
+        ],
+        "source_format": "xyz",
+        "torsion": null
+      },
+      "spins": [
+        {
+          "atom": 2,
+          "id": "spn_000001",
+          "isotope": "1H",
+          "label": "H3"
+        },
+        {
+          "atom": 3,
+          "id": "spn_000002",
+          "isotope": "1H",
+          "label": "H4"
+        },
+        {
+          "atom": 4,
+          "id": "spn_000003",
+          "isotope": "1H",
+          "label": "H5"
+        },
+        {
+          "atom": 5,
+          "id": "spn_000004",
+          "isotope": "1H",
+          "label": "H6"
+        },
+        {
+          "atom": 6,
+          "id": "spn_000005",
+          "isotope": "1H",
+          "label": "H7"
+        },
+        {
+          "atom": 7,
+          "id": "spn_000006",
+          "isotope": "1H",
+          "label": "H8"
+        }
+      ]
+    },
+    "name": "ethane",
+    "schema_version": 1,
+    "source": "imported XYZ"
+  },
+  "schema_version": 1
+}

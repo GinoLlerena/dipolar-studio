@@ -342,7 +342,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
 1. Check the baseline:
 
    ```sh
-   uv sync --locked && uv run pytest -q -m "not slow"   # 885 passed
+   uv sync --locked && uv run pytest -q -m "not slow"   # 1124 passed (V1.3, after round 78)
    uv run python tools/codegen/ts_contract.py --check   # the generated TypeScript is current
    (cd web && pnpm install --frozen-lockfile && pnpm run build && pnpm run parity && pnpm test)  # 65 web tests
    (cd web && pnpm exec playwright install chromium firefox webkit && pnpm run e2e)  # 117 browser tests
@@ -379,13 +379,16 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
        amendments frozen (`tools/validation/prereg*.py`); targets local only (benzene 15 from the
        paper's text layer; ortho-dichlorobenzene 44 digitized from Fig. 3); a local restricted-value
        scan of every tracked blob (`tools/datasets/restricted_scan.py`).
-     - **In review:** V1.2, symmetry and permutation classes (`dipolar_core.symmetry`; rounds
-       75–76, `docs/validation/round75-v1.2-symmetry.md`; budgets in
-       `docs/validation/data/v12-symmetry-benchmark.json`).
-     - **Next:** V1.3, the application (model `fixed`, schema v3, the symmetry and isotope
-       declarations). It inherits from round 76: the D-5 orbit key from spin IDs, an explicit
-       mapping of the core's error codes, the core `ISOTOPES` table at import with integer mass
-       numbers, and the `MAX_FIT_ROWS` admission check in the worker.
+     - **Done:** V1.2, symmetry and permutation classes (`dipolar_core.symmetry`; rounds 75–76,
+       `docs/validation/round75-v1.2-symmetry.md`; tag `v1.2-symmetry`).
+     - **Reviewed, awaiting the owner's merge decision:** V1.3, the application (branch `v1.3-application`; rounds 77–78, both NOT READY, all findings fixed under the cap;
+       `docs/validation/round77-v1.3-application.md`): model `fixed`, project schema v3, the
+       symmetry and isotope declarations (`molecule.set_symmetry`, `molecule.set_isotope`,
+       `couplings.remove`), rows keyed by pair orbit, `FixedRunOut` and its φ-free report, 0.1
+       directories refused unchanged (D-1, `dipolar_app.directory`), contract 0.11.0 (breaking,
+       `docs/contract-changelog.md`). Gate tests: `packages/dipolar-app/tests/test_app_v13_fixed.py`.
+     - **Next:** V1.4, the browser and the robot (a Fit workspace without φ, the estimable
+       combinations panel, a one-ring Structure view, a robot tutorial on three browsers).
      - **Decided by the owner on 2026-11-18:**
        - D-1: carry projects over by export file;
        - decision 4: two independent AI transcriptions, with the owner's spot-check;
