@@ -1136,11 +1136,14 @@ def test_r77_a_generated_class_is_never_ambiguous() -> None:
     benzene_draft(c)
     ok(set_symmetry(c, symmetry("D6h")))
     document = json.loads(ok(c.call("project.export"))["text"])
+    # Corrected after round 78 (finding 4: an entry is written in whichever endpoint order parses):
+    # with b and c-a too, both "a-b-c" and "b-c-a" split two ways, so H7–H8 has no unambiguous entry.
+    both = {**renamed, "H11": "b", "H12": "c-a"}
     for spin in document["project"]["molecule"]["spins"]:
-        spin["label"] = renamed.get(spin["label"], spin["label"])
+        spin["label"] = both.get(spin["label"], spin["label"])
     document["project"]["model"] = {"kind": "fixed", "order": "point-group", "frame": "symmetry"}
     ok(c.call("project.load", {"text": json.dumps(document), "expected_science_revision": rev(c)}))
-    csv = csv_of([("H11", "H12", 400.0)])  # ortho: its orbit contains a–b-c, written "a-b-c"
+    csv = csv_of([("a-b", "c", 400.0)])  # H9–H10, ortho: its orbit contains H7–H8
     labels = by_label(c)
     first = refused(c.call("couplings.reconcile", {"csv": csv}), "INVALID_ARGUMENT")
     second = refused(
@@ -1367,3 +1370,271 @@ def test_r77_reconciliation_is_linear_in_the_rows() -> None:
         best[name] = [min(t[0] for t in times), min(t[1] for t in times)]
     extra = [f - d for f, d in zip(best["fixed"], best["draft"], strict=True)]
     assert extra[0] < 1.0 and extra[1] < 1.0, best
+
+
+# ----------------------------------------------- round 78 gates (frozen before the fixes)
+def test_r78_a_v1_directory_with_a_torn_post_compaction_append_reopens(tmp_path: Path) -> None:
+    """Round 78, finding 1: after a compaction, a first journal record cut short is this version's
+    own unacknowledged append: the current snapshot vouches for the directory."""
+    from dipolar_app.api import Studio
+
+    project = tmp_path / "p"
+    with Studio.local(project) as studio:
+        studio.call("project.open_example", name="biphenyl-synthetic", expected_science_revision=0)
+        studio._transport._session.compact()  # type: ignore[attr-defined]
+        studio.call("view.select", ids=["cpl_000001"])
+        described = studio.call("project.describe")
+    journal = project / "project.events.jsonl"
+    journal.write_bytes(journal.read_bytes()[:96])
+    with Studio.local(project) as studio:
+        assert studio.call("project.describe") == described
+
+
+def test_r78_a_stale_0_1_ready_file_is_never_overwritten(tmp_path: Path) -> None:
+    """Round 78, finding 2: an empty journal with 0.1's ready file is a 0.1 directory."""
+    from dipolar_app.api import Studio
+    from dipolar_app.directory import DirectoryRefused
+
+    old = tmp_path / "old"
+    old.mkdir()
+    (old / "project.events.jsonl").write_bytes(b"")
+    (old / "serve.ready.json").write_text(json.dumps({"contract_version": "0.10.0", "pid": 1}), encoding="utf-8")
+    before = tree(old)
+    with pytest.raises(DirectoryRefused):
+        Studio.local(old)
+    done = subprocess.run(
+        [sys.executable, "-m", "dipolar_app.cli", "serve", "--project-dir", str(old)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert done.returncode != 0 and tree(old) == before
+    current = tmp_path / "current"
+    current.mkdir()
+    (current / "project.events.jsonl").write_bytes(b"")
+    (current / "serve.ready.json").write_text(json.dumps({"contract_version": "0.11.0", "pid": 1}), encoding="utf-8")
+    Studio.local(current).close()  # this version's own stale ready file
+
+
+def test_r78_draft_declarations_compare_atom_orbits() -> None:
+    """Round 78, finding 3: a draft may leave an H atom without a spin; a declaration edit compares
+    the observed pairs' atom orbits, so an unrelated missing image is no refusal."""
+    xyz = np.array([[0, 0, 1.0], [0, 0, -1.0], [1.0, 0, 0.5], [-1.0, 0, 0.5]])
+    c = client(new_session())
+    ok(c.call("project.import_xyz", {"xyz": xyz_text(["H"] * 4, xyz), "name": "c2v", "expected_science_revision": 0}))
+    document = json.loads(ok(c.call("project.export"))["text"])
+    document["project"]["molecule"]["spins"] = document["project"]["molecule"]["spins"][:3]  # atom 3 is no spin
+    ok(c.call("project.load", {"text": json.dumps(document), "expected_science_revision": rev(c)}))
+    ok(import_csv(c, csv_of([("H1", "H2", -100.0)])))  # the axial pair: its own orbit under C2v
+    ok(set_symmetry(c, symmetry("C2v")))
+    ok(set_symmetry(c, None))
+
+
+def test_r78_explicit_and_generated_classes_agree_between_reconcile_and_import() -> None:
+    """Round 78, finding 4: with labels a, b-c, a-b and c, an orbit entry is written in the order
+    that parses ("b-c-a"); an explicit class in the file's own labels is stored as the orbit, so
+    reconciliation and import agree."""
+    c = client(new_session())
+    benzene_draft(c)
+    ok(set_symmetry(c, symmetry("D6h")))
+    document = json.loads(ok(c.call("project.export"))["text"])
+    renamed = {"H7": "a", "H8": "b-c", "H9": "a-b", "H10": "c"}
+    for spin in document["project"]["molecule"]["spins"]:
+        spin["label"] = renamed.get(spin["label"], spin["label"])
+    document["project"]["model"] = {"kind": "fixed", "order": "point-group", "frame": "symmetry"}
+    ok(c.call("project.load", {"text": json.dumps(document), "expected_science_revision": rev(c)}))
+    spins = {s["label"]: s["id"] for s in ok(c.call("project.describe"))["spins"]}
+    alias = {f"X{k}": spins[label] for k, label in enumerate(["a", "b-c", "a-b", "c", "H11", "H12"], start=1)}
+    ring_x = [f"X{k}" for k in range(1, 7)]
+    ortho = " ".join(f"{ring_x[k]}-{ring_x[(k + 1) % 6]}" for k in range(6))
+    for extra in ({}, {"equivalent_pairs": [ortho], "multiplicity": ["6"]}):
+        csv = csv_of([("X5", "X6", 400.0)], extra=extra)
+        assert ok(c.call("couplings.reconcile", {"csv": csv, "mapping": alias}))["complete"] is True
+        ok(c.call("couplings.import", {"csv": csv, "confirmed_mapping": alias, "expected_science_revision": rev(c)}))
+        row = ok(c.call("project.describe"))["couplings"][0]
+        assert row["multiplicity"] == 6 and "b-c-a" in row["equivalent_pairs"]
+
+
+def test_r78_a_malformed_element_on_load_is_an_invalid_argument() -> None:
+    """Round 78, finding 5: normalization never fails on a malformed atom; the schema reports it."""
+    c = client(new_session())
+    benzene_draft(c)
+    document = json.loads(ok(c.call("project.export"))["text"])
+    document["project"]["molecule"]["geometry"]["atoms"][0]["element"] = []
+    args = {"text": json.dumps(document), "expected_science_revision": rev(c)}
+    refused(c.call("project.load", args), "INVALID_ARGUMENT")
+    refused(c.call("project.load", args, dry_run=True), "INVALID_ARGUMENT")
+
+
+_BUDGET_PROBE = """
+import json, sys, time, tracemalloc
+from pathlib import Path
+import dipolar_app.jobs, dipolar_app.science_ops, scipy.special  # imports are not the fit's cost
+args = json.loads(Path(sys.argv[1]).read_text())
+trace = sys.argv[2] == "trace"
+if trace:
+    tracemalloc.start()
+start = time.process_time()
+text = dipolar_app.jobs.compute_text(*args)  # the worker's work: decode, fit, serialize
+cpu = time.process_time() - start
+peak = tracemalloc.get_traced_memory()[1] if trace else 0
+print(json.dumps({"cpu": cpu, "peak": peak, "bytes": len(text.encode())}))
+"""
+
+
+@pytest.mark.slow
+def test_r78_the_worker_budget_holds_at_the_d6h_limit(tmp_path: Path) -> None:
+    """Round 78, finding 6 (D-11: 2 s CPU, 100 MB): the worker's job at the D6h limit, in fresh
+    processes, from its input text (decoding included) to its result text. CPU time and traced
+    memory are measured in separate processes; interpreter start and imports are reported by the
+    benchmark, not counted (they are the same for every job)."""
+    from dipolar_app.formats import loads_project
+    from dipolar_app.jobs import job_input
+
+    project = loads_project(d6h_document(20_000))
+    args = tmp_path / "args.json"
+    args.write_text(json.dumps(["fit", job_input(project), {}, 1, "sha256:x"]), encoding="utf-8")
+    probe = tmp_path / "probe.py"
+    probe.write_text(_BUDGET_PROBE, encoding="utf-8")
+
+    def measure(mode: str) -> dict[str, float]:
+        done = subprocess.run(
+            [sys.executable, str(probe), str(args), mode], capture_output=True, text=True, timeout=300, check=True
+        )
+        result: dict[str, float] = json.loads(done.stdout.strip().splitlines()[-1])
+        return result
+
+    timed = [measure("time") for _ in range(3)]  # the least of three fresh processes
+    traced = measure("trace")
+    assert min(t["cpu"] for t in timed) < 2.0, timed
+    assert traced["peak"] < 100 << 20, traced
+    assert timed[0]["bytes"] < 16 << 20
+
+
+@pytest.mark.slow
+def test_r78_reconciliation_does_not_grow_with_the_spin_count() -> None:
+    """Round 78, finding 7 (B): 20 000 fixed C1 rows reconciled on 250 and on 1000 protons cost about
+    the same (no per-row scan of the spins)."""
+    import time
+
+    from dipolar_app.formats import dumps_project
+    from dipolar_app.project import Atom, ImportedGeometry, ModelSpec, Molecule, Project, Spin, SymmetrySpec
+    from dipolar_app.schemas import Angstrom
+
+    def cost(n: int) -> float:
+        side = {250: (10, 5, 5), 1000: (10, 10, 10)}[n]
+        points = [
+            (float(x), float(y), float(z)) for x in range(side[0]) for y in range(side[1]) for z in range(side[2])
+        ]
+        spins = tuple(Spin(id=f"spn_{k + 1:06d}", label=f"H{k + 1}", isotope="1H", atom=k) for k in range(n))
+        project = Project(
+            schema_version=3,
+            name="grid",
+            source="synthetic",
+            molecule=Molecule(
+                geometry=ImportedGeometry(
+                    source_format="xyz", atoms=tuple(Atom(element="H", x=x, y=y, z=z) for x, y, z in points)
+                ),
+                spins=spins,
+                symmetry=SymmetrySpec(
+                    point_group="C1",
+                    axes=tuple(tuple(r) for r in IDENTITY),
+                    tolerance=Angstrom(value=0.01, unit="Å"),
+                    medium="achiral-uniaxial",
+                ),
+            ),
+            couplings=(),
+            model=ModelSpec(kind="fixed", order="point-group", frame="symmetry"),
+        )
+        pairs = [(a, b) for a in range(n) for b in range(a + 1, n)][:20_000]
+        csv = csv_of([(f"H{a + 1}", f"H{b + 1}", -10.0) for a, b in pairs])
+        labels = {f"H{k + 1}": f"spn_{k + 1:06d}" for k in range(n)}
+        best = math.inf
+        for _ in range(3):
+            c = client(new_session())
+            ok(c.call("project.load", {"text": dumps_project(project), "expected_science_revision": 0}))
+            start = time.process_time()
+            ok(c.call("couplings.reconcile", {"csv": csv, "mapping": labels}))
+            best = min(best, time.process_time() - start)
+        return best
+
+    small, large = cost(250), cost(1000)
+    assert large < 1.5 * small, (small, large)
+
+
+def test_r78_leaving_fixed_keeps_a_multi_pair_class_that_stays_valid() -> None:
+    """Round 78, finding 8 (B): on an exact D2h rectangle, symmetry-related pairs are parallel, so a
+    two-pair class stays valid in the draft and leaving keeps it; 0.004 Å off, it is refused,
+    atomically."""
+    for wobble, valid in ((0.0, True), (0.004, False)):
+        xyz = np.array([[1.2, 1.5, 0], [1.2, -1.5, 0], [-1.2, 1.5, 0], [-1.2, -1.5, 0]])
+        xyz[0, 1] += wobble
+        c = client(new_session())
+        ok(c.call("project.import_xyz", {"xyz": xyz_text(["H"] * 4, xyz), "name": "r", "expected_science_revision": 0}))
+        ok(set_symmetry(c, symmetry("D2h")))
+        ok(set_model(c, FIXED))
+        ok(import_csv(c, csv_of([("H1", "H2", -100.0)])))
+        before = ok(c.call("project.describe"))
+        assert before["couplings"][0]["multiplicity"] == 2
+        r = rev(c)
+        if valid:
+            ok(set_model(c, DRAFT))
+            row = ok(c.call("project.describe"))["couplings"][0]
+            assert row["multiplicity"] == 2 and len(row["equivalent_pairs"]) == 2
+        else:
+            refused(set_model(c, DRAFT), "OBSERVATIONS_CONFLICT")
+            assert rev(c) == r and ok(c.call("project.describe")) == before
+
+
+def test_r78_the_orbit_memo_stores_each_orbit_once() -> None:
+    """Round 78, finding 9 (B): two representatives of one orbit share one memo entry."""
+    from dipolar_app.science import orbit_index
+
+    c = client(new_session())
+    fixed_benzene(c)
+    session_project = c._session.state.project
+    index = orbit_index(session_project)
+    index._orbits.clear()
+    labels = {s.label: s.id for s in session_project.molecule.spins}
+    for a, b in (("H7", "H8"), ("H9", "H10"), ("H7", "H9"), ("H8", "H10")):
+        index.orbit(labels[a], labels[b])
+    assert len(index._orbits) == 2
+
+
+def test_r78_direct_computation_validates_its_input() -> None:
+    """Round 78, finding 10 (B): only the committed job input skips the class check; a project given
+    to compute_fixed or to the worker as a project is validated."""
+    from dipolar_app.errors import OperationError
+    from dipolar_app.jobs import compute
+    from dipolar_app.project import Project
+    from dipolar_app.science_ops import compute_fixed
+
+    c = client(new_session())
+    fixed_benzene(c)
+    document = json.loads(ok(c.call("project.export"))["text"])
+    document["project"]["couplings"][0]["multiplicity"] = 32
+    project = Project.model_validate(document["project"])
+    with pytest.raises(OperationError):
+        compute_fixed(project, 1, "sha256:x")
+    with pytest.raises(OperationError):
+        compute("fit", project.model_dump_json(), {}, 1, "sha256:x")
+
+
+def test_r78_the_gc_pause_restores_the_recorded_state() -> None:
+    """Round 78, finding 11 (B): the outermost pause restores the collector's state as it found it."""
+    import gc
+
+    from dipolar_app.project import paused_gc
+
+    was = gc.isenabled()
+    try:
+        gc.disable()
+        with paused_gc():
+            gc.enable()  # an outside toggle during the pause
+        assert not gc.isenabled()
+        gc.enable()
+        with paused_gc(), paused_gc():
+            assert not gc.isenabled()
+        assert gc.isenabled()
+    finally:
+        (gc.enable if was else gc.disable)()
