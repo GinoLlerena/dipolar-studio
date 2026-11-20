@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -599,11 +600,11 @@ def test_set_isotope_on_every_path() -> None:
     ok(c.call("molecule.set_isotope", args, dry_run=True))
     created = ok(agent.call("proposal.create", {"steps": [{"operation": "molecule.set_isotope", "args": args}]}))
     ok(c.call("proposal.accept", {"proposal_id": created["proposal"]["id"]}))
-    atoms = ok(c.call("project.describe"))["geometry"]["atoms"]
-    assert atoms[0]["mass_number"] == 13 and "mass_number" not in atoms[1]
+    isotopes = ok(c.call("molecule.declarations"))["isotopes"]
+    assert isotopes == [{"atom": 0, "element": "C", "mass_number": 13}]
     out = ok(c.call("molecule.set_isotope", {"atom": 0, "mass_number": 12, "expected_science_revision": rev(c)}))
     assert out["mass_number"] is None  # the default spelled out is normalized to absent
-    assert "mass_number" not in ok(c.call("project.describe"))["geometry"]["atoms"][0]
+    assert ok(c.call("molecule.declarations"))["isotopes"] == []
     ok(
         c.call("molecule.set_isotope", {"atom": 0, "mass_number": 13.0, "expected_science_revision": rev(c)})
     )  # JSON integer
@@ -639,7 +640,6 @@ def test_isotopes_on_load() -> None:
     benzene_draft(c)
     document = json.loads(ok(c.call("project.export"))["text"])
     for mutate, code in (
-        (lambda atoms: atoms[0].update(mass_number=12), "INVALID_ARGUMENT"),  # not the one spelling
         (lambda atoms: atoms[6].update(mass_number=2), "INVALID_ARGUMENT"),  # H-2 is spelled D
         (lambda atoms: atoms[0].update(mass_number=14), "ISOTOPE_NOT_SUPPORTED"),
         (lambda atoms: atoms[0].update(element="He"), "INVALID_ARGUMENT"),
@@ -983,3 +983,365 @@ class _StudioClient:
     def call(self, name: str, args: dict[str, Any] | None = None, **_: Any) -> dict[str, Any]:
         envelope: dict[str, Any] = self._studio.envelope(name, args or {})
         return envelope
+
+
+# ----------------------------------------------- round 77 gates (frozen before the fixes)
+def _legacy_without_final_newline(tmp_path: Path) -> Path:
+    """Round 77, finding 1: a 0.1 journal whose only bytes are its first record, without the final
+    newline (readable 0.1 metadata, but no complete line)."""
+    project = tmp_path / "torn"
+    shutil.copytree(PHASE1 / "journal-only", project)
+    journal = project / "project.events.jsonl"
+    first = journal.read_bytes().split(b"\n", 1)[0]
+    journal.write_bytes(first)
+    return project
+
+
+def test_r77_a_legacy_record_without_its_newline_is_refused_unchanged(tmp_path: Path) -> None:
+    from dipolar_app.api import Studio
+    from dipolar_app.directory import DirectoryRefused
+
+    project = _legacy_without_final_newline(tmp_path)
+    before = tree(project)
+    with pytest.raises(DirectoryRefused):
+        Studio.local(project)
+    assert tree(project) == before
+    ready = tmp_path / "ready.json"
+    done = subprocess.run(
+        [sys.executable, "-m", "dipolar_app.cli", "serve", "--project-dir", str(project), "--ready-file", str(ready)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert done.returncode != 0 and not ready.exists()
+    assert tree(project) == before
+
+
+def test_r77_a_nonempty_directory_of_unknown_version_is_refused_unchanged(tmp_path: Path) -> None:
+    """No record and no snapshot, but result blobs (or garbage in the journal): the version is
+    unknown, so the directory is refused before recovery or collection could change it."""
+    from dipolar_app.api import Studio
+    from dipolar_app.directory import DirectoryRefused
+
+    blobs = tmp_path / "blobs"
+    shutil.copytree(PHASE1 / "journal-only", blobs)
+    (blobs / "project.events.jsonl").write_bytes(b"")
+    garbage = tmp_path / "garbage"
+    garbage.mkdir()
+    (garbage / "project.events.jsonl").write_bytes(b'{"half a rec')
+    for project in (blobs, garbage):
+        before = tree(project)
+        with pytest.raises(DirectoryRefused):
+            Studio.local(project)
+        assert tree(project) == before
+    with Studio.local(tmp_path / "fresh") as studio:  # a new, empty directory still opens
+        assert studio.call("render.describe_view")["project_open"] is False
+
+
+def _draft_with_one_row(c: Any, group: str) -> None:
+    xyz = benzene_draft(c)
+    ok(set_symmetry(c, symmetry(group)))
+    ok(import_csv(c, csv_of([(*ORTHO, couplings(xyz, [(6, 7)], [S_ZZ, 0, 0, 0, 0])[0])])))
+
+
+def test_r77_declaration_edits_in_a_populated_draft_keep_the_orbits() -> None:
+    """Round 77, finding 2: D-3's orbit protection applies whenever rows exist, draft or fixed: a
+    declaration change (a first one, a change, or clearing) is refused if a row's orbit changes.
+    Without a declaration a pair's orbit is the pair itself."""
+    session = new_session()
+    c, agent = client(session), client(session, AGENT)
+    _draft_with_one_row(c, "C1")
+    args = {"symmetry": symmetry("D6h"), "expected_science_revision": rev(c)}
+    refused(c.call("molecule.set_symmetry", args), "OBSERVATIONS_CONFLICT")
+    refused(c.call("molecule.set_symmetry", args, dry_run=True), "OBSERVATIONS_CONFLICT")
+    refused(
+        agent.call("proposal.create", {"steps": [{"operation": "molecule.set_symmetry", "args": args}]}),
+        "OBSERVATIONS_CONFLICT",
+    )
+    ok(set_symmetry(c, None))  # clearing C1: every orbit stays its own pair
+    refused(set_symmetry(c, symmetry("D6h")), "OBSERVATIONS_CONFLICT")  # a first declaration that expands
+    ok(set_symmetry(c, symmetry("C1")))  # a first declaration that keeps them
+
+    c = client(new_session())
+    xyz = benzene_draft(c)
+    ok(set_symmetry(c, symmetry("D6h")))
+    csv = csv_of([(*ORTHO, couplings(xyz, [(6, 7)], [S_ZZ, 0, 0, 0, 0])[0])])
+    ok(import_csv(c, csv))
+    refused(set_symmetry(c, symmetry("C1")), "OBSERVATIONS_CONFLICT")  # the reverse edit splits
+    refused(set_symmetry(c, None), "OBSERVATIONS_CONFLICT")  # clearing splits too
+
+
+def test_r77_explicit_default_masses_normalize_on_load() -> None:
+    """Round 77, finding 3 (D-6): a default mass written out is normalized to absent on load, so
+    both spellings load to one identity; H-2 stays refused (deuterium is D)."""
+    from dipolar_app.formats import loads_project
+    from dipolar_app.project import science_hash
+
+    c = client(new_session())
+    benzene_draft(c)
+    text = ok(c.call("project.export"))["text"]
+    document = json.loads(text)
+    atoms = document["project"]["molecule"]["geometry"]["atoms"]
+    atoms[0]["mass_number"] = 12
+    atoms[6]["mass_number"] = 1
+    explicit = json.dumps(document)
+    assert science_hash(loads_project(explicit)) == science_hash(loads_project(text))
+    loaded = ok(c.call("project.load", {"text": explicit, "expected_science_revision": rev(c)}))
+    assert loaded["science_hash"] == science_hash(loads_project(text))
+    assert (
+        "mass_number"
+        not in json.loads(ok(c.call("project.export"))["text"])["project"]["molecule"]["geometry"]["atoms"][0]
+    )
+
+
+def test_r77_a_draft_with_declarations_keeps_the_0_10_0_describe() -> None:
+    """Round 77, finding 4: a non-fixed project keeps the 0.10.0 project.describe shape even with
+    a declared symmetry and an isotope; the declarations are read with molecule.declarations."""
+    old = json.loads((DATA / "contract-0.10.0.json").read_text(encoding="utf-8"))
+    schema = next(o["output_schema"] for o in old["operations"] if o["name"] == "project.describe")
+    c = client(new_session())
+    benzene_draft(c)
+    ok(set_symmetry(c, symmetry("C2v", C2V_AXES)))
+    _validate(ok(c.call("project.describe")), schema)
+    ok(c.call("molecule.set_isotope", {"atom": 0, "mass_number": 13, "expected_science_revision": rev(c)}))
+    _validate(ok(c.call("project.describe")), schema)
+    declared = ok(c.call("molecule.declarations"))
+    assert declared["symmetry"]["point_group"] == "C2v"
+    assert declared["isotopes"] == [{"atom": 0, "element": "C", "mass_number": 13}]
+    fixed = client(new_session())
+    fixed_benzene(fixed)
+    assert ok(fixed.call("project.describe"))["symmetry"]["point_group"] == "D6h"  # fixed: in describe
+
+
+def test_r77_a_generated_class_is_never_ambiguous() -> None:
+    """Round 77, finding 7: with spin labels a, b-c, a-b and c, a single-pair orbit is stored as the
+    row's own pair (an empty class), and a generated multi-pair class that would not parse is
+    refused identically by reconciliation and import."""
+    c = client(new_session())
+    xyz = benzene_draft(c)
+    ok(set_symmetry(c, symmetry("C1")))
+    document = json.loads(ok(c.call("project.export"))["text"])
+    renamed = {"H7": "a", "H8": "b-c", "H9": "a-b", "H10": "c"}
+    for spin in document["project"]["molecule"]["spins"]:
+        spin["label"] = renamed.get(spin["label"], spin["label"])
+    document["project"]["model"] = {"kind": "fixed", "order": "point-group", "frame": "symmetry"}
+    ok(c.call("project.load", {"text": json.dumps(document), "expected_science_revision": rev(c)}))
+    d = couplings(xyz, [(6, 7)], [S_ZZ, 0, 0, 0, 0])[0]
+    csv = csv_of([("a", "b-c", d)])
+    assert ok(c.call("couplings.reconcile", {"csv": csv}))["complete"] is True
+    ok(import_csv(c, csv))
+    assert ok(c.call("project.describe"))["couplings"][0]["multiplicity"] == 1
+
+    c = client(new_session())
+    benzene_draft(c)
+    ok(set_symmetry(c, symmetry("D6h")))
+    document = json.loads(ok(c.call("project.export"))["text"])
+    for spin in document["project"]["molecule"]["spins"]:
+        spin["label"] = renamed.get(spin["label"], spin["label"])
+    document["project"]["model"] = {"kind": "fixed", "order": "point-group", "frame": "symmetry"}
+    ok(c.call("project.load", {"text": json.dumps(document), "expected_science_revision": rev(c)}))
+    csv = csv_of([("H11", "H12", 400.0)])  # ortho: its orbit contains a–b-c, written "a-b-c"
+    labels = by_label(c)
+    first = refused(c.call("couplings.reconcile", {"csv": csv}), "INVALID_ARGUMENT")
+    second = refused(
+        c.call("couplings.import", {"csv": csv, "confirmed_mapping": labels, "expected_science_revision": rev(c)}),
+        "INVALID_ARGUMENT",
+    )
+    assert "ambiguous" in first["message"] and "ambiguous" in second["message"]
+
+
+def test_r77_load_lists_every_conflicting_row() -> None:
+    """Round 77, finding 8: a load refusal lists every conflicting row (malformed classes too), and
+    a class repeating one pair in reverse is refused as on import."""
+    c = client(new_session())
+    fixed_benzene(c)
+    document = json.loads(ok(c.call("project.export"))["text"])
+    broken = json.loads(json.dumps(document))
+    broken["project"]["couplings"][0]["equivalent_pairs"] = ["H7-H8", "H7-nobody"]
+    broken["project"]["couplings"][1]["equivalent_pairs"] = ["H7-H9"]
+    broken["project"]["couplings"][1]["multiplicity"] = 1
+    error = refused(
+        c.call("project.load", {"text": json.dumps(broken), "expected_science_revision": rev(c)}),
+        "OBSERVATIONS_CONFLICT",
+    )
+    assert error["details"]["coupling_ids"] == ["cpl_000001", "cpl_000002"]
+    seven = json.loads(json.dumps(document))
+    row = seven["project"]["couplings"][0]
+    a, b = row["equivalent_pairs"][0].split("-")
+    row["equivalent_pairs"] = [*row["equivalent_pairs"], f"{b}-{a}"]
+    row["multiplicity"] = 7
+    error = refused(
+        c.call("project.load", {"text": json.dumps(seven), "expected_science_revision": rev(c)}),
+        "OBSERVATIONS_CONFLICT",
+    )
+    assert error["details"]["coupling_ids"] == ["cpl_000001"]
+
+
+def test_r77_a_result_is_decoded_by_the_run_metadata_everywhere() -> None:
+    """Round 77, finding 9 (B): a digest-valid fixed blob under rigid run metadata is damaged for
+    run.get, run.report, the scene and describe_view alike (the decoder is the run's, never the
+    blob's)."""
+    import dataclasses
+
+    session = new_session()
+    c = client(session)
+    fixed_benzene(c)
+    ok(run_fit(c))
+    state = session._state
+    run = dataclasses.replace(state.runs[-1], model_kind="rigid")
+    session._state = dataclasses.replace(state, runs=(*state.runs[:-1], run))
+    refused(c.call("run.get", {"run_id": run.id}), "INTERNAL")
+    refused(c.call("run.report", {"run_id": run.id}), "INTERNAL")
+    scene = ok(c.call("render.scene"))
+    assert scene["run"]["available"] is False and scene["fit"] is None
+    assert any("cannot be read" in w for w in ok(c.call("render.describe_view"))["warnings"])
+
+
+# ----------------------------------------------- round 77: the D-11 budgets at high multiplicity
+@lru_cache(maxsize=2)
+def d6h_document(n_rows: int) -> str:
+    """A fixed D6h project at the atom limit: 41 generic 24-atom orbits and 8 on-axis pairs (1000
+    protons), with ``n_rows`` distinct pair orbits, each row carrying its full orbit as its class."""
+    from dipolar_app.formats import dumps_project
+    from dipolar_app.project import Atom, Coupling, ImportedGeometry, ModelSpec, Molecule, Project, Spin, SymmetrySpec
+    from dipolar_app.schemas import Angstrom, Hertz
+    from dipolar_core.symmetry import Declaration, validate
+
+    points: list[tuple[float, float, float]] = []
+    seeds = [(r, z) for r in range(3, 10) for z in (0.5, 1.5, 2.5, 3.5, 4.5, 5.5)][:41]
+    for r, z in seeds:
+        for k in range(6):
+            for sign in (1, -1):
+                a = math.radians(60 * k + sign * 15)
+                for zz in (z, -z):
+                    points.append((r * math.cos(a), r * math.sin(a), zz))
+    for k in range(8):
+        points += [(0.0, 0.0, 0.5 + k), (0.0, 0.0, -0.5 - k)]
+    xyz = np.array(points)
+    n = len(points)
+    assert n == 1000
+    v = validate(xyz, ["H"] * n, [None] * n, Declaration("D6h", np.eye(3)))
+    perms = v.permutations
+    keys: dict[int, tuple[int, int]] = {}
+    for a in range(n):
+        b = np.arange(a + 1, n)
+        pa, pb = perms[:, [a]], perms[:, b]
+        codes = np.minimum(pa, pb) * n + np.maximum(pa, pb)
+        for j, key in enumerate(codes.min(axis=0).tolist()):
+            keys.setdefault(key, (a, int(b[j])))
+        if len(keys) >= n_rows:
+            break
+    chosen = list(keys.values())[:n_rows]
+    assert len(chosen) == n_rows
+    label = [f"H{k + 1}" for k in range(n)]
+    rng = np.random.default_rng(3)
+    rows = []
+    for k, (a, b) in enumerate(chosen):
+        codes = sorted({int(min(p[a], p[b]) * n + max(p[a], p[b])) for p in perms})
+        rows.append(
+            Coupling(
+                id=f"cpl_{k + 1:06d}",
+                spin_a=f"spn_{a + 1:06d}",
+                spin_b=f"spn_{b + 1:06d}",
+                observable="D",
+                value=Hertz(value=float(rng.normal(-50.0, 20.0)), unit="Hz"),
+                sigma=Hertz(value=1.0, unit="Hz"),
+                sigma_source="synthetic",
+                multiplicity=len(codes),
+                equivalent_pairs=tuple(f"{label[x // n]}-{label[x % n]}" for x in codes),
+            )
+        )
+    project = Project(
+        schema_version=3,
+        name="d6h-limit",
+        source="synthetic",
+        molecule=Molecule(
+            geometry=ImportedGeometry(
+                source_format="xyz", atoms=tuple(Atom(element="H", x=x, y=y, z=z) for x, y, z in points)
+            ),
+            spins=tuple(Spin(id=f"spn_{k + 1:06d}", label=label[k], isotope="1H", atom=k) for k in range(n)),
+            symmetry=SymmetrySpec(
+                point_group="D6h",
+                axes=tuple(tuple(r) for r in IDENTITY),
+                tolerance=Angstrom(value=0.01, unit="Å"),
+                medium="achiral-uniaxial",
+            ),
+        ),
+        couplings=tuple(rows),
+        model=ModelSpec(kind="fixed", order="point-group", frame="symmetry"),
+        next_coupling_id=n_rows + 1,
+    )
+    return dumps_project(project)
+
+
+@pytest.mark.slow
+def test_r77_the_fit_budget_holds_at_the_d6h_limit() -> None:
+    """Round 77, finding 5 (D-11: the fixed fit within 2 s CPU and 100 MB): the worker's computation
+    from its input JSON (validation, rows, fit and the serialized result) at 1000 atoms, D6h and
+    20 000 rows with full classes, measured as CPU time and traced allocation."""
+    import time
+    import tracemalloc
+
+    from dipolar_app.formats import loads_project
+    from dipolar_app.project import Project
+    from dipolar_app.science_ops import compute_fixed
+
+    project_json = loads_project(d6h_document(20_000)).model_dump_json()
+    import dipolar_app.science_ops  # noqa: F401  (imports and SciPy outside the measurement)
+    import scipy.special  # noqa: F401
+
+    tracemalloc.start()
+    start = time.process_time()
+    project = Project.model_validate_json(project_json)
+    text = json.dumps(compute_fixed(project, 1, "sha256:x").model_dump(mode="json"))
+    cpu = time.process_time() - start
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    assert len(text.encode()) < 16 << 20
+    assert cpu < 2.0, cpu
+    assert peak < 100 << 20, peak
+
+
+@pytest.mark.slow
+def test_r77_reconciliation_is_linear_in_the_rows() -> None:
+    """Round 77, finding 6 (D-11: O(|G|) per pair): reconciling and importing 20 000 rows on a
+    1000-proton fixed C1 project, each within 3 s CPU (previously 24 s and 35 s)."""
+    import time
+
+    from dipolar_app.formats import dumps_project
+    from dipolar_app.project import Atom, ImportedGeometry, ModelSpec, Molecule, Project, Spin, SymmetrySpec
+    from dipolar_app.schemas import Angstrom
+
+    points = [(float(x), float(y), float(z)) for x in range(10) for y in range(10) for z in range(10)]
+    spins = tuple(Spin(id=f"spn_{k + 1:06d}", label=f"H{k + 1}", isotope="1H", atom=k) for k in range(1000))
+    project = Project(
+        schema_version=3,
+        name="grid",
+        source="synthetic",
+        molecule=Molecule(
+            geometry=ImportedGeometry(
+                source_format="xyz", atoms=tuple(Atom(element="H", x=x, y=y, z=z) for x, y, z in points)
+            ),
+            spins=spins,
+            symmetry=SymmetrySpec(
+                point_group="C1",
+                axes=tuple(tuple(r) for r in IDENTITY),
+                tolerance=Angstrom(value=0.01, unit="Å"),
+                medium="achiral-uniaxial",
+            ),
+        ),
+        couplings=(),
+        model=ModelSpec(kind="fixed", order="point-group", frame="symmetry"),
+    )
+    c = client(new_session())
+    ok(c.call("project.load", {"text": dumps_project(project), "expected_science_revision": 0}))
+    pairs = [(a, b) for a in range(1000) for b in range(a + 1, 1000)][:20_000]
+    csv = csv_of([(f"H{a + 1}", f"H{b + 1}", -10.0) for a, b in pairs])
+    labels = {f"H{k + 1}": f"spn_{k + 1:06d}" for k in range(1000)}
+    start = time.process_time()
+    ok(c.call("couplings.reconcile", {"csv": csv, "mapping": labels}))
+    reconciled = time.process_time() - start
+    start = time.process_time()
+    ok(c.call("couplings.import", {"csv": csv, "confirmed_mapping": labels, "expected_science_revision": 1}))
+    imported = time.process_time() - start
+    assert reconciled < 3.0 and imported < 3.0, (reconciled, imported)
