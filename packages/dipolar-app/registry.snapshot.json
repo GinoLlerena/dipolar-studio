@@ -1,5 +1,21 @@
 {
-  "contract_version": "0.10.0",
+  "changelog": [
+    {
+      "breaking": true,
+      "changes": [
+        "BREAKING: run.get can return a FixedRunOut (result.model.kind 'fixed') for a fixed-geometry run; a client that assumes the search-era FitRunOut fails on such a run",
+        "BREAKING: project.describe and model.set return a model without phi_domain for a fixed-geometry project (kind 'fixed', order 'point-group', frame 'symmetry')",
+        "added: molecule.set_symmetry, molecule.set_isotope and couplings.remove (proposable, undoable, with expected_science_revision)",
+        "added: model.set takes kind 'fixed'; its phi_domain is optional (absent for 'fixed', required otherwise)",
+        "added: project.describe has symmetry and atoms[].mass_number when they are set (absent otherwise)",
+        "added: error codes OBSERVATIONS_CONFLICT, SYMMETRY_NOT_SATISFIED, POINT_GROUP_NOT_SUPPORTED, MEDIUM_NOT_SUPPORTED, ISOTOPE_NOT_SUPPORTED, NO_TORSION and FIT_TOO_LARGE",
+        "fit.preview and fit.landscape refuse a fixed-geometry model (NO_TORSION); run.report renders a fixed-geometry run without a torsion (format dipolar-fixed-report.1)",
+        "unchanged for projects without a fixed model: every response keeps the 0.10.0 shapes"
+      ],
+      "version": "0.11.0"
+    }
+  ],
+  "contract_version": "0.11.0",
   "envelopes": {
     "error": {
       "$defs": {
@@ -72,7 +88,14 @@
             "NOTHING_TO_UNDO",
             "QUOTA_EXCEEDED",
             "JOURNAL_FAILED",
-            "INTERNAL"
+            "INTERNAL",
+            "OBSERVATIONS_CONFLICT",
+            "SYMMETRY_NOT_SATISFIED",
+            "POINT_GROUP_NOT_SUPPORTED",
+            "MEDIUM_NOT_SUPPORTED",
+            "ISOTOPE_NOT_SUPPORTED",
+            "NO_TORSION",
+            "FIT_TOO_LARGE"
           ],
           "title": "ErrorCode",
           "type": "string"
@@ -1013,6 +1036,99 @@
       "summary": "Read a couplings CSV against the project: the proposed label mapping and the diff (no change)."
     },
     {
+      "capability": "science_mutation",
+      "cost": "instant",
+      "effect": "model",
+      "examples": [
+        {
+          "coupling_ids": [
+            "cpl_000002"
+          ],
+          "expected_science_revision": 2
+        }
+      ],
+      "idempotent": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "coupling_ids": {
+            "items": {
+              "pattern": "^cpl_[0-9]{6}$",
+              "type": "string"
+            },
+            "maxItems": 100000,
+            "minItems": 1,
+            "title": "Coupling Ids",
+            "type": "array"
+          },
+          "expected_science_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Expected Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "coupling_ids",
+          "expected_science_revision"
+        ],
+        "title": "RemoveCouplingsIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "max_request_bytes": 1048576,
+      "name": "couplings.remove",
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "n_couplings": {
+            "title": "N Couplings",
+            "type": "integer"
+          },
+          "not_ready_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Ready Reason"
+          },
+          "ready_to_fit": {
+            "title": "Ready To Fit",
+            "type": "boolean"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "integer"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "removed",
+          "n_couplings",
+          "ready_to_fit",
+          "not_ready_reason"
+        ],
+        "title": "RemoveCouplingsOut",
+        "type": "object"
+      },
+      "proposable": true,
+      "revision_check": "expected_science_revision (required)",
+      "summary": "Remove couplings by ID (the others keep their IDs; a removed ID is never reused)."
+    },
+    {
       "capability": "preview",
       "cost": "instant",
       "effect": "none",
@@ -1771,7 +1887,7 @@
       },
       "proposable": true,
       "revision_check": "expected_science_revision (required): the job computes from that state",
-      "summary": "Submit the D3 fit of the current project as a job (estimates, validity, adequacy, and optional profile intervals under the reporting policy). Returns the job at once; read the run with job.wait and run.get."
+      "summary": "Submit the fit of the current project as a job: the D3 fit (estimates, validity, adequacy, and optional profile intervals under the reporting policy), or for a fixed-geometry model the linear fit of the order tensor (exact intervals when supported). Returns the job at once; read the run with job.wait and run.get."
     },
     {
       "capability": "query",
@@ -2861,6 +2977,12 @@
               "value": 90.0
             }
           ]
+        },
+        {
+          "expected_science_revision": 2,
+          "frame": "symmetry",
+          "kind": "fixed",
+          "order": "point-group"
         }
       ],
       "idempotent": false,
@@ -2899,7 +3021,8 @@
             "enum": [
               "bisector",
               "ring-a",
-              "input"
+              "input",
+              "symmetry"
             ],
             "title": "Frame",
             "type": "string"
@@ -2907,7 +3030,8 @@
           "kind": {
             "enum": [
               "rigid",
-              "jump4"
+              "jump4",
+              "fixed"
             ],
             "title": "Kind",
             "type": "string"
@@ -2916,31 +3040,39 @@
             "enum": [
               "bisector-diagonal",
               "c2z",
-              "c1"
+              "c1",
+              "point-group"
             ],
             "title": "Order",
             "type": "string"
           },
           "phi_domain": {
-            "maxItems": 2,
-            "minItems": 2,
-            "prefixItems": [
+            "anyOf": [
               {
-                "$ref": "#/$defs/Degrees"
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "$ref": "#/$defs/Degrees"
+                  },
+                  {
+                    "$ref": "#/$defs/Degrees"
+                  }
+                ],
+                "type": "array"
               },
               {
-                "$ref": "#/$defs/Degrees"
+                "type": "null"
               }
             ],
-            "title": "Phi Domain",
-            "type": "array"
+            "default": null,
+            "title": "Phi Domain"
           }
         },
         "required": [
           "kind",
           "order",
           "frame",
-          "phi_domain",
           "expected_science_revision"
         ],
         "title": "ModelSetIn",
@@ -2969,6 +3101,34 @@
               "unit"
             ],
             "title": "Degrees",
+            "type": "object"
+          },
+          "FixedModelOut": {
+            "additionalProperties": false,
+            "description": "The fixed-geometry model (D-3, D-10): no torsion, so no ``phi_domain``.",
+            "properties": {
+              "frame": {
+                "const": "symmetry",
+                "title": "Frame",
+                "type": "string"
+              },
+              "kind": {
+                "const": "fixed",
+                "title": "Kind",
+                "type": "string"
+              },
+              "order": {
+                "const": "point-group",
+                "title": "Order",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "order",
+              "frame"
+            ],
+            "title": "FixedModelOut",
             "type": "object"
           },
           "ModelOut": {
@@ -3028,7 +3188,15 @@
         "additionalProperties": false,
         "properties": {
           "model": {
-            "$ref": "#/$defs/ModelOut"
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ModelOut"
+              },
+              {
+                "$ref": "#/$defs/FixedModelOut"
+              }
+            ],
+            "title": "Model"
           },
           "not_ready_reason": {
             "anyOf": [
@@ -3066,7 +3234,496 @@
       },
       "proposable": true,
       "revision_check": "expected_science_revision (required)",
-      "summary": "Set the model: kind (rigid, jump4), order model, frame and torsion domain."
+      "summary": "Set the model: kind (rigid, jump4, fixed), order model, frame and torsion domain (none for fixed: the declared symmetry's point-group order in its frame)."
+    },
+    {
+      "capability": "science_mutation",
+      "cost": "instant",
+      "effect": "model",
+      "examples": [
+        {
+          "atom": 0,
+          "expected_science_revision": 2,
+          "mass_number": 13
+        }
+      ],
+      "idempotent": false,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "atom": {
+            "exclusiveMaximum": 1000,
+            "minimum": 0,
+            "title": "Atom",
+            "type": "integer"
+          },
+          "expected_science_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Expected Science Revision",
+            "type": "integer"
+          },
+          "mass_number": {
+            "anyOf": [
+              {
+                "maximum": 999,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mass Number"
+          }
+        },
+        "required": [
+          "atom",
+          "mass_number",
+          "expected_science_revision"
+        ],
+        "title": "SetIsotopeIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "max_request_bytes": 1048576,
+      "name": "molecule.set_isotope",
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "atom": {
+            "title": "Atom",
+            "type": "integer"
+          },
+          "element": {
+            "title": "Element",
+            "type": "string"
+          },
+          "mass_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mass Number"
+          },
+          "not_ready_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Ready Reason"
+          },
+          "ready_to_fit": {
+            "title": "Ready To Fit",
+            "type": "boolean"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "atom",
+          "element",
+          "mass_number",
+          "ready_to_fit",
+          "not_ready_reason"
+        ],
+        "title": "SetIsotopeOut",
+        "type": "object"
+      },
+      "proposable": true,
+      "revision_check": "expected_science_revision (required)",
+      "summary": "Set a non-hydrogen atom's mass number (C-13, N-15; null for the default isotope), revalidated against the declared symmetry."
+    },
+    {
+      "capability": "science_mutation",
+      "cost": "instant",
+      "effect": "model",
+      "examples": [
+        {
+          "expected_science_revision": 1,
+          "symmetry": {
+            "axes": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ],
+            "medium": "achiral-uniaxial",
+            "point_group": "D6h",
+            "tolerance": {
+              "unit": "Å",
+              "value": 0.01
+            }
+          }
+        },
+        {
+          "expected_science_revision": 2,
+          "symmetry": null
+        }
+      ],
+      "idempotent": false,
+      "input_schema": {
+        "$defs": {
+          "Angstrom": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Å",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "exclusiveMinimum": 0,
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Angstrom",
+            "type": "object"
+          },
+          "SymmetryIn": {
+            "additionalProperties": false,
+            "properties": {
+              "axes": {
+                "default": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ],
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  }
+                ],
+                "title": "Axes",
+                "type": "array"
+              },
+              "medium": {
+                "default": "achiral-uniaxial",
+                "maxLength": 64,
+                "minLength": 1,
+                "title": "Medium",
+                "type": "string"
+              },
+              "point_group": {
+                "maxLength": 16,
+                "minLength": 1,
+                "title": "Point Group",
+                "type": "string"
+              },
+              "tolerance": {
+                "$ref": "#/$defs/Angstrom",
+                "default": {
+                  "unit": "Å",
+                  "value": 0.01
+                }
+              }
+            },
+            "required": [
+              "point_group"
+            ],
+            "title": "SymmetryIn",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "expected_science_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Expected Science Revision",
+            "type": "integer"
+          },
+          "symmetry": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SymmetryIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "symmetry",
+          "expected_science_revision"
+        ],
+        "title": "SetSymmetryIn",
+        "type": "object"
+      },
+      "kind": "command",
+      "max_request_bytes": 1048576,
+      "name": "molecule.set_symmetry",
+      "output_schema": {
+        "$defs": {
+          "Angstrom": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Å",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "exclusiveMinimum": 0,
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Angstrom",
+            "type": "object"
+          },
+          "Length": {
+            "additionalProperties": false,
+            "description": "A distance that may be zero (for example the largest displacement of a symmetrization).",
+            "properties": {
+              "unit": {
+                "const": "Å",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "minimum": 0,
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Length",
+            "type": "object"
+          },
+          "SymmetryOut": {
+            "additionalProperties": false,
+            "properties": {
+              "axes": {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  }
+                ],
+                "title": "Axes",
+                "type": "array"
+              },
+              "max_displacement": {
+                "$ref": "#/$defs/Length"
+              },
+              "medium": {
+                "title": "Medium",
+                "type": "string"
+              },
+              "point_group": {
+                "title": "Point Group",
+                "type": "string"
+              },
+              "tolerance": {
+                "$ref": "#/$defs/Angstrom"
+              }
+            },
+            "required": [
+              "point_group",
+              "axes",
+              "tolerance",
+              "medium",
+              "max_displacement"
+            ],
+            "title": "SymmetryOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "not_ready_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Ready Reason"
+          },
+          "ready_to_fit": {
+            "title": "Ready To Fit",
+            "type": "boolean"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          },
+          "symmetry": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SymmetryOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "symmetry",
+          "ready_to_fit",
+          "not_ready_reason"
+        ],
+        "title": "SetSymmetryOut",
+        "type": "object"
+      },
+      "proposable": true,
+      "revision_check": "expected_science_revision (required)",
+      "summary": "Declare the imported molecule's point group (C1, Cs, C2v, D2h, D3h, D6h), its axes, the matching tolerance and the medium, validated against the geometry; null clears it."
     },
     {
       "capability": "science_mutation",
@@ -3253,6 +3910,18 @@
                 "title": "Index",
                 "type": "integer"
               },
+              "mass_number": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Mass Number"
+              },
               "x": {
                 "title": "X",
                 "type": "number"
@@ -3381,6 +4050,34 @@
             "title": "Degrees",
             "type": "object"
           },
+          "FixedModelOut": {
+            "additionalProperties": false,
+            "description": "The fixed-geometry model (D-3, D-10): no torsion, so no ``phi_domain``.",
+            "properties": {
+              "frame": {
+                "const": "symmetry",
+                "title": "Frame",
+                "type": "string"
+              },
+              "kind": {
+                "const": "fixed",
+                "title": "Kind",
+                "type": "string"
+              },
+              "order": {
+                "const": "point-group",
+                "title": "Order",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "order",
+              "frame"
+            ],
+            "title": "FixedModelOut",
+            "type": "object"
+          },
           "Hertz": {
             "additionalProperties": false,
             "properties": {
@@ -3455,6 +4152,28 @@
               "torsion"
             ],
             "title": "ImportedOut",
+            "type": "object"
+          },
+          "Length": {
+            "additionalProperties": false,
+            "description": "A distance that may be zero (for example the largest displacement of a symmetrization).",
+            "properties": {
+              "unit": {
+                "const": "Å",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "minimum": 0,
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Length",
             "type": "object"
           },
           "ModelOut": {
@@ -3547,6 +4266,90 @@
             "title": "SpinOut",
             "type": "object"
           },
+          "SymmetryOut": {
+            "additionalProperties": false,
+            "properties": {
+              "axes": {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  }
+                ],
+                "title": "Axes",
+                "type": "array"
+              },
+              "max_displacement": {
+                "$ref": "#/$defs/Length"
+              },
+              "medium": {
+                "title": "Medium",
+                "type": "string"
+              },
+              "point_group": {
+                "title": "Point Group",
+                "type": "string"
+              },
+              "tolerance": {
+                "$ref": "#/$defs/Angstrom"
+              }
+            },
+            "required": [
+              "point_group",
+              "axes",
+              "tolerance",
+              "medium",
+              "max_displacement"
+            ],
+            "title": "SymmetryOut",
+            "type": "object"
+          },
           "TemplateOut": {
             "additionalProperties": false,
             "properties": {
@@ -3616,7 +4419,15 @@
             "title": "Geometry"
           },
           "model": {
-            "$ref": "#/$defs/ModelOut"
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ModelOut"
+              },
+              {
+                "$ref": "#/$defs/FixedModelOut"
+              }
+            ],
+            "title": "Model"
           },
           "name": {
             "title": "Name",
@@ -3655,6 +4466,17 @@
             },
             "title": "Spins",
             "type": "array"
+          },
+          "symmetry": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SymmetryOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
@@ -3887,7 +4709,7 @@
       "examples": [
         {
           "expected_science_revision": 0,
-          "text": "{\n  \"format\": \"dipolar-studio-project\",\n  \"project\": {\n    \"couplings\": [],\n    \"model\": {\n      \"frame\": \"input\",\n      \"kind\": \"rigid\",\n      \"order\": \"c1\",\n      \"phi_domain_deg\": [\n        -180.0,\n        180.0\n      ]\n    },\n    \"molecule\": {\n      \"geometry\": {\n        \"atoms\": [\n          {\n            \"element\": \"C\",\n            \"x\": 0.0,\n            \"y\": 0.0,\n            \"z\": 0.0\n          },\n          {\n            \"element\": \"C\",\n            \"x\": 1.54,\n            \"y\": 0.0,\n            \"z\": 0.0\n          },\n          {\n            \"element\": \"H\",\n            \"x\": -0.36,\n            \"y\": 1.03,\n            \"z\": 0.0\n          },\n          {\n            \"element\": \"H\",\n            \"x\": -0.36,\n            \"y\": -0.515,\n            \"z\": 0.892\n          },\n          {\n            \"element\": \"H\",\n            \"x\": -0.36,\n            \"y\": -0.515,\n            \"z\": -0.892\n          },\n          {\n            \"element\": \"H\",\n            \"x\": 1.9,\n            \"y\": -1.03,\n            \"z\": 0.0\n          },\n          {\n            \"element\": \"H\",\n            \"x\": 1.9,\n            \"y\": 0.515,\n            \"z\": 0.892\n          },\n          {\n            \"element\": \"H\",\n            \"x\": 1.9,\n            \"y\": 0.515,\n            \"z\": -0.892\n          }\n        ],\n        \"source_format\": \"xyz\",\n        \"torsion\": [\n          2,\n          0,\n          1,\n          5\n        ]\n      },\n      \"spins\": [\n        {\n          \"atom\": 2,\n          \"id\": \"spn_000001\",\n          \"isotope\": \"1H\",\n          \"label\": \"H3\"\n        },\n        {\n          \"atom\": 3,\n          \"id\": \"spn_000002\",\n          \"isotope\": \"1H\",\n          \"label\": \"H4\"\n        },\n        {\n          \"atom\": 4,\n          \"id\": \"spn_000003\",\n          \"isotope\": \"1H\",\n          \"label\": \"H5\"\n        },\n        {\n          \"atom\": 5,\n          \"id\": \"spn_000004\",\n          \"isotope\": \"1H\",\n          \"label\": \"H6\"\n        },\n        {\n          \"atom\": 6,\n          \"id\": \"spn_000005\",\n          \"isotope\": \"1H\",\n          \"label\": \"H7\"\n        },\n        {\n          \"atom\": 7,\n          \"id\": \"spn_000006\",\n          \"isotope\": \"1H\",\n          \"label\": \"H8\"\n        }\n      ]\n    },\n    \"name\": \"ethane\",\n    \"next_coupling_id\": 1,\n    \"schema_version\": 2,\n    \"source\": \"registry example\"\n  },\n  \"schema_version\": 2\n}\n"
+          "text": "{\n  \"format\": \"dipolar-studio-project\",\n  \"project\": {\n    \"couplings\": [],\n    \"model\": {\n      \"frame\": \"input\",\n      \"kind\": \"rigid\",\n      \"order\": \"c1\",\n      \"phi_domain_deg\": [\n        -180.0,\n        180.0\n      ]\n    },\n    \"molecule\": {\n      \"geometry\": {\n        \"atoms\": [\n          {\n            \"element\": \"C\",\n            \"x\": 0.0,\n            \"y\": 0.0,\n            \"z\": 0.0\n          },\n          {\n            \"element\": \"C\",\n            \"x\": 1.54,\n            \"y\": 0.0,\n            \"z\": 0.0\n          },\n          {\n            \"element\": \"H\",\n            \"x\": -0.36,\n            \"y\": 1.03,\n            \"z\": 0.0\n          },\n          {\n            \"element\": \"H\",\n            \"x\": -0.36,\n            \"y\": -0.515,\n            \"z\": 0.892\n          },\n          {\n            \"element\": \"H\",\n            \"x\": -0.36,\n            \"y\": -0.515,\n            \"z\": -0.892\n          },\n          {\n            \"element\": \"H\",\n            \"x\": 1.9,\n            \"y\": -1.03,\n            \"z\": 0.0\n          },\n          {\n            \"element\": \"H\",\n            \"x\": 1.9,\n            \"y\": 0.515,\n            \"z\": 0.892\n          },\n          {\n            \"element\": \"H\",\n            \"x\": 1.9,\n            \"y\": 0.515,\n            \"z\": -0.892\n          }\n        ],\n        \"source_format\": \"xyz\",\n        \"torsion\": [\n          2,\n          0,\n          1,\n          5\n        ]\n      },\n      \"spins\": [\n        {\n          \"atom\": 2,\n          \"id\": \"spn_000001\",\n          \"isotope\": \"1H\",\n          \"label\": \"H3\"\n        },\n        {\n          \"atom\": 3,\n          \"id\": \"spn_000002\",\n          \"isotope\": \"1H\",\n          \"label\": \"H4\"\n        },\n        {\n          \"atom\": 4,\n          \"id\": \"spn_000003\",\n          \"isotope\": \"1H\",\n          \"label\": \"H5\"\n        },\n        {\n          \"atom\": 5,\n          \"id\": \"spn_000004\",\n          \"isotope\": \"1H\",\n          \"label\": \"H6\"\n        },\n        {\n          \"atom\": 6,\n          \"id\": \"spn_000005\",\n          \"isotope\": \"1H\",\n          \"label\": \"H7\"\n        },\n        {\n          \"atom\": 7,\n          \"id\": \"spn_000006\",\n          \"isotope\": \"1H\",\n          \"label\": \"H8\"\n        }\n      ]\n    },\n    \"name\": \"ethane\",\n    \"next_coupling_id\": 1,\n    \"schema_version\": 3,\n    \"source\": \"registry example\"\n  },\n  \"schema_version\": 3\n}\n"
         }
       ],
       "idempotent": false,
@@ -6134,6 +6956,27 @@
       "name": "run.get",
       "output_schema": {
         "$defs": {
+          "Angstrom": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Å",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "exclusiveMinimum": 0,
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Angstrom",
+            "type": "object"
+          },
           "BasinOut": {
             "additionalProperties": false,
             "properties": {
@@ -6499,6 +7342,755 @@
             "title": "FittedCoupling",
             "type": "object"
           },
+          "FixedAdequacy": {
+            "additionalProperties": false,
+            "properties": {
+              "chi2": {
+                "title": "Chi2",
+                "type": "number"
+              },
+              "code": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Code"
+              },
+              "nu": {
+                "title": "Nu",
+                "type": "integer"
+              },
+              "p_value": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "P Value"
+              },
+              "status": {
+                "enum": [
+                  "given",
+                  "inadequate",
+                  "withheld",
+                  "no-dof"
+                ],
+                "title": "Status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "chi2",
+              "nu",
+              "p_value",
+              "status",
+              "code"
+            ],
+            "title": "FixedAdequacy",
+            "type": "object"
+          },
+          "FixedAdmissibility": {
+            "additionalProperties": false,
+            "properties": {
+              "certificate": {
+                "title": "Certificate",
+                "type": "string"
+              },
+              "family": {
+                "title": "Family",
+                "type": "string"
+              },
+              "lambda_min": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Lambda Min"
+              },
+              "representative_b": {
+                "anyOf": [
+                  {
+                    "maxItems": 5,
+                    "minItems": 5,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Representative B"
+              },
+              "status": {
+                "enum": [
+                  "admissible",
+                  "inadmissible",
+                  "feasible",
+                  "feasible-within-tolerance",
+                  "infeasible",
+                  "undetermined"
+                ],
+                "title": "Status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "lambda_min",
+              "representative_b",
+              "certificate",
+              "family"
+            ],
+            "title": "FixedAdmissibility",
+            "type": "object"
+          },
+          "FixedComponent": {
+            "additionalProperties": false,
+            "description": "One reported linear functional of the order tensor: ``coefficients_b`` · b (D-7, D-8).",
+            "properties": {
+              "coefficients_b": {
+                "maxItems": 5,
+                "minItems": 5,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "title": "Coefficients B",
+                "type": "array"
+              },
+              "estimate": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Estimate"
+              },
+              "interval_support": {
+                "title": "Interval Support",
+                "type": "string"
+              },
+              "intervals": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "$ref": "#/$defs/FixedInterval"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Intervals"
+              },
+              "label": {
+                "title": "Label",
+                "type": "string"
+              },
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "se": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Se"
+              },
+              "status": {
+                "enum": [
+                  "estimated",
+                  "fixed-by-symmetry",
+                  "projected"
+                ],
+                "title": "Status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "label",
+              "status",
+              "coefficients_b",
+              "estimate",
+              "se",
+              "intervals",
+              "interval_support"
+            ],
+            "title": "FixedComponent",
+            "type": "object"
+          },
+          "FixedCovariance": {
+            "additionalProperties": false,
+            "properties": {
+              "basis_b": {
+                "items": {
+                  "maxItems": 5,
+                  "minItems": 5,
+                  "prefixItems": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "type": "array"
+                },
+                "title": "Basis B",
+                "type": "array"
+              },
+              "coordinates": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Coordinates",
+                "type": "array"
+              },
+              "matrix": {
+                "items": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "title": "Matrix",
+                "type": "array"
+              }
+            },
+            "required": [
+              "coordinates",
+              "basis_b",
+              "matrix"
+            ],
+            "title": "FixedCovariance",
+            "type": "object"
+          },
+          "FixedInterval": {
+            "additionalProperties": false,
+            "properties": {
+              "level": {
+                "enum": [
+                  "68.3",
+                  "95"
+                ],
+                "title": "Level",
+                "type": "string"
+              },
+              "lower": {
+                "title": "Lower",
+                "type": "number"
+              },
+              "upper": {
+                "title": "Upper",
+                "type": "number"
+              }
+            },
+            "required": [
+              "level",
+              "lower",
+              "upper"
+            ],
+            "title": "FixedInterval",
+            "type": "object"
+          },
+          "FixedModelOut": {
+            "additionalProperties": false,
+            "description": "The fixed-geometry model (D-3, D-10): no torsion, so no ``phi_domain``.",
+            "properties": {
+              "frame": {
+                "const": "symmetry",
+                "title": "Frame",
+                "type": "string"
+              },
+              "kind": {
+                "const": "fixed",
+                "title": "Kind",
+                "type": "string"
+              },
+              "order": {
+                "const": "point-group",
+                "title": "Order",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "order",
+              "frame"
+            ],
+            "title": "FixedModelOut",
+            "type": "object"
+          },
+          "FixedProvenance": {
+            "additionalProperties": false,
+            "properties": {
+              "fit_version": {
+                "title": "Fit Version",
+                "type": "string"
+              },
+              "numerical_context": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                "title": "Numerical Context",
+                "type": "object"
+              }
+            },
+            "required": [
+              "fit_version",
+              "numerical_context"
+            ],
+            "title": "FixedProvenance",
+            "type": "object"
+          },
+          "FixedRank": {
+            "additionalProperties": false,
+            "properties": {
+              "numerical": {
+                "title": "Numerical",
+                "type": "integer"
+              },
+              "ratios": {
+                "items": {
+                  "type": "number"
+                },
+                "title": "Ratios",
+                "type": "array"
+              },
+              "reason": {
+                "title": "Reason",
+                "type": "string"
+              },
+              "required": {
+                "title": "Required",
+                "type": "integer"
+              },
+              "verified": {
+                "title": "Verified",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "required",
+              "numerical",
+              "verified",
+              "ratios",
+              "reason"
+            ],
+            "title": "FixedRank",
+            "type": "object"
+          },
+          "FixedRow": {
+            "additionalProperties": false,
+            "description": "One observed pair orbit (D-5). Labels are in ``spins``, once per spin, so a row stays small\n(D-11: about 300 bytes).",
+            "properties": {
+              "coupling_id": {
+                "pattern": "^cpl_[0-9]{6}$",
+                "title": "Coupling Id",
+                "type": "string"
+              },
+              "multiplicity": {
+                "title": "Multiplicity",
+                "type": "integer"
+              },
+              "normalized_residual": {
+                "title": "Normalized Residual",
+                "type": "number"
+              },
+              "observed": {
+                "$ref": "#/$defs/Hertz"
+              },
+              "orbit": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "pattern": "^spn_[0-9]{6}$",
+                    "type": "string"
+                  },
+                  {
+                    "pattern": "^spn_[0-9]{6}$",
+                    "type": "string"
+                  }
+                ],
+                "title": "Orbit",
+                "type": "array"
+              },
+              "pair": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "pattern": "^spn_[0-9]{6}$",
+                    "type": "string"
+                  },
+                  {
+                    "pattern": "^spn_[0-9]{6}$",
+                    "type": "string"
+                  }
+                ],
+                "title": "Pair",
+                "type": "array"
+              },
+              "predicted": {
+                "$ref": "#/$defs/Hertz"
+              },
+              "residual": {
+                "$ref": "#/$defs/Hertz"
+              },
+              "sigma": {
+                "$ref": "#/$defs/Hertz"
+              }
+            },
+            "required": [
+              "coupling_id",
+              "pair",
+              "orbit",
+              "multiplicity",
+              "observed",
+              "sigma",
+              "predicted",
+              "residual",
+              "normalized_residual"
+            ],
+            "title": "FixedRow",
+            "type": "object"
+          },
+          "FixedRunOut": {
+            "additionalProperties": false,
+            "description": "The result of a fixed-geometry fit (D-10). Search-era fields (torsions, basins, profile\nintervals) are absent: there is nothing to search.",
+            "properties": {
+              "adequacy": {
+                "$ref": "#/$defs/FixedAdequacy"
+              },
+              "admissibility": {
+                "$ref": "#/$defs/FixedAdmissibility"
+              },
+              "assumptions": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Assumptions",
+                "type": "array"
+              },
+              "components": {
+                "items": {
+                  "$ref": "#/$defs/FixedComponent"
+                },
+                "title": "Components",
+                "type": "array"
+              },
+              "covariance_b": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/FixedCovariance"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "estimand": {
+                "title": "Estimand",
+                "type": "string"
+              },
+              "frame": {
+                "title": "Frame",
+                "type": "string"
+              },
+              "model": {
+                "$ref": "#/$defs/FixedModelOut"
+              },
+              "n_obs": {
+                "title": "N Obs",
+                "type": "integer"
+              },
+              "null_directions_b": {
+                "items": {
+                  "maxItems": 5,
+                  "minItems": 5,
+                  "prefixItems": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "type": "array"
+                },
+                "title": "Null Directions B",
+                "type": "array"
+              },
+              "provenance": {
+                "$ref": "#/$defs/FixedProvenance"
+              },
+              "rank": {
+                "$ref": "#/$defs/FixedRank"
+              },
+              "rms_residual": {
+                "$ref": "#/$defs/Hertz"
+              },
+              "rows": {
+                "items": {
+                  "$ref": "#/$defs/FixedRow"
+                },
+                "title": "Rows",
+                "type": "array"
+              },
+              "science_hash": {
+                "title": "Science Hash",
+                "type": "string"
+              },
+              "science_revision": {
+                "title": "Science Revision",
+                "type": "integer"
+              },
+              "spins": {
+                "items": {
+                  "$ref": "#/$defs/FixedSpin"
+                },
+                "title": "Spins",
+                "type": "array"
+              },
+              "statement": {
+                "title": "Statement",
+                "type": "string"
+              },
+              "symmetry": {
+                "$ref": "#/$defs/FixedSymmetry"
+              },
+              "warnings": {
+                "items": {
+                  "$ref": "#/$defs/FixedWarning"
+                },
+                "title": "Warnings",
+                "type": "array"
+              }
+            },
+            "required": [
+              "science_revision",
+              "science_hash",
+              "model",
+              "frame",
+              "estimand",
+              "n_obs",
+              "rank",
+              "components",
+              "covariance_b",
+              "null_directions_b",
+              "adequacy",
+              "admissibility",
+              "rows",
+              "spins",
+              "rms_residual",
+              "symmetry",
+              "assumptions",
+              "warnings",
+              "provenance",
+              "statement"
+            ],
+            "title": "FixedRunOut",
+            "type": "object"
+          },
+          "FixedSpin": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "pattern": "^spn_[0-9]{6}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "label": {
+                "title": "Label",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "label"
+            ],
+            "title": "FixedSpin",
+            "type": "object"
+          },
+          "FixedSymmetry": {
+            "additionalProperties": false,
+            "properties": {
+              "axes": {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  }
+                ],
+                "title": "Axes",
+                "type": "array"
+              },
+              "max_displacement": {
+                "$ref": "#/$defs/Length"
+              },
+              "medium": {
+                "title": "Medium",
+                "type": "string"
+              },
+              "point_group": {
+                "title": "Point Group",
+                "type": "string"
+              },
+              "tolerance": {
+                "$ref": "#/$defs/Angstrom"
+              }
+            },
+            "required": [
+              "point_group",
+              "axes",
+              "tolerance",
+              "medium",
+              "max_displacement"
+            ],
+            "title": "FixedSymmetry",
+            "type": "object"
+          },
+          "FixedWarning": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "title": "Code",
+                "type": "string"
+              },
+              "message": {
+                "title": "Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "title": "FixedWarning",
+            "type": "object"
+          },
           "Hertz": {
             "additionalProperties": false,
             "properties": {
@@ -6581,6 +8173,28 @@
               "note"
             ],
             "title": "IntervalOut",
+            "type": "object"
+          },
+          "Length": {
+            "additionalProperties": false,
+            "description": "A distance that may be zero (for example the largest displacement of a symmetrization).",
+            "properties": {
+              "unit": {
+                "const": "Å",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "minimum": 0,
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Length",
             "type": "object"
           },
           "ModelOut": {
@@ -6721,7 +8335,15 @@
         "additionalProperties": false,
         "properties": {
           "result": {
-            "$ref": "#/$defs/FitRunOut"
+            "anyOf": [
+              {
+                "$ref": "#/$defs/FitRunOut"
+              },
+              {
+                "$ref": "#/$defs/FixedRunOut"
+              }
+            ],
+            "title": "Result"
           },
           "run": {
             "$ref": "#/$defs/RunOut"

@@ -213,7 +213,7 @@ CSV = "spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H3,-1124.6,0.5\n"
 IDENTITY = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
 #: Benzene in its D6h frame (z normal): six carbons, then six hydrogens.
 BENZENE_XYZ = "12\nbenzene\n" + "".join(
-    f"{e} {r * np.cos(np.radians(60 * k))!r} {r * np.sin(np.radians(60 * k))!r} 0.0\n"
+    f"{e} {float(r * np.cos(np.radians(60 * k)))!r} {float(r * np.sin(np.radians(60 * k)))!r} 0.0\n"
     for e, r in (("C", 1.3914), ("H", 2.4716))
     for k in range(6)
 )

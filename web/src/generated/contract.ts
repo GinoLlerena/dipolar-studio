@@ -1,12 +1,12 @@
 // GENERATED FILE: do not edit. Regenerate with `uv run python tools/codegen/ts_contract.py`.
-// Source: packages/dipolar-app/registry.snapshot.json (sha256 79f697260698d2f6a7a3ae044131a502fed394a35d895f11b07a0c44727ce760).
+// Source: packages/dipolar-app/registry.snapshot.json (sha256 8c82082e3942439c43aec8efc806c52beaf71fac31e1008601c9f106a73f9fc1).
 // CI fails if this file is stale (tests/test_ts_contract.py).
 //
 // Value constraints that TypeScript cannot express (bounds, lengths, patterns) appear as doc
 // comments; the server enforces them.
 /* eslint-disable */
 
-export const CONTRACT_VERSION = "0.10.0";
+export const CONTRACT_VERSION = "0.11.0";
 
 /** Any JSON value. */
 export type JsonValue =
@@ -24,6 +24,8 @@ export type AtomOut = {
   element: string;
   /** integer */
   index: number;
+  /** default null */
+  mass_number?: number | null;
   x: number;
   y: number;
   z: number;
@@ -87,7 +89,7 @@ export type ErrorBody = {
   offending_field: string | null;
 };
 
-export type ErrorCode = "INVALID_ARGUMENT" | "UNKNOWN_OPERATION" | "UNAUTHENTICATED" | "CAPABILITY_DENIED" | "PROPOSAL_REQUIRED" | "REVISION_CONFLICT" | "NO_PROJECT" | "ID_NOT_FOUND" | "OUT_OF_DOMAIN" | "PROJECT_NOT_READY" | "PAYLOAD_TOO_LARGE" | "IDEMPOTENCY_KEY_REUSED" | "PROPOSAL_STALE" | "PROPOSAL_CLOSED" | "NOTHING_TO_UNDO" | "QUOTA_EXCEEDED" | "JOURNAL_FAILED" | "INTERNAL";
+export type ErrorCode = "INVALID_ARGUMENT" | "UNKNOWN_OPERATION" | "UNAUTHENTICATED" | "CAPABILITY_DENIED" | "PROPOSAL_REQUIRED" | "REVISION_CONFLICT" | "NO_PROJECT" | "ID_NOT_FOUND" | "OUT_OF_DOMAIN" | "PROJECT_NOT_READY" | "PAYLOAD_TOO_LARGE" | "IDEMPOTENCY_KEY_REUSED" | "PROPOSAL_STALE" | "PROPOSAL_CLOSED" | "NOTHING_TO_UNDO" | "QUOTA_EXCEEDED" | "JOURNAL_FAILED" | "INTERNAL" | "OBSERVATIONS_CONFLICT" | "SYMMETRY_NOT_SATISFIED" | "POINT_GROUP_NOT_SUPPORTED" | "MEDIUM_NOT_SUPPORTED" | "ISOTOPE_NOT_SUPPORTED" | "NO_TORSION" | "FIT_TOO_LARGE";
 
 export type FeedCommit = {
   actor: string;
@@ -210,6 +212,129 @@ export type FittedCoupling = {
   sigma: Hertz;
 };
 
+export type FixedAdequacy = {
+  chi2: number;
+  code: string | null;
+  /** integer */
+  nu: number;
+  p_value: number | null;
+  status: "given" | "inadequate" | "withheld" | "no-dof";
+};
+
+export type FixedAdmissibility = {
+  certificate: string;
+  family: string;
+  lambda_min: number | null;
+  representative_b: [number, number, number, number, number] | null;
+  status: "admissible" | "inadmissible" | "feasible" | "feasible-within-tolerance" | "infeasible" | "undetermined";
+};
+
+export type FixedComponent = {
+  /** minItems 5, maxItems 5 */
+  coefficients_b: [number, number, number, number, number];
+  estimate: number | null;
+  interval_support: string;
+  intervals: FixedInterval[] | null;
+  label: string;
+  name: string;
+  se: number | null;
+  status: "estimated" | "fixed-by-symmetry" | "projected";
+};
+
+export type FixedCovariance = {
+  basis_b: [number, number, number, number, number][];
+  coordinates: string[];
+  matrix: number[][];
+};
+
+export type FixedInterval = {
+  level: "68.3" | "95";
+  lower: number;
+  upper: number;
+};
+
+export type FixedModelOut = {
+  frame: "symmetry";
+  kind: "fixed";
+  order: "point-group";
+};
+
+export type FixedProvenance = {
+  fit_version: string;
+  numerical_context: { [key: string]: string | number };
+};
+
+export type FixedRank = {
+  /** integer */
+  numerical: number;
+  ratios: number[];
+  reason: string;
+  /** integer */
+  required: number;
+  verified: boolean;
+};
+
+export type FixedRow = {
+  /** pattern "^cpl_[0-9]{6}$" */
+  coupling_id: string;
+  /** integer */
+  multiplicity: number;
+  normalized_residual: number;
+  observed: Hertz;
+  /** minItems 2, maxItems 2 */
+  orbit: [string, string];
+  /** minItems 2, maxItems 2 */
+  pair: [string, string];
+  predicted: Hertz;
+  residual: Hertz;
+  sigma: Hertz;
+};
+
+export type FixedRunOut = {
+  adequacy: FixedAdequacy;
+  admissibility: FixedAdmissibility;
+  assumptions: string[];
+  components: FixedComponent[];
+  covariance_b: FixedCovariance | null;
+  estimand: string;
+  frame: string;
+  model: FixedModelOut;
+  /** integer */
+  n_obs: number;
+  null_directions_b: [number, number, number, number, number][];
+  provenance: FixedProvenance;
+  rank: FixedRank;
+  rms_residual: Hertz;
+  rows: FixedRow[];
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+  spins: FixedSpin[];
+  statement: string;
+  symmetry: FixedSymmetry;
+  warnings: FixedWarning[];
+};
+
+export type FixedSpin = {
+  /** pattern "^spn_[0-9]{6}$" */
+  id: string;
+  label: string;
+};
+
+export type FixedSymmetry = {
+  /** minItems 3, maxItems 3 */
+  axes: [[number, number, number], [number, number, number], [number, number, number]];
+  max_displacement: Length;
+  medium: string;
+  point_group: string;
+  tolerance: Angstrom;
+};
+
+export type FixedWarning = {
+  code: string;
+  message: string;
+};
+
 export type Hertz = {
   unit: "Hz";
   value: number;
@@ -278,6 +403,12 @@ export type JobOut = {
   stale: boolean;
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted";
   submitted_at: string;
+};
+
+export type Length = {
+  unit: "Å";
+  /** minimum 0 */
+  value: number;
 };
 
 export type ModelOut = {
@@ -481,6 +612,26 @@ export type StepResult = {
   result: { [key: string]: JsonValue };
 };
 
+export type SymmetryIn = {
+  /** minItems 3, maxItems 3, default [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] */
+  axes?: [[number, number, number], [number, number, number], [number, number, number]];
+  /** minLength 1, maxLength 64, default "achiral-uniaxial" */
+  medium?: string;
+  /** minLength 1, maxLength 16 */
+  point_group: string;
+  /** default {"unit": "Å", "value": 0.01} */
+  tolerance?: Angstrom;
+};
+
+export type SymmetryOut = {
+  /** minItems 3, maxItems 3 */
+  axes: [[number, number, number], [number, number, number], [number, number, number]];
+  max_displacement: Length;
+  medium: string;
+  point_group: string;
+  tolerance: Angstrom;
+};
+
 export type TemplateOut = {
   kind: "template";
   r_cc: Angstrom;
@@ -606,6 +757,27 @@ export type ReconcileOut = {
   unchanged: PairOut[];
   unmatched_labels: string[];
   unresolved_pairs: string[];
+};
+
+/** `couplings.remove` input. */
+export type RemoveCouplingsIn = {
+  /** minItems 1, maxItems 100000 */
+  coupling_ids: string[];
+  /** integer, minimum 0, maximum 9007199254740991 */
+  expected_science_revision: number;
+};
+
+/** `couplings.remove` output. */
+export type RemoveCouplingsOut = {
+  /** integer */
+  n_couplings: number;
+  not_ready_reason: string | null;
+  ready_to_fit: boolean;
+  /** integer */
+  removed: number;
+  science_hash: string;
+  /** integer */
+  science_revision: number;
 };
 
 /** `fit.landscape` input. */
@@ -780,21 +952,60 @@ export type JobWaitOut = {
 export type ModelSetIn = {
   /** integer, minimum 0, maximum 9007199254740991 */
   expected_science_revision: number;
-  frame: "bisector" | "ring-a" | "input";
-  kind: "rigid" | "jump4";
-  order: "bisector-diagonal" | "c2z" | "c1";
-  /** minItems 2, maxItems 2 */
-  phi_domain: [Degrees, Degrees];
+  frame: "bisector" | "ring-a" | "input" | "symmetry";
+  kind: "rigid" | "jump4" | "fixed";
+  order: "bisector-diagonal" | "c2z" | "c1" | "point-group";
+  /** default null */
+  phi_domain?: [Degrees, Degrees] | null;
 };
 
 /** `model.set` output. */
 export type ModelSetOut = {
-  model: ModelOut;
+  model: ModelOut | (FixedModelOut & { phi_domain?: never });
   not_ready_reason: string | null;
   ready_to_fit: boolean;
   science_hash: string;
   /** integer */
   science_revision: number;
+};
+
+/** `molecule.set_isotope` input. */
+export type SetIsotopeIn = {
+  /** integer, minimum 0, exclusiveMaximum 1000 */
+  atom: number;
+  /** integer, minimum 0, maximum 9007199254740991 */
+  expected_science_revision: number;
+  mass_number: number | null;
+};
+
+/** `molecule.set_isotope` output. */
+export type SetIsotopeOut = {
+  /** integer */
+  atom: number;
+  element: string;
+  mass_number: number | null;
+  not_ready_reason: string | null;
+  ready_to_fit: boolean;
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+};
+
+/** `molecule.set_symmetry` input. */
+export type SetSymmetryIn = {
+  /** integer, minimum 0, maximum 9007199254740991 */
+  expected_science_revision: number;
+  symmetry: SymmetryIn | null;
+};
+
+/** `molecule.set_symmetry` output. */
+export type SetSymmetryOut = {
+  not_ready_reason: string | null;
+  ready_to_fit: boolean;
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+  symmetry: SymmetryOut | null;
 };
 
 /** `molecule.set_torsion` input. */
@@ -825,7 +1036,7 @@ export type DescribeProjectOut = {
   estimand: string;
   frame: string;
   geometry: (TemplateOut & { atoms?: never; source_format?: never; torsion?: never }) | (ImportedOut & { r_cc?: never; r_ch?: never; r_inter?: never; template?: never });
-  model: ModelOut;
+  model: ModelOut | (FixedModelOut & { phi_domain?: never });
   name: string;
   not_ready_reason: string | null;
   ready_to_fit: boolean;
@@ -834,6 +1045,8 @@ export type DescribeProjectOut = {
   science_revision: number;
   source: string;
   spins: SpinOut[];
+  /** default null */
+  symmetry?: SymmetryOut | null;
 };
 
 /** `project.export` input. */
@@ -1068,7 +1281,7 @@ export type RunGetIn = {
 
 /** `run.get` output. */
 export type RunGetOut = {
-  result: FitRunOut;
+  result: (FitRunOut & { adequacy?: never; admissibility?: never; assumptions?: never; components?: never; covariance_b?: never; null_directions_b?: never; provenance?: never; rank?: never; rows?: never; spins?: never; symmetry?: never; warnings?: never }) | (FixedRunOut & { adequate?: never; basins?: never; chi2?: never; couplings?: never; fit_version?: never; intervals?: never; intervals_policy?: never; notes?: never; nu?: never; numerical_context?: never; order?: never; p_free?: never; p_value?: never; stderr?: never; theta?: never; unidentified?: never; validity?: never });
   run: RunOut;
   science_hash: string;
   /** integer */
@@ -1165,11 +1378,13 @@ export interface Operations {
   "couplings.import": { input: ImportCouplingsIn; output: ImportCouplingsOut };
   /** Read a couplings CSV against the project: the proposed label mapping and the diff (no change). */
   "couplings.reconcile": { input: ReconcileIn; output: ReconcileOut };
+  /** Remove couplings by ID (the others keep their IDs; a removed ID is never reused). */
+  "couplings.remove": { input: RemoveCouplingsIn; output: RemoveCouplingsOut };
   /** The fit.preview χ² sampled at evenly spaced torsions over the model domain (the landscape); the samples are bounded by a work limit (samples × observations). */
   "fit.landscape": { input: LandscapeIn; output: LandscapeOut };
   /** Preview the fit at a fixed torsion: order parameters re-solved, predictions and residuals. */
   "fit.preview": { input: PreviewIn; output: PreviewOut };
-  /** Submit the D3 fit of the current project as a job (estimates, validity, adequacy, and optional profile intervals under the reporting policy). Returns the job at once; read the run with job.wait and run.get. */
+  /** Submit the fit of the current project as a job: the D3 fit (estimates, validity, adequacy, and optional profile intervals under the reporting policy), or for a fixed-geometry model the linear fit of the order tensor (exact intervals when supported). Returns the job at once; read the run with job.wait and run.get. */
   "fit.run": { input: FitRunIn; output: FitRunSubmitted };
   /** The science changes that can be undone and redone, the next first. */
   "history.log": { input: LogIn; output: LogOut };
@@ -1185,8 +1400,12 @@ export interface Operations {
   "job.status": { input: JobStatusIn; output: JobStatusOut };
   /** Wait until a job finishes, at most timeout_s (≤ 30 s); call again if it has not. */
   "job.wait": { input: JobWaitIn; output: JobWaitOut };
-  /** Set the model: kind (rigid, jump4), order model, frame and torsion domain. */
+  /** Set the model: kind (rigid, jump4, fixed), order model, frame and torsion domain (none for fixed: the declared symmetry's point-group order in its frame). */
   "model.set": { input: ModelSetIn; output: ModelSetOut };
+  /** Set a non-hydrogen atom's mass number (C-13, N-15; null for the default isotope), revalidated against the declared symmetry. */
+  "molecule.set_isotope": { input: SetIsotopeIn; output: SetIsotopeOut };
+  /** Declare the imported molecule's point group (C1, Cs, C2v, D2h, D3h, D6h), its axes, the matching tolerance and the medium, validated against the geometry; null clears it. */
+  "molecule.set_symmetry": { input: SetSymmetryIn; output: SetSymmetryOut };
   /** Declare the fitted torsion of imported geometry: four atom indices (a, i, j, b), i–j a bond. */
   "molecule.set_torsion": { input: SetTorsionIn; output: SetTorsionOut };
   /** Describe the project: geometry, spins, couplings, model, estimand and readiness to fit, with IDs. */
@@ -1284,6 +1503,7 @@ export type Exact<T, A> = false extends ExactOK<T, A> ? never : unknown;
 export const OPERATIONS = {
   "couplings.import": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
   "couplings.reconcile": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
+  "couplings.remove": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
   "fit.landscape": { kind: "query", effect: "none", capability: "preview", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "fit.preview": { kind: "query", effect: "none", capability: "preview", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "fit.run": { kind: "command", effect: "compute", capability: "compute_job", cost: "job", idempotent: false, revision_check: "expected_science_revision (required): the job computes from that state", max_request_bytes: 1048576, proposable: true },
@@ -1295,6 +1515,8 @@ export const OPERATIONS = {
   "job.status": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "job.wait": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "model.set": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
+  "molecule.set_isotope": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
+  "molecule.set_symmetry": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
   "molecule.set_torsion": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
   "project.describe": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "project.export": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },

@@ -30,7 +30,31 @@ from dipolar_app.session import Plan, Session, SessionState, StoredOutcome
 T = TypeVar("T")
 
 #: Semantic version of the tool contract (D20), independent of the package version.
-CONTRACT_VERSION = "0.10.0"
+CONTRACT_VERSION = "0.11.0"
+
+#: The contract's changelog, published in the snapshot (ADR-0020; docs/contract-changelog.md has the
+#: earlier versions). SemVer 0.x: a breaking change moves the minor version.
+CONTRACT_CHANGES: tuple[dict[str, Any], ...] = (
+    {
+        "version": "0.11.0",
+        "breaking": True,
+        "changes": [
+            "BREAKING: run.get can return a FixedRunOut (result.model.kind 'fixed') for a fixed-geometry run; "
+            "a client that assumes the search-era FitRunOut fails on such a run",
+            "BREAKING: project.describe and model.set return a model without phi_domain for a fixed-geometry "
+            "project (kind 'fixed', order 'point-group', frame 'symmetry')",
+            "added: molecule.set_symmetry, molecule.set_isotope and couplings.remove (proposable, undoable, "
+            "with expected_science_revision)",
+            "added: model.set takes kind 'fixed'; its phi_domain is optional (absent for 'fixed', required otherwise)",
+            "added: project.describe has symmetry and atoms[].mass_number when they are set (absent otherwise)",
+            "added: error codes OBSERVATIONS_CONFLICT, SYMMETRY_NOT_SATISFIED, POINT_GROUP_NOT_SUPPORTED, "
+            "MEDIUM_NOT_SUPPORTED, ISOTOPE_NOT_SUPPORTED, NO_TORSION and FIT_TOO_LARGE",
+            "fit.preview and fit.landscape refuse a fixed-geometry model (NO_TORSION); run.report renders a "
+            "fixed-geometry run without a torsion (format dipolar-fixed-report.1)",
+            "unchanged for projects without a fixed model: every response keeps the 0.10.0 shapes",
+        ],
+    },
+)
 
 Kind = Literal["query", "command"]
 Effect = Literal["none", "model", "view", "proposal", "compute", "io", "destructive"]
@@ -250,6 +274,7 @@ class Registry:
         """The full contract, committed as a snapshot and compared in CI (D13, D20)."""
         return {
             "contract_version": CONTRACT_VERSION,
+            "changelog": [dict(entry) for entry in CONTRACT_CHANGES],
             "envelopes": {
                 "request": RequestEnvelope.model_json_schema(),
                 "success": SuccessEnvelope.model_json_schema(mode="serialization"),

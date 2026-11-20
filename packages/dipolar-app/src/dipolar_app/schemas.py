@@ -28,6 +28,13 @@ class Angstrom(Wire):
     unit: Literal["Å"]
 
 
+class Length(Wire):
+    """A distance that may be zero (for example the largest displacement of a symmetrization)."""
+
+    value: Annotated[float, Field(ge=0)]
+    unit: Literal["Å"]
+
+
 def deg(value: float) -> Degrees:
     return Degrees(value=value, unit="deg")
 

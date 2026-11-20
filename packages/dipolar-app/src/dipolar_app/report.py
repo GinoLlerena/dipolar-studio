@@ -23,6 +23,9 @@ from dipolar_app.reporting import ADEQUATE_P_MIN
 
 #: The report's own format, named in both outputs; bumped when their content changes.
 REPORT_FORMAT: Final = "dipolar-report.1"
+#: The report of a fixed-geometry fit (Phase 2 V1.3): no torsion; the estimable combinations, the
+#: rank, adequacy, admissibility and the assumptions instead. Its CSV has the same columns.
+REPORT_FORMAT_FIXED: Final = "dipolar-fixed-report.1"
 
 CSV_COLUMNS: Final = (
     "coupling_id",
@@ -364,13 +367,33 @@ def _cell(text: str) -> str:
     return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
 
 
+def _fixed_couplings(result: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """A fixed-geometry result's rows in the shape of a search result's couplings (labels from the
+    result's own spin table: the report reads nothing else)."""
+    label = {s["id"]: s["label"] for s in result["spins"]}
+    return [
+        {
+            "id": r["coupling_id"],
+            "label": f"{label.get(r['pair'][0], r['pair'][0])}–{label.get(r['pair'][1], r['pair'][1])}",
+            "observed": r["observed"],
+            "sigma": r["sigma"],
+            "calculated": r["predicted"],
+            "residual": r["residual"],
+            "normalized_residual": r["normalized_residual"],
+            "multiplicity": r["multiplicity"],
+        }
+        for r in result["rows"]
+    ]
+
+
 def render_csv(run: Mapping[str, Any], result: Mapping[str, Any]) -> str:
     """The per-coupling table at full precision, one row per coupling, with a comment-free header
     (so any CSV reader takes it); the run and the format are in the file's name and the HTML."""
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\n")
     writer.writerow(CSV_COLUMNS)
-    for c in result["couplings"]:
+    rows = _fixed_couplings(result) if "rows" in result else result["couplings"]
+    for c in rows:
         writer.writerow(
             [
                 _cell(str(c["id"])),
@@ -383,3 +406,207 @@ def render_csv(run: Mapping[str, Any], result: Mapping[str, Any]) -> str:
             ]
         )
     return out.getvalue()
+
+
+def render_fixed_html(run: Mapping[str, Any], result: Mapping[str, Any], *, software: str) -> str:
+    """The report page of a fixed-geometry run (`FixedRunOut` as JSON): the estimable combinations
+    and what the numbers assume, with no torsion (D-10). Deterministic, like `render_html`."""
+    parts: list[str] = []
+    add = parts.append
+    rank = result["rank"]
+    adequacy = result["adequacy"]
+    admissibility = result["admissibility"]
+    symmetry = result["symmetry"]
+
+    add(f"<h1>Fit report: {_text(run['id'])}</h1>")
+    add(
+        '<p class="muted">Dipolar Studio: the orientational order of a rigid molecule with fixed geometry from '
+        f"its dipolar couplings. Estimand: <strong>{_text(result['estimand'])}</strong>.</p>"
+    )
+    add(f"<p>{_text(result['statement'])}</p>")
+
+    add("<h2>Estimable combinations</h2>")
+    if rank["verified"]:
+        add(
+            f"<p>The rank is verified ({_number(rank['numerical'])} of the required {_number(rank['required'])}): "
+            "every linear functional of the free coordinates is estimable, with the exact Gaussian intervals "
+            "below. Components fixed by symmetry are zero by the declaration, not estimated by the data.</p>"
+        )
+    else:
+        add(
+            '<p class="flag-no">The rank is unverified: no named component is estimated, and no interval or '
+            "adequacy is given. Only the projections onto the retained directions are reported, without "
+            f"intervals ({_text(rank['reason'])}).</p>"
+        )
+    add(
+        _table(
+            [
+                ("Component", False),
+                ("Status", False),
+                ("Estimate", True),
+                ("Standard error", True),
+                ("68.3% interval", True),
+                ("95% interval", True),
+                ("Coefficients in b", False),
+                ("Interval support", False),
+            ],
+            (_component_cells(c) for c in result["components"]),
+        )
+    )
+    add(
+        '<p class="muted">b = (√(3/2)·Szz, (Sxx − Syy)/√2, √2·Sxy, √2·Sxz, √2·Syz), orthonormal: Σ b² = tr S². '
+        "Each component is the functional (coefficients) · b.</p>"
+    )
+    nulls = result.get("null_directions_b") or ()
+    if nulls:
+        directions = "".join(f"<li><code>{_vector_text(v)}</code></li>" for v in nulls)
+        add(f"<p>Directions within the symmetry subspace that the data do not determine:</p><ul>{directions}</ul>")
+
+    add("<h2>Rank and adequacy</h2>")
+    add(
+        _dl(
+            [
+                ("Required rank d", _number(rank["required"])),
+                ("Numerical rank", _number(rank["numerical"])),
+                ("Rank verified", _flag(rank["verified"])),
+                ("Singular-value ratios", _text(", ".join(_number(x, 4) for x in rank["ratios"])) or "none"),
+                ("χ²", _number(adequacy["chi2"])),
+                ("Observations N (one per pair orbit)", _number(result["n_obs"])),
+                ("Degrees of freedom ν = N − d", _number(adequacy["nu"])),
+                ("p-value", _number(adequacy.get("p_value"), 4)),
+                (
+                    "Adequacy",
+                    _text(adequacy["status"]) + (f" ({_text(adequacy['code'])})" if adequacy.get("code") else ""),
+                ),
+                ("RMS residual", f"{_number(result['rms_residual']['value'], 4)} Hz"),
+            ]
+        )
+    )
+
+    add("<h2>Admissibility</h2>")
+    add(
+        _dl(
+            [
+                ("Status", _text(admissibility["status"])),
+                ("What was tested", _text(admissibility["family"])),
+                ("Smallest eigenvalue of S", _number(admissibility.get("lambda_min"))),
+                ("How it was decided", _text(admissibility["certificate"])),
+            ]
+        )
+    )
+    add('<p class="muted">A tensor is physical when its smallest eigenvalue is at least −1/2.</p>')
+
+    add("<h2>Symmetry</h2>")
+    add(
+        _dl(
+            [
+                ("Point group", _text(symmetry["point_group"])),
+                ("Axes (rows x, y, z)", "<br>".join(f"<code>{_vector_text(a)}</code>" for a in symmetry["axes"])),
+                ("Tolerance", f"{_number(symmetry['tolerance']['value'])} Å"),
+                ("Medium", _text(symmetry["medium"])),
+                (
+                    "Largest displacement of the symmetrized geometry",
+                    f"{_number(symmetry['max_displacement']['value'], 3)} Å",
+                ),
+                ("Frame", _text(result["frame"])),
+            ]
+        )
+    )
+
+    add("<h2>What these results assume</h2>")
+    add("<ul>" + "".join(f"<li>{_text(a)}</li>" for a in result["assumptions"]) + "</ul>")
+    add("<p>Every statistic is conditional on the stated σ and on these assumptions.</p>")
+    if result.get("warnings"):
+        add("<h2>Warnings</h2>")
+        add(
+            "<ul>"
+            + "".join(f"<li><code>{_text(w['code'])}</code> {_text(w['message'])}</li>" for w in result["warnings"])
+            + "</ul>"
+        )
+
+    add("<h2>Couplings</h2>")
+    add(
+        _table(
+            [
+                ("Coupling", False),
+                ("Orbit size", True),
+                ("Observed (Hz)", True),
+                ("σ (Hz)", True),
+                ("Calculated (Hz)", True),
+                ("Residual (Hz)", True),
+                ("Residual / σ", True),
+            ],
+            (
+                (
+                    f'{_text(c["label"])} <span class="muted">{_text(c["id"])}</span>',
+                    _number(c["multiplicity"]),
+                    _number(c["observed"]["value"]),
+                    _number(c["sigma"]["value"]),
+                    _number(c["calculated"]["value"]),
+                    _number(c["residual"]["value"], 4),
+                    _number(c["normalized_residual"], 3),
+                )
+                for c in _fixed_couplings(result)
+            ),
+        )
+    )
+
+    add("<h2>Provenance</h2>")
+    provenance = result["provenance"]
+    context = provenance.get("numerical_context") or {}
+    add(
+        _dl(
+            [
+                ("Run", f"<code>{_text(run['id'])}</code>"),
+                ("Job", f"<code>{_text(run['job_id'])}</code>"),
+                ("Requested by", _text(run["owner"])),
+                ("Created", _text(run["created_at"])),
+                ("Science revision", _number(run["science_revision"])),
+                ("Science hash", f"<code>{_text(run['science_hash'])}</code>"),
+                ("Input hash", f"<code>{_text(run['input_hash'])}</code>"),
+                ("Result hash", f"<code>{_text(run['result_sha256'])}</code>"),
+                ("Fit version", f"<code>{_text(provenance['fit_version'])}</code>"),
+                *((f"Numerical context: {k}", f"<code>{_text(context[k])}</code>") for k in sorted(context)),
+                ("Software", _text(software)),
+                ("Report format", _text(REPORT_FORMAT_FIXED)),
+            ]
+        )
+    )
+    add(
+        '<p class="muted">The same run gives the same report with the same software (named above). The '
+        "couplings, at full precision, are in the CSV that goes with it.</p>"
+    )
+    title = f"Dipolar Studio fit report: {run['id']}"
+    return (
+        '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
+        f"<title>{_text(title)}</title>\n<style>\n{_STYLE}\n</style>\n</head>\n<body>\n"
+        + "\n".join(parts)
+        + "\n</body>\n</html>\n"
+    )
+
+
+def _vector_text(values: Sequence[float]) -> str:
+    return "(" + ", ".join(_number(float(v), 6) for v in values) + ")"
+
+
+def _component_cells(c: Mapping[str, Any]) -> tuple[str, ...]:
+    intervals = {i["level"]: i for i in c.get("intervals") or ()}
+    resolution = _resolution(c.get("se"))
+
+    def interval(level: str) -> str:
+        i = intervals.get(level)
+        if i is None:
+            return "—"
+        return f"[{_at(i['lower'], resolution)}, {_at(i['upper'], resolution)}]"
+
+    status = {"estimated": "estimated", "fixed-by-symmetry": "fixed by symmetry", "projected": "projected"}[c["status"]]
+    return (
+        _text(c["name"]),
+        _text(status),
+        _at(c.get("estimate"), resolution),
+        _number(c.get("se"), 2),
+        interval("68.3"),
+        interval("95"),
+        f"<code>{_vector_text(c['coefficients_b'])}</code>",
+        _text(c["interval_support"]),
+    )

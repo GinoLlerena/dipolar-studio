@@ -36,6 +36,8 @@ from dipolar_core.forward import design_rows
 
 Array = NDArray[np.float64]
 
+#: The symmetry check's version (D-2): group action, matching rule and averaged geometry.
+SYMMETRY_CHECK_VERSION: Final = "group-action-average.1"
 SUPPORTED_GROUPS: Final = ("C1", "Cs", "C2v", "D2h", "D3h", "D6h")
 MEDIUM: Final = "achiral-uniaxial"
 TOLERANCE_MIN_A: Final = 0.001

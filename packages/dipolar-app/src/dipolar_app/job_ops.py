@@ -33,9 +33,16 @@ from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.policy import Tier
 from dipolar_app.project import canonical_json
 from dipolar_app.registry import CONTRACT_VERSION, Context
-from dipolar_app.report import REPORT_FORMAT, render_csv, render_html
+from dipolar_app.report import REPORT_FORMAT, REPORT_FORMAT_FIXED, render_csv, render_fixed_html, render_html
 from dipolar_app.schemas import Revision, Wire
-from dipolar_app.science_ops import FitRunOut, Science, check_revision, readiness, require_project
+from dipolar_app.science_ops import (
+    FitRunOut,
+    FixedRunOut,
+    Science,
+    check_revision,
+    readiness,
+    require_project,
+)
 from dipolar_app.session import JOB, TERMINAL, CurrentScience, Event, Job, Run, SessionState
 
 #: Unfinished jobs allowed per actor, and in total (D17 budgets).
@@ -124,6 +131,8 @@ def input_hash(science_hash: str, kind: str, options: dict[str, bool], fit_versi
 
 # --------------------------------------------------------------------------- fit.run
 class FitRunIn(Wire):
+    #: Profile intervals (search fits). No effect on a fixed-geometry fit: its exact intervals cost
+    #: nothing and are always given when supported (D-8); its job records no options.
     intervals: bool = False
     expected_science_revision: Revision
 
@@ -135,13 +144,23 @@ class FitRunSubmitted(Science):
 def fit_run(ctx: Context, p: FitRunIn) -> FitRunSubmitted:
     # Imported here, never under the session lock: the first import loads SciPy (about 1.5 s).
     from dipolar_core.fit import FIT_VERSION
+    from dipolar_core.fixed import FIXED_FIT_VERSION
+    from dipolar_core.symmetry import MAX_FIT_ROWS
 
-    options = {"intervals": p.intervals}
     principal = ctx.principal
 
     def plan(state: SessionState) -> tuple[list[Event], FitRunSubmitted]:
         check_revision(p.expected_science_revision, state)
         project = require_project(state)
+        fixed = project.model.kind == "fixed"
+        if fixed and len(project.couplings) > MAX_FIT_ROWS:  # D-11: admission, before any work
+            raise OperationError(
+                ErrorCode.FIT_TOO_LARGE,
+                f"{len(project.couplings)} observations: a fixed-geometry fit takes at most {MAX_FIT_ROWS} rows",
+                hint="remove rows (couplings.remove) or split the data",
+                details={"max_rows": MAX_FIT_ROWS, "rows": len(project.couplings)},
+            )
+        options: dict[str, bool] = {} if fixed else {"intervals": p.intervals}
         reason = readiness(project)
         if reason is not None:
             raise OperationError(
@@ -160,7 +179,7 @@ def fit_run(ctx: Context, p: FitRunIn) -> FitRunSubmitted:
             )
         job_id = f"job_{state.next_job:06d}"
         submitted_at = dt.datetime.now(dt.UTC).isoformat()
-        digest = input_hash(state.science_hash, "fit", options, FIT_VERSION)
+        digest = input_hash(state.science_hash, "fit", options, FIXED_FIT_VERSION if fixed else FIT_VERSION)
         data: dict[str, object] = {
             "id": job_id,
             "kind": "fit",
@@ -171,6 +190,7 @@ def fit_run(ctx: Context, p: FitRunIn) -> FitRunSubmitted:
             "science_hash": state.science_hash,
             "input_hash": digest,
             "options": options,
+            "model_kind": project.model.kind,
         }
         event: Event = {"type": "job.submitted", "domain": JOB, "job": data}
         job = Job(
@@ -183,6 +203,7 @@ def fit_run(ctx: Context, p: FitRunIn) -> FitRunSubmitted:
             science_hash=state.science_hash,
             input_hash=digest,
             options_json=canonical_json(options),
+            model_kind=project.model.kind,
             content_hash=state.content_hash,
         )
         return [event], FitRunSubmitted(
@@ -360,11 +381,13 @@ class RunGetIn(Wire):
 
 class RunGetOut(Science):
     run: RunOut
-    result: FitRunOut
+    #: A search fit's result, or a fixed-geometry fit's (``model.kind`` "fixed"; contract 0.11.0).
+    result: FitRunOut | FixedRunOut
 
 
-def _stored_run(ctx: Context, run_id: str) -> tuple[SessionState, Run, FitRunOut]:
-    """A run and its result, verified against the stored hash."""
+def _stored_run(ctx: Context, run_id: str) -> tuple[SessionState, Run, FitRunOut | FixedRunOut]:
+    """A run and its result, verified against the stored hash, decoded by the run record's model
+    kind (trusted metadata recorded at submission, never chosen by the blob: D-10)."""
     state = ctx.read()
     run = state.run(run_id)
     if run is None:
@@ -377,6 +400,8 @@ def _stored_run(ctx: Context, run_id: str) -> tuple[SessionState, Run, FitRunOut
     text = ctx.session.blobs.text(run.result_sha256)
     if text is None:
         raise OperationError(ErrorCode.INTERNAL, f"the result of {run.id} is missing or damaged")
+    if run.model_kind == "fixed":
+        return state, run, FixedRunOut.model_validate_json(text)
     return state, run, FitRunOut.model_validate_json(text)
 
 
@@ -411,13 +436,15 @@ def run_report(ctx: Context, p: RunReportIn) -> RunReportOut:
     software = (
         f"dipolar {dipolar_app.__version__} (dipolar-core {dipolar_core.__version__}, contract {CONTRACT_VERSION})"
     )
+    fixed = isinstance(result, FixedRunOut)
+    page = (render_fixed_html if fixed else render_html)(record, fit, software=software)
     return RunReportOut(
         science_revision=state.science_revision,
         science_hash=state.science_hash,
         run_id=run.id,
-        format=REPORT_FORMAT,
+        format=REPORT_FORMAT_FIXED if fixed else REPORT_FORMAT,
         filename=f"dipolar-report-{run.id}",
-        html=render_html(record, fit, software=software),
+        html=page,
         csv=render_csv(record, fit),
     )
 

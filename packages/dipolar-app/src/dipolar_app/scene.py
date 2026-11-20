@@ -209,7 +209,7 @@ def displayed_phi(state: SessionState, result: dict[str, Any] | None, current: b
     """φ from the run only when the run is current *and* its result is readable."""
     project = state.project
     assert project is not None
-    if result is not None and current:
+    if result is not None and current and "theta" in result:  # a fixed-geometry run has no torsion
         return float(result["theta"][0]["value"]), "run"
     g = project.molecule.geometry
     if isinstance(g, ImportedGeometry) and g.torsion is not None:
@@ -220,6 +220,25 @@ def displayed_phi(state: SessionState, result: dict[str, Any] | None, current: b
 
 
 def _fit_summary(result: dict[str, Any]) -> dict[str, Any]:
+    if "rows" in result:  # a fixed-geometry run (V1.3): a linear fit, so no search and no bound
+        adequacy, admissibility = result["adequacy"], result["admissibility"]["status"]
+        verified = result["rank"]["verified"]
+        return {
+            "adequate": {"given": True, "inadequate": False}.get(adequacy["status"]),
+            "p_value": adequacy["p_value"],
+            "regular": verified,
+            "identifiable": verified and not result["null_directions_b"],
+            "converged": True,
+            "at_bound": [],
+            "physically_admissible": {
+                "admissible": True,
+                "feasible": True,
+                "feasible-within-tolerance": True,
+                "inadmissible": False,
+                "infeasible": False,
+            }.get(admissibility),
+            "notes": [short(w["message"]) for w in result["warnings"]][:8],
+        }
     v = result["validity"]
     return {
         "adequate": result["adequate"],
@@ -257,7 +276,8 @@ def build_scene(state: SessionState, blobs: Any) -> dict[str, Any]:
     if problem is not None:  # an auto-fitted camera is checked like any other (round 36)
         raise ValueError(problem)
     projected = project(camera, width, height, coords)
-    residuals = {c["id"]: c["residual"]["value"] for c in result["couplings"]} if usable and result else {}
+    rows = (result.get("rows") or result.get("couplings") or []) if usable and result else []
+    residuals = {c.get("coupling_id", c.get("id")): c["residual"]["value"] for c in rows}
     labels = {s.id: short(s.label) for s in prj.molecule.spins}
     position = dict(zip(ids, coords, strict=True))
     return {

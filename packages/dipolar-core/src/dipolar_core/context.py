@@ -7,8 +7,15 @@ Bump the matching entry whenever the corresponding code changes its numbers.
 
 from __future__ import annotations
 
+from dipolar_core.fixed import (
+    FEASIBILITY_CERTIFICATE_VERSION,
+    FIXED_FIT_VERSION,
+    RANK_POLICY_VERSION,
+    TENSOR_BASIS_VERSION,
+)
 from dipolar_core.inference import ADMISSIBILITY_ATOL, RANK_RTOL
 from dipolar_core.nuclides import TABLE_VERSION
+from dipolar_core.symmetry import SYMMETRY_CHECK_VERSION
 
 FORWARD_MODEL_VERSION = "cartesian-traceless5.1"
 INNER_SOLVER_VERSION = "whitened-svd.1"
@@ -23,4 +30,11 @@ def numerical_context() -> dict[str, str | float]:
         "inner_solver": INNER_SOLVER_VERSION,
         "rank_rtol": RANK_RTOL,
         "admissibility_atol": ADMISSIBILITY_ATOL,
+        # Phase 2 V1 (D-2): one global context. Adding these keys makes every 0.1 journal and
+        # snapshot unreadable, so 0.1 directories are refused unopened (D-1).
+        "fixed_fit": FIXED_FIT_VERSION,
+        "rank_policy": RANK_POLICY_VERSION,
+        "symmetry_check": SYMMETRY_CHECK_VERSION,
+        "tensor_basis": TENSOR_BASIS_VERSION,
+        "feasibility_certificate": FEASIBILITY_CERTIFICATE_VERSION,
     }

@@ -252,7 +252,7 @@ def test_v1_and_v2_export_files_load_to_one_v3_identity_by_both_paths() -> None:
         c = client(new_session())
         loaded = ok(c.call("project.load", {"text": text, "expected_science_revision": 0}))
         assert loaded["science_hash"] == identity
-        assert ok(c.call("render.describe_view"))["science_hash"] == identity
+        assert ok(c.call("project.describe"))["science_hash"] == identity
         exported = ok(c.call("project.export"))["text"]
         assert json.loads(exported)["schema_version"] == 3
         assert science_hash(loads_project(exported)) == identity
@@ -363,19 +363,32 @@ def test_entering_fixed_refuses_a_class_that_is_neither_its_orbit_nor_one_pair()
 
 
 def test_leaving_fixed_keeps_valid_classes_and_refuses_the_others() -> None:
+    """Under the draft's full (c1) order model, symmetry-related pairs have different design rows, so a
+    multi-pair orbit is never a valid class there: leaving refuses those rows. Single-pair classes
+    (C1 orbits) stay valid, and leaving keeps them. (Corrected after the freeze: the frozen version
+    expected exact-geometry orbits to stay valid classes, which D-3's existing check never allows.)"""
     c = client(new_session())
-    fixed_benzene(c)
+    xyz = benzene_draft(c)
+    ok(set_symmetry(c, symmetry("C1")))
+    ok(import_csv(c, csv_of(benzene_rows(xyz))))
+    ok(set_model(c, FIXED))
     out = ok(set_model(c, DRAFT))
     assert out["ready_to_fit"] is False and out["not_ready_reason"] == DRAFT_REASON
-    assert [x["multiplicity"] for x in ok(c.call("project.describe"))["couplings"]] == [6, 6, 3]
+    assert [x["multiplicity"] for x in ok(c.call("project.describe"))["couplings"]] == [1, 1, 1]
 
     c = client(new_session())
-    fixed_benzene(c, wobble=0.004)  # symmetric within the 0.01 Å tolerance, not exactly
+    fixed_benzene(c)
     r = rev(c)
     error = refused(set_model(c, DRAFT), "OBSERVATIONS_CONFLICT")
-    assert set(error["details"]["coupling_ids"]) <= {"cpl_000001", "cpl_000002", "cpl_000003"}
-    assert error["details"]["coupling_ids"]
+    assert error["details"]["coupling_ids"] == ["cpl_000001", "cpl_000002", "cpl_000003"]
     assert rev(c) == r
+    ok(
+        c.call(
+            "couplings.remove",
+            {"coupling_ids": ["cpl_000001", "cpl_000002", "cpl_000003"], "expected_science_revision": r},
+        )
+    )
+    ok(set_model(c, DRAFT))
 
 
 def test_symmetry_edits_and_their_refusals() -> None:
@@ -917,7 +930,7 @@ def big_c1_document(n_rows: int, *, long_labels: bool = False) -> str:
             sigma=Hertz(value=1.0, unit="Hz"),
             sigma_source="synthetic",
             multiplicity=1,
-            equivalent_pairs=(f"{spins[a].label}-{spins[b].label}",),
+            equivalent_pairs=(),  # a C1 orbit is the row's own pair (long labels stay out of the file)
         )
         for k, (a, b) in enumerate(pairs)
     )

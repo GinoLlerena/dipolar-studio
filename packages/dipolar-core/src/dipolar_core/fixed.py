@@ -39,13 +39,17 @@ from typing import Final, Literal
 
 import numpy as np
 from numpy.typing import NDArray
-from scipy.special import chdtrc
 
 from dipolar_core.inference import RANK_RTOL
 
 Array = NDArray[np.float64]
 
 FIXED_FIT_VERSION: Final = "fixed-linear.1"
+#: The versioned choices of D-2 (the numerical context): the rank policy (required rank d, verified
+#: by RANK_RTOL and WEAK_RTOL), the orthonormal basis b, and the admissibility certificates.
+RANK_POLICY_VERSION: Final = "required-rank-d.1"
+TENSOR_BASIS_VERSION: Final = "orthonormal-b.1"
+FEASIBILITY_CERTIFICATE_VERSION: Final = "dual-certificate.1"
 #: A retained singular value below WEAK_RTOL·s_max leaves the rank unverified (D-8).
 WEAK_RTOL: Final = 1e-6
 #: The adequacy policy, as in the app's reporting layer: p < 0.001 is inadequate.
@@ -409,6 +413,8 @@ def fit_fixed(
     elif nu <= 0:
         adequacy, code = "no-dof", "NO_DOF"
     else:
+        from scipy.special import chdtrc  # SciPy stays off the start path (the context imports this module)
+
         low = float(chdtrc(nu, max(chi - delta, 0.0) ** 2))
         high = float(chdtrc(nu, (chi + delta) ** 2)) if math.isfinite(delta) else 0.0
         if (low < ADEQUACY_ALPHA) != (high < ADEQUACY_ALPHA):

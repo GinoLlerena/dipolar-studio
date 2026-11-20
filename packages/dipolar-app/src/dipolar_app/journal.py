@@ -31,7 +31,9 @@ from typing import Any
 from dipolar_app.project import canonical_json
 
 #: 2 (M2 step 2): records may carry ``step_lengths`` and a ``request`` (ID and outcome).
-JOURNAL_SCHEMA_VERSION = 2
+#: 3 (Phase 2 V1.3): ``job.submitted`` records the input's model kind. A directory whose records
+#: are older is never opened (D-1, ``dipolar_app.directory``).
+JOURNAL_SCHEMA_VERSION = 3
 
 
 class JournalCorrupt(Exception):

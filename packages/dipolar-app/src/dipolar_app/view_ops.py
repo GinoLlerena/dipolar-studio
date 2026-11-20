@@ -378,8 +378,9 @@ def describe_view(ctx: Context, _: DescribeViewIn) -> DescribeViewOut:
         )
     scene = _scene(ctx, state)
     warnings: list[str] = []
+    fixed = project.model.kind == "fixed"  # no torsion to show (V1.3)
     if scene.run is None:
-        warnings.append("no fit has run: the torsion shown is not a result")
+        warnings.append("no fit has run" if fixed else "no fit has run: the torsion shown is not a result")
     elif scene.run.stale:
         warnings.append(f"{scene.run.run_id} was computed from a different science state: it is stale")
     elif not scene.run.available:
@@ -389,12 +390,16 @@ def describe_view(ctx: Context, _: DescribeViewIn) -> DescribeViewOut:
         if fit.adequate is False:
             warnings.append(f"the fit is inadequate under the stated σ (p = {fit.p_value:.3g})")
         if not fit.regular:
-            warnings.append("the optimum is not regular: no standard errors or intervals apply")
+            warnings.append(
+                "the rank is unverified: no standard errors or intervals apply"
+                if fixed
+                else "the optimum is not regular: no standard errors or intervals apply"
+            )
         if fit.physically_admissible is False:
             warnings.append("the order parameters are not physically admissible (outside the order-matrix domain)")
         if fit.at_bound:
             warnings.append(f"the optimum lies on a bound ({', '.join(fit.at_bound)})")
-    if scene.phi_source != "run":
+    if scene.phi_source != "run" and not fixed:
         warnings.append(f"the torsion shown ({scene.phi.value:.1f}°) is the {scene.phi_source} value, not a fit")
     hidden = sum(not a.screen.visible for a in scene.atoms)
     if hidden:

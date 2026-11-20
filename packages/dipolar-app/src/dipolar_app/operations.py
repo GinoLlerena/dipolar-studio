@@ -194,7 +194,8 @@ def _register_science(registry: Registry) -> None:
             kind="command",
             effect="model",
             capability=Capability.SCIENCE_MUTATION,
-            summary="Set the model: kind (rigid, jump4), order model, frame and torsion domain.",
+            summary="Set the model: kind (rigid, jump4, fixed), order model, frame and torsion domain "
+            "(none for fixed: the declared symmetry's point-group order in its frame).",
             input_model=S.ModelSetIn,
             output_model=S.ModelSetOut,
             handler=S.model_set,
@@ -208,7 +209,47 @@ def _register_science(registry: Registry) -> None:
                     "phi_domain": [{"value": 0.0, "unit": "deg"}, {"value": 90.0, "unit": "deg"}],
                     "expected_science_revision": 1,
                 },
+                {"kind": "fixed", "order": "point-group", "frame": "symmetry", "expected_science_revision": 2},
             ),
+        ),
+        Operation(
+            name="molecule.set_symmetry",
+            kind="command",
+            effect="model",
+            capability=Capability.SCIENCE_MUTATION,
+            summary="Declare the imported molecule's point group (C1, Cs, C2v, D2h, D3h, D6h), its axes, the "
+            "matching tolerance and the medium, validated against the geometry; null clears it.",
+            input_model=S.SetSymmetryIn,
+            output_model=S.SetSymmetryOut,
+            handler=S.set_symmetry,
+            revision_check=revision,
+            proposable=True,
+            examples=(
+                {
+                    "symmetry": {
+                        "point_group": "D6h",
+                        "axes": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                        "tolerance": {"value": 0.01, "unit": "Å"},
+                        "medium": "achiral-uniaxial",
+                    },
+                    "expected_science_revision": 1,
+                },
+                {"symmetry": None, "expected_science_revision": 2},
+            ),
+        ),
+        Operation(
+            name="molecule.set_isotope",
+            kind="command",
+            effect="model",
+            capability=Capability.SCIENCE_MUTATION,
+            summary="Set a non-hydrogen atom's mass number (C-13, N-15; null for the default isotope), "
+            "revalidated against the declared symmetry.",
+            input_model=S.SetIsotopeIn,
+            output_model=S.SetIsotopeOut,
+            handler=S.set_isotope,
+            revision_check=revision,
+            proposable=True,
+            examples=({"atom": 0, "mass_number": 13, "expected_science_revision": 2},),
         ),
         Operation(
             name="project.import_xyz",
@@ -273,6 +314,19 @@ def _register_science(registry: Registry) -> None:
                     "expected_science_revision": 1,
                 },
             ),
+        ),
+        Operation(
+            name="couplings.remove",
+            kind="command",
+            effect="model",
+            capability=Capability.SCIENCE_MUTATION,
+            summary="Remove couplings by ID (the others keep their IDs; a removed ID is never reused).",
+            input_model=S.RemoveCouplingsIn,
+            output_model=S.RemoveCouplingsOut,
+            handler=S.couplings_remove,
+            revision_check=revision,
+            proposable=True,
+            examples=({"coupling_ids": ["cpl_000002"], "expected_science_revision": 2},),
         ),
         Operation(
             name="project.load",
@@ -456,9 +510,10 @@ def _register_jobs(registry: Registry) -> None:
             kind="command",
             effect="compute",
             capability=Capability.COMPUTE_JOB,
-            summary="Submit the D3 fit of the current project as a job (estimates, validity, adequacy, and "
-            "optional profile intervals under the reporting policy). Returns the job at once; read the run "
-            "with job.wait and run.get.",
+            summary="Submit the fit of the current project as a job: the D3 fit (estimates, validity, adequacy, "
+            "and optional profile intervals under the reporting policy), or for a fixed-geometry model the linear "
+            "fit of the order tensor (exact intervals when supported). Returns the job at once; read the run with "
+            "job.wait and run.get.",
             input_model=J.FitRunIn,
             output_model=J.FitRunSubmitted,
             handler=J.fit_run,

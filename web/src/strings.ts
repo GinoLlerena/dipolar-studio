@@ -169,6 +169,9 @@ export const strings = {
   staleHelp: "The project changed after this fit; its numbers describe an earlier revision.",
   current: "Current",
   loadingRun: "Loading the run…",
+  fixedRunNote:
+    "A fixed-geometry fit (no torsion). This page does not show its estimable combinations yet; the run's report does (Report).",
+  fixedModelNote: "Fixed-geometry fit: the order tensor in the declared symmetry's frame (no torsion domain).",
   runUnavailable: "This run's stored result could not be read.",
   retry: "Retry",
   downloadReport: "Download report",
