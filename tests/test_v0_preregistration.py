@@ -168,8 +168,10 @@ def _orbit_of(pair: tuple[int, int], ops: list[dict[int, int]]) -> frozenset[fro
     return frozenset(frozenset((op[pair[0]], op[pair[1]])) for op in ops)
 
 
-def _check_orbits(dataset: dict[str, Any], ops: list[dict[int, int]]) -> None:
-    """One representative per orbit, every pair covered, and each key names exactly its orbit."""
+def _check_orbits(dataset: dict[str, Any], ops: list[dict[int, int]], exact: bool) -> None:
+    """One representative per orbit, every pair covered, and each key's aliases in its orbit. With
+    ``exact``, a key names its whole orbit: the o-DCB paper's labels list every alias (D12=D34);
+    the benzene SI's labels name one pair per orbit."""
     index, _ = _protons(dataset)
     n = len(index)
     all_pairs = {frozenset((i, j)) for i in range(n) for j in range(i + 1, n)}
@@ -177,7 +179,7 @@ def _check_orbits(dataset: dict[str, Any], ops: list[dict[int, int]]) -> None:
     for key, (a, b) in dataset["orbits"].items():
         orbit = _orbit_of((index[a], index[b]), ops)
         named = frozenset(frozenset((int(m[1]) - 1, int(m[2]) - 1)) for m in key.split("="))
-        assert named == orbit, (key, named, orbit)  # round 74: every alias named, none extra
+        assert (named == orbit) if exact else (named <= orbit), (key, named, orbit)
         orbits.append(orbit)
     assert len(set(orbits)) == len(orbits) == dataset["observations_per_condition"]
     assert frozenset().union(*orbits) == all_pairs
@@ -188,7 +190,7 @@ def test_the_benzene_orbits_frame_and_signed_couplings() -> None:
     assert np.linalg.norm(h[0] - h[1]) == pytest.approx(2.4716, abs=1e-12)
     rotations = [{i: (i + k) % 6 for i in range(6)} for k in range(6)]
     reflections = [{i: (k - i) % 6 for i in range(6)} for k in range(6)]
-    _check_orbits(BENZENE, rotations + reflections)
+    _check_orbits(BENZENE, rotations + reflections, exact=False)
     assert BENZENE["frame_map_matrix"] == np.eye(3).astype(int).tolist()
     pairs = [(index[a], index[b]) for a, b in BENZENE["orbits"].values()]
     a5 = design_rows(h, pairs, K)
@@ -217,7 +219,7 @@ def test_the_odcb_frame_map_conversion_and_orbits() -> None:
     assert np.allclose(axes, np.array(ODCB["frame_map_matrix"], dtype=float), atol=1e-12)
     assert np.linalg.det(axes) == pytest.approx(1.0)
     c2_op = {index["H1"]: index["H4"], index["H4"]: index["H1"], index["H2"]: index["H3"], index["H3"]: index["H2"]}
-    _check_orbits(ODCB, [{i: i for i in range(4)}, c2_op])
+    _check_orbits(ODCB, [{i: i for i in range(4)}, c2_op], exact=True)
 
     v1 = paper @ axes.T
     pairs = [(index[a], index[b]) for a, b in ODCB["orbits"].values()]
