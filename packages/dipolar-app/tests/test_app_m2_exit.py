@@ -210,6 +210,14 @@ JUMP = {
 }
 CAMERA = build_registry().get("view.set_camera").examples[1]  # type: ignore[union-attr]
 CSV = "spin_a,spin_b,D_obs_Hz,sigma_Hz\nH2,H3,-1124.6,0.5\n"
+IDENTITY = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+#: Benzene in its D6h frame (z normal): six carbons, then six hydrogens.
+BENZENE_XYZ = "12\nbenzene\n" + "".join(
+    f"{e} {r * np.cos(np.radians(60 * k))!r} {r * np.sin(np.radians(60 * k))!r} 0.0\n"
+    for e, r in (("C", 1.3914), ("H", 2.4716))
+    for k in range(6)
+)
+
 EVERY_OPERATION: list[Step] = [
     ("render.describe_view", lambda r: {}, "robot", None),
     ("project.open_example", lambda r: {"name": "biphenyl-synthetic", "expected_science_revision": r}, "robot", None),
@@ -245,6 +253,7 @@ EVERY_OPERATION: list[Step] = [
         "robot",
         None,
     ),
+    ("couplings.remove", lambda r: {"coupling_ids": ["cpl_000002"], "expected_science_revision": r}, "robot", None),
     ("project.export", lambda r: {}, "robot", None),
     (
         "proposal.create",
@@ -271,6 +280,20 @@ EVERY_OPERATION: list[Step] = [
         None,
     ),
     ("molecule.set_torsion", lambda r: {"torsion": [2, 0, 1, 5], "expected_science_revision": r}, "robot", None),
+    # V1.3: the fixed-geometry declarations (benzene, D6h).
+    (
+        "project.import_xyz",
+        lambda r: {"xyz": BENZENE_XYZ, "name": "benzene", "expected_science_revision": r},
+        "robot",
+        None,
+    ),
+    (
+        "molecule.set_symmetry",
+        lambda r: {"symmetry": {"point_group": "D6h", "axes": IDENTITY}, "expected_science_revision": r},
+        "robot",
+        None,
+    ),
+    ("molecule.set_isotope", lambda r: {"atom": 0, "mass_number": 12, "expected_science_revision": r}, "robot", None),
 ]
 
 
