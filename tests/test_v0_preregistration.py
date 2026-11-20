@@ -9,8 +9,6 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
-import re
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +73,73 @@ def test_the_json_satisfies_its_closed_schema() -> None:
             jsonschema.validate(bad, SCHEMA, cls=jsonschema.Draft202012Validator)
 
 
+def test_the_schema_pins_the_frozen_inputs_and_settings() -> None:
+    """Round 74 (A4): dataset shapes, counts, estimands, paths and the sensitivity list are fixed."""
+    import jsonschema
+
+    odcb = ODCB
+    bads = [
+        {**odcb, "conversion_matrix": [[1.0, 2.0, 3.0]]},
+        {**odcb, "estimands": ["S_zz", "S_zz"]},
+        {**odcb, "roster_cells": 43},
+        {**odcb, "targets": {**odcb["targets"], "path": "datasets-local/../escape.csv"}},
+        {**odcb, "couplings": {**odcb["couplings"], "path": "datasets-local/other/couplings.csv"}},
+    ]
+    for bad in bads:
+        doc = {**PREREG, "datasets": {**PREREG["datasets"], "odcb-chandrakumar1993": bad}}
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(doc, SCHEMA, cls=jsonschema.Draft202012Validator)
+    for criteria in (
+        {**PREREG["criteria"], "sensitivity": {}},
+        {**PREREG["criteria"], "sensitivity": {"odcb-chandrakumar1993": ["II/300"]}},
+    ):
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate({**PREREG, "criteria": criteria}, SCHEMA, cls=jsonschema.Draft202012Validator)
+
+
+def test_amendment_entries_carry_their_evidence() -> None:
+    """Round 74 (A2): protocol hashes on every entry; a data or target correction also needs its
+    source evidence, its artifact and the artifact's hashes."""
+    import jsonschema
+
+    h = "0" * 64
+    protocol = {
+        "date": "2026-12-01",
+        "kind": "protocol",
+        "reason": "r",
+        "post_hoc": False,
+        "protocol_before_sha256": h,
+        "protocol_after_sha256": h,
+    }
+    data = {
+        **protocol,
+        "kind": "data correction",
+        "evidence": "Table II, p. 202",
+        "artifact_path": "datasets-local/odcb-chandrakumar1993/couplings.csv",
+        "artifact_before_sha256": h,
+        "artifact_after_sha256": h,
+    }
+    for good in (protocol, data):
+        jsonschema.validate({**PREREG, "amendments": [good]}, SCHEMA, cls=jsonschema.Draft202012Validator)
+    for bad in (
+        {k: v for k, v in data.items() if k != "evidence"},
+        {k: v for k, v in data.items() if k != "artifact_after_sha256"},
+        {k: v for k, v in protocol.items() if k != "protocol_before_sha256"},
+    ):
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate({**PREREG, "amendments": [bad]}, SCHEMA, cls=jsonschema.Draft202012Validator)
+
+
+def test_the_orbit_keys_are_the_coupling_files_keys() -> None:
+    """Round 74 (B): each JSON orbit key is a coupling label of its file, all of them."""
+    with (ROOT / BENZENE["couplings"]["path"]).open(encoding="utf-8", newline="") as handle:
+        assert {r["coupling"] for r in csv.DictReader(handle)} == set(BENZENE["orbits"])
+    local = ROOT / ODCB["couplings"]["path"]
+    if local.exists():
+        with local.open(encoding="utf-8", newline="") as handle:
+            assert {r["coupling"] for r in csv.DictReader(handle)} == set(ODCB["orbits"])
+
+
 def test_the_frozen_model_is_the_code_in_use() -> None:
     model = PREREG["model"]
     assert model["fixed_fit_version"] == fixed.FIXED_FIT_VERSION
@@ -112,7 +177,7 @@ def _check_orbits(dataset: dict[str, Any], ops: list[dict[int, int]]) -> None:
     for key, (a, b) in dataset["orbits"].items():
         orbit = _orbit_of((index[a], index[b]), ops)
         named = frozenset(frozenset((int(m[1]) - 1, int(m[2]) - 1)) for m in key.split("="))
-        assert named <= orbit, (key, named, orbit)
+        assert named == orbit, (key, named, orbit)  # round 74: every alias named, none extra
         orbits.append(orbit)
     assert len(set(orbits)) == len(orbits) == dataset["observations_per_condition"]
     assert frozenset().union(*orbits) == all_pairs
@@ -209,95 +274,21 @@ def test_the_local_odcb_inputs_targets_and_roster_when_present() -> None:
     )
 
 
-# ---- No restricted value in any tracked file (local only) -------------------------------------------
-
-#: The sources' values were first seen on 2026-11-18 (exposure log). These tokens occur in files
-#: added before that, by coincidence (a Phase 1 mockup and two browser tests); a file added later
-#: may not be allowlisted. Tokens are kept as SHA-256 prefixes, so this file names no value.
-COINCIDENCES = {
-    ("docs/panel/mockup-workspace.html", "3c2f47db17b78941"),
-    ("web/e2e/preview.spec.ts", "36b17256198109a4"),
-    ("web/e2e/tutorial.spec.ts", "36b17256198109a4"),
-}
-FIRST_EXPOSURE = "2026-11-18"
-#: Generated dependency locks: hashes, URLs and timestamps, no prose (a timestamp matched).
-GENERATED = {"uv.lock", "web/pnpm-lock.yaml", "pnpm-lock.yaml"}
-LOCAL = ROOT / "datasets-local"
-RESTRICTED = (
-    LOCAL / "odcb-chandrakumar1993" / "couplings.csv",
-    LOCAL / "odcb-chandrakumar1993" / "targets.csv",
-    LOCAL / "benzene-taggar2006-targets" / "targets.csv",
-)
+# ---- No restricted value in any tracked blob (local only; round 74) ----------------------------------
 
 
-def _token_hash(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()[:16]
+def test_no_restricted_value_is_in_a_tracked_blob() -> None:
+    """Every blob in git's index, decoded (UTF-8, or UTF-16/32), is scanned for every numeric form
+    of a restricted value (tools/datasets/restricted_scan.py). The exceptions are single lines
+    verified to exist before the first exposure, and lock-file upload timestamps. Hits are
+    reported as path:line, without the value."""
+    import sys
 
+    sys.path.insert(0, str(ROOT / "tools" / "datasets"))
+    import restricted_scan as rs
 
-def _significant(token: str) -> int:
-    return len(token.replace("-", "").replace(".", "").lstrip("0"))
-
-
-def _target_values() -> list[float]:
-    values = []
-    for path, columns in ((RESTRICTED[1], ("value", "fig2_value")), (RESTRICTED[2], ("S_zz",))):
-        with path.open(encoding="utf-8", newline="") as h:
-            values += [float(r[c]) for r in csv.DictReader(h) for c in columns if r[c]]
-    return values
-
-
-def _restricted_tokens() -> tuple[set[str], set[str]]:
-    """Unsigned decimal strings of the restricted cells: the o-dichlorobenzene couplings (© ISMAR)
-    and digitized targets, and the benzene paper targets (© ACS).
-    - Everywhere: tokens of at least four significant digits (printed couplings, targets as
-      written and at 4 decimals). Shorter tokens, such as the printed uncertainties, collide with
-      unrelated numbers.
-    - In docs/phase2 and docs/validation as well: the targets at 3 decimals, the likeliest form
-      of a leak in a write-up."""
-    everywhere: set[str] = set()
-    with RESTRICTED[0].open(encoding="utf-8", newline="") as h:
-        everywhere |= {r["D_token"].lstrip("-") for r in csv.DictReader(h)}
-    for v in _target_values():
-        everywhere |= {f"{abs(v):.5f}".rstrip("0"), f"{abs(v):.4f}"}
-    everywhere = {t for t in everywhere if re.fullmatch(r"\d+\.\d+", t) and _significant(t) >= 4}
-    docs = {f"{abs(v):.3f}" for v in _target_values()}
-    return everywhere, docs
-
-
-def _scan(names: list[str], tokens: set[str]) -> list[tuple[str, int, str]]:
-    pattern = re.compile(r"(?<![\d.])(" + "|".join(re.escape(t) for t in sorted(tokens)) + r")(?!\d|\.\d)")
-    hits = []
-    for name in names:
-        path = ROOT / name
-        if not name or name in GENERATED or not path.is_file() or path.stat().st_size > 2_000_000:
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            continue
-        for number, line in enumerate(text.replace("\u2212", "-").splitlines(), start=1):
-            hits += [(name, number, m.group(1)) for m in pattern.finditer(line)]
-    return hits
-
-
-def test_no_restricted_value_is_in_a_tracked_file() -> None:
-    if not all(p.exists() for p in RESTRICTED):
+    if not all(p.exists() for p in rs.restricted_files(ROOT)):
         pytest.skip("the local restricted files are not present")
-
-    def tracked(*paths: str) -> list[str]:
-        out = subprocess.run(["git", "ls-files", "-z", *paths], cwd=ROOT, capture_output=True, check=True)
-        return out.stdout.decode().split("\0")
-
-    everywhere, docs = _restricted_tokens()
-    hits = _scan(tracked(), everywhere) + _scan(tracked("docs/phase2", "docs/validation"), docs)
-    unexpected = [f"{n}:{line}: {t}" for n, line, t in hits if (n, _token_hash(t)) not in COINCIDENCES]
-    assert unexpected == []
-    for name, _ in COINCIDENCES:
-        added = subprocess.run(
-            ["git", "log", "--diff-filter=A", "--format=%ad", "--date=short", "--", name],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.split()
-        assert added and min(added) < FIRST_EXPOSURE, name
+    hits = rs.scan(rs.index_blobs(ROOT), rs.restricted_tiers(ROOT), rs.ALLOWED_LINES)
+    assert hits == []
+    assert rs.verify_allowed(ROOT) == []
