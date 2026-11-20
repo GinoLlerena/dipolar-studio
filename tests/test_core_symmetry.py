@@ -487,3 +487,138 @@ def test_validation_runs_the_action_guard(monkeypatch: pytest.MonkeyPatch) -> No
     with pytest.raises(sym.SymmetryError) as err:
         sym.validate(xyz, elements, masses, sym.Declaration("D6h", np.eye(3)))
     assert err.value.code == "SYMMETRY_NOT_AN_ACTION"
+
+
+# ---- Round 75 gates (frozen before the fixes) -------------------------------------------------------
+
+
+def test_orbit_keys_and_members_are_the_hard_coded_ones() -> None:
+    """1,4-dichlorobenzene (D2h): protons on carbons 1, 2, 4, 5 are atoms 7, 8, 10, 11."""
+    elements, masses, xyz = dcb14()
+    v = sym.validate(xyz, elements, masses, sym.Declaration("D2h", np.eye(3)))
+    expected = {
+        (10, 11): ((7, 8), {(7, 8), (10, 11)}),  # ortho
+        (8, 10): ((7, 11), {(7, 11), (8, 10)}),  # meta, across Cl
+        (11, 8): ((7, 10), {(7, 10), (8, 11)}),  # para
+    }
+    for pair, (key, members) in expected.items():
+        assert v.pair_orbit(*pair) == (key, frozenset(members))
+    rows = sym.fixed_rows(v, list(expected), K)
+    assert rows.keys == ((7, 8), (7, 11), (7, 10)) and rows.multiplicities == (2, 2, 2)
+
+
+def test_a_noisy_cs_geometry_is_projected_and_its_rows_use_the_projection() -> None:
+    """The expected averaged geometry is the analytic projection onto Cs (mirror z = 0), computed
+    here: in-plane atoms lose their z; the mirrored pair (3, 4) is averaged with its image."""
+    elements, masses, xyz = cs_fixture()
+    noise = np.random.default_rng(21).uniform(-0.004, 0.004, size=xyz.shape)
+    noisy = xyz + noise
+    y = noisy - noisy.mean(axis=0)
+    mirror = np.diag([1.0, 1.0, -1.0])
+    expected = y.copy()
+    for i in (0, 1, 2, 5):
+        expected[i] = (y[i] + y[i] @ mirror) / 2
+    expected[3] = (y[3] + y[4] @ mirror) / 2
+    expected[4] = expected[3] @ mirror
+    v = sym.validate(noisy, elements, masses, sym.Declaration("Cs", np.eye(3)))
+    assert np.allclose(v.averaged, expected, atol=1e-13)
+    assert v.max_displacement_a == pytest.approx(np.max(np.linalg.norm(expected - y, axis=1)), abs=1e-13)
+    pairs = [(1, 2), (1, 5), (2, 5), (1, 4), (2, 4), (4, 5), (3, 4)]
+    keys = [(1, 2), (1, 5), (2, 5), (1, 3), (2, 3), (3, 5), (3, 4)]
+    rows = sym.fixed_rows(v, pairs, K)
+    assert list(rows.keys) == keys
+    assert np.allclose(rows.design_s5, design_rows(expected, keys, K), rtol=1e-12, atol=1e-9)
+
+
+@pytest.mark.parametrize("pair", [(-1, 0), (0.9, 1), (3, 0), (0, 3), (True, 1), (1, 1), ("1", 0)])
+def test_invalid_endpoints_are_refused_not_reinterpreted(pair: tuple[object, object]) -> None:
+    elements, masses, xyz = ["H", "H", "H"], [None] * 3, np.array([[0.0, 0, 0], [2.5, 0, 0], [0.4, 2.2, 0.3]])
+    v = sym.validate(xyz, elements, masses, sym.Declaration("C1", np.eye(3)))
+    with pytest.raises(sym.SymmetryError) as err:
+        sym.fixed_rows(v, [pair], K)  # type: ignore[list-item]
+    assert err.value.code == "OBSERVATION_INVALID_INDEX"
+    with pytest.raises(sym.SymmetryError) as err:
+        v.pair_orbit(*pair)  # type: ignore[arg-type]
+    assert err.value.code == "OBSERVATION_INVALID_INDEX"
+    assert sym.fixed_rows(v, [(np.int64(0), np.int64(2))], K).keys == ((0, 2),)
+
+
+def test_row_construction_is_linear_in_the_observations() -> None:
+    """D-11: up to 20 000 rows; building them must not be quadratic (round 75)."""
+    rng = np.random.default_rng(31)
+    xyz = rng.uniform(-60.0, 60.0, size=(201, 3))
+    n = len(xyz)
+    v = sym.validate(xyz, ["H"] * n, [None] * n, sym.Declaration("C1", np.eye(3)))
+    pairs = [(i, j) for i in range(n) for j in range(i + 1, n)][:20_000]
+    assert len(pairs) == 20_000
+    start = time.process_time()
+    rows = sym.fixed_rows(v, pairs, K)
+    assert time.process_time() - start <= 1.0
+    assert rows.design_s5.shape == (20_000, 5)
+
+
+def test_the_cutoff_is_inclusive_and_explained() -> None:
+    tol = 0.0625  # exactly representable
+    points = np.array([[0.0, 0.0, 0.0], [5.0, 0.0, 0.0]])
+    keys = [("H", None)] * 2
+    for d, ok in ((tol * (1 - 1e-9), True), (tol, True), (tol * (1 + 1e-9), False)):
+        mapped = points + np.array([[d, 0.0, 0.0], [0.0, 0.0, 0.0]])
+        if ok:
+            assert list(sym.match_operation(points, keys, mapped, tol)) == [0, 1]
+        else:
+            with pytest.raises(sym.SymmetryError) as err:
+                sym.match_operation(points, keys, mapped, tol)
+            assert "0.0625000000625" in str(err.value)  # enough digits to see why
+
+
+def test_the_multiplication_table_on_noncommuting_products() -> None:
+    ops = sym.operations("D6h")
+    table = sym.multiplication_table(ops)
+    c6 = next(
+        i
+        for i, g in enumerate(ops)
+        if np.allclose(g, [[0.5, -math.sqrt(3) / 2, 0], [math.sqrt(3) / 2, 0.5, 0], [0, 0, 1]])
+    )
+    c2x = next(i for i, g in enumerate(ops) if np.allclose(g, np.diag([1.0, -1.0, -1.0])))
+    gh, hg = ops[c6] @ ops[c2x], ops[c2x] @ ops[c6]
+    assert not np.allclose(gh, hg)
+    assert np.allclose(ops[table[c6, c2x]], gh) and np.allclose(ops[table[c2x, c6]], hg)
+
+
+def test_operations_have_structural_zeros() -> None:
+    """The z row and column of every D6h operation are exact zeros off the diagonal."""
+    for g in sym.operations("D6h"):
+        assert g[0, 2] == g[1, 2] == g[2, 0] == g[2, 1] == 0.0
+
+
+def test_axes_just_outside_the_tolerance_are_refused() -> None:
+    elements, masses, xyz = benzene()
+    with pytest.raises(sym.SymmetryError) as err:
+        sym.validate(xyz, elements, masses, sym.Declaration("D6h", np.diag([1.0, 1.0, 1.0 + 2e-9])))
+    assert err.value.code == "AXES_INVALID"
+
+
+def test_explicit_default_masses_match_omitted_ones() -> None:
+    elements, masses, xyz = benzene()
+    masses = [12 if i % 2 == 0 and i < 6 else None for i in range(12)]
+    masses[7] = 1
+    sym.validate(xyz, elements, masses, sym.Declaration("D6h", np.eye(3)))
+
+
+def test_a_nitrogen_15_breaks_the_symmetry_it_should() -> None:
+    elements, masses, xyz = dcb14()
+    elements[0] = elements[3] = "N"  # a pyrazine-like ring: N on carbons 0 and 3
+    sym.validate(xyz, elements, masses, sym.Declaration("D2h", np.eye(3)))
+    masses = list(masses)
+    masses[0] = 15
+    with pytest.raises(sym.SymmetryError) as err:
+        sym.validate(xyz, elements, masses, sym.Declaration("D2h", np.eye(3)))
+    assert err.value.code == "SYMMETRY_NOT_SATISFIED"
+
+
+def test_a_reversed_non_proton_pair_is_refused() -> None:
+    elements, masses, xyz = dcb14()
+    v = sym.validate(xyz, elements, masses, sym.Declaration("D2h", np.eye(3)))
+    with pytest.raises(sym.SymmetryError) as err:
+        sym.fixed_rows(v, [(7, 6)], K)  # H–Cl, the proton first
+    assert err.value.code == "OBSERVATION_NOT_PROTON"
