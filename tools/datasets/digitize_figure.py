@@ -1,6 +1,6 @@
 """Digitize the filled markers of a scanned scatter plot (Phase 2 V0.3).
 
-    uv run --group datasets python tools/datasets/digitize_figure.py \\
+    uv run --locked --group datasets python tools/datasets/digitize_figure.py \\
         --pdf datasets-local/sources/chandrakumar-burnell-1993-bmr-issue.pdf \\
         --couplings datasets-local/odcb-chandrakumar1993/couplings.csv \\
         --out datasets-local/odcb-chandrakumar1993/targets.csv

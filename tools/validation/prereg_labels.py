@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 Status = Literal["agrees", "disagrees", "pending"]
+STATUSES: frozenset[str] = frozenset({"agrees", "disagrees", "pending"})
 
 #: From the preregistration's JSON (criteria.independent); tests check that they agree.
 RELATIVE_TOLERANCE = 0.05
@@ -34,6 +35,10 @@ class Cell:
     status: Status
     reason: str = ""
     reviewed: bool = False  # a disagreement with a reviewed README entry
+
+    def __post_init__(self) -> None:
+        if self.status not in STATUSES:
+            raise ValueError(f"unknown cell status {self.status!r}")
 
 
 @dataclass(frozen=True)
@@ -96,10 +101,10 @@ def dataset_label(cells: Iterable[Cell], roster: Sequence[tuple[str, str]]) -> L
         name = "explained discrepancy"
     elif agreeing == 0:
         name = "pending"
-    elif pending:
-        name = "partially supported"
-    else:
+    elif agreeing == len(roster):
         name = "experimentally supported"
+    else:
+        name = "partially supported"
     return Label(name, len(roster), agreeing + len(disagreeing), agreeing, len(disagreeing), pending)
 
 
@@ -107,6 +112,9 @@ def sensitivity(cells: Iterable[Cell], roster: Sequence[tuple[str, str]], drop: 
     """The full-data label (primary) and the label without each listed condition, with
     ``fragile`` true when any drop-one label differs from the full one."""
     cells = list(cells)
+    conditions = {k[0] for k in roster}
+    if not drop or any(c not in conditions for c in drop):
+        raise ValueError("the sensitivity needs its frozen conditions, each in the roster")
     report: dict[str, object] = {"full": dataset_label(cells, roster)}
     for condition in drop:
         report[f"without {condition}"] = dataset_label(

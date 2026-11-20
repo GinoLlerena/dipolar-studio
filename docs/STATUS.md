@@ -373,11 +373,12 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
        V1.1, the fixed-geometry linear fit (`dipolar_core.fixed`, rounds 71–72,
        `docs/validation/round71-v1.1-fixed-fit.md`, tag `v1.1-fixed-fit`); the budgets are in
        `docs/validation/data/v11-fixed-benchmark.json`.
-     - **In review:** V0.3, the preregistration (`docs/phase2/v0.3-preregistration.md`, its JSON and
-       closed schema; rounds 73–74, `docs/validation/round73-v0.3-preregistration.md`): model, declared
-       geometry (Gauss & Stanton 2000 r_e), error model, criteria, roster and label rules
-       (`tools/validation/prereg_labels.py`) frozen; benzene targets read twice from the paper's text
-       layer; ortho-dichlorobenzene targets digitized from Fig. 3 (44, none pending); all local only.
+       V0.3, the preregistration (`docs/phase2/v0.3-preregistration.md`, its JSON and closed schema;
+       rounds 73–74, `docs/validation/round73-v0.3-preregistration.md`, tag `v0.3-preregistration`):
+       model, declared geometry (Gauss & Stanton 2000 r_e), error model, criteria, roster, labels and
+       amendments frozen (`tools/validation/prereg*.py`); targets local only (benzene 15 from the
+       paper's text layer; ortho-dichlorobenzene 44 digitized from Fig. 3); a local restricted-value
+       scan of every tracked blob (`tools/datasets/restricted_scan.py`).
      - **Next:** V1.2, symmetry and pair orbits.
      - **Decided by the owner on 2026-11-18:**
        - D-1: carry projects over by export file;

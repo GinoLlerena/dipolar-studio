@@ -359,7 +359,9 @@ then orbits and isotopes. This is re-baselined before V1.2 starts.
 
 - **The report:** one page per dataset, giving:
   - the data, model and estimand;
-  - our result and the published one;
+  - our result and the published one (for a restricted source, the published values, per-cell
+    discrepancies and anything they can be recovered from stay in the local report; the shared
+    page gives labels and counts: V0.3 §6);
   - the preregistered criterion;
   - the status labels (below).
 - **The status labels:**

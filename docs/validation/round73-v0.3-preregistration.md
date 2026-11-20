@@ -46,3 +46,48 @@ benzene targets and the SI. This is recorded in the exposure log.
 | 6 | B | Record D-4's benzene x ∥ C2′, the paper's apparent axial-relation reversal, and how paper-frame errors are formed. | V0.3 §3–§4. Paper-frame standard errors use the full covariance, transformed by the conversion matrix (also in the JSON). |
 | 7 | B | The precision is a resolution estimate. Document h/6, the split pixel and the Fig. 2 rule. Use the lock. Test missing and misassigned markers end to end. | V0.3 §5 and the tool's docstring. A locked `datasets` dependency group (`uv run --group datasets`). The end-to-end tests are in row 3. |
 | 8 | B | The benzene readings are two implementations of one text layer. The frame test hard-coded the conversion, and survived an inverted JSON conversion and swapped orbits. | Said in V0.3 §4 and the tool; the rendered-page spot-check is kept. The test builds the axes from the geometry and the orbits from the symmetry operations, then checks the JSON's map, orbit keys and conversion matrix, and the signs of the couplings. **Mutants:** an inverted conversion, swapped orbits, a loose match tolerance, and "partially" relabelled as "supported". All four fail the tests. |
+
+## Round 74 (on 320bf9a): NOT READY, 5 A + 3 B — the final round
+
+**The reviewer confirmed:**
+- both tools reproduce the JSON's SHA-256 under the locked group;
+- all 44 condition/component keys match an independent reading of the raw Fig. 3 crops;
+- the assignment uses the tolerance without rank, and an unrecorded transcription is refused;
+- the Fig. 2 outcomes (18 / 0 / 24 / 2) are reproduced;
+- the four round-73 mutants fail;
+- the freeze order holds: `40beabc`, then the corrections in `5be66ed` (judged legitimate), then
+  `320bf9a`.
+
+**The reviewer viewed:** the local ortho-dichlorobenzene couplings and targets, both Fig. 3
+panels, and the 15 benzene targets (exposure log).
+
+Round 74 was the last round allowed by the medium plan. Its findings were fixed and are documented
+here without another review.
+
+**Freeze order.**
+1. The new tests were committed first, in `2c0e788`. Four preregistration tests failed on the
+   round-74 code, and the label and scan tests could not be collected because their modules did
+   not exist.
+2. The round-73 scan test was replaced by the stronger one in that commit.
+3. One frozen target was corrected in its own commit (`62d878e`), before any fix. The new exact
+   orbit-alias check applies to the ortho-dichlorobenzene keys, which list every alias as printed
+   (D12=D34). The benzene SI's labels name one pair per orbit, so for benzene the check stays
+   "in the orbit".
+4. The fixes came after both.
+
+| # | Class | Finding | Fix |
+|---|---|---|---|
+| 1 | A | The labeler accepted a caller-supplied roster, an empty drop list, and unknown statuses. The schema allowed an empty sensitivity object. | `tools/validation/prereg.py`. `frozen_roster` reads the condition keys from the couplings file after verifying its SHA-256. `dataset_report` refuses cells that do not cover that roster, always adds the frozen drop-one labels, and records the protocol revision. `Cell` refuses unknown statuses. `sensitivity` refuses an empty or foreign drop list. Full support requires agreeing = roster. The schema requires the sensitivity list as a constant. |
+| 2 | A | The amendment rule asked the JSON for its own hash, and the schema accepted a data correction without evidence or hashes. | The protocol revision is the SHA-256 of the canonical JSON without the amendment ledger (`protocol_sha256`). Ledger entries name the revisions before and after. Data and target corrections must give their evidence, artifact path and artifact hashes (the schema's if/then). Each report records its revision. |
+| 3 | A | The scan missed trailing zeros, a leading point, scientific notation, UTF-16 and the colon form. Exceptions were file-wide, and the whole lock file was skipped. | `tools/datasets/restricted_scan.py`. It scans the index blobs, decodes them, and parses every numeric literal by value. Its exceptions are six single lines by hash, each verified in the last commit before 2026-11-18, plus the `upload-time` fields of `uv.lock`. Hits are reported as path:line only. The limits are documented (V0.3 §11). Synthetic tests: `tests/test_restricted_scan.py`. |
+| 4 | A | The schema accepted a malformed conversion, duplicate estimands, a changed roster and a path out of `datasets-local`. | Each dataset's definition is pinned as constants in the schema: counts, estimands, orbits, frame map, conversion, roster, flags, and the input and target paths. Only hashes and the pending count vary. A cross-field validator (`prereg.validate`) checks the invariants: roster = conditions × estimands, a square conversion, a rotation as frame map, ν = N − d, and contained paths. |
+| 5 | A | A shared report could disclose restricted targets by subtraction (fit minus signed discrepancy). | V0.3 §6 says what stays local and what is shared. Per-cell targets, fits of restricted cells, discrepancies and margins stay in `datasets-local/`. What is shared is `prereg.shareable`: labels, counts, drop-one labels and the protocol revision. The proposal's V1.5 page is updated to match. |
+| 6 | B | Reproduction details. V0.1 still pointed to the tracked README. | The V0.1 pointer now leads to the local record. The fallback objective is spelled out (WLS with 1/σ², the authors' geometry, no correction unless documented). |
+| 7 | B | Orbit aliases could be truncated. Paper-frame errors needed the basis conversion. | Exact alias sets for ortho-dichlorobenzene, and the orbit keys checked against the coupling files. V0.3 §3 gives Σ_ac = J Σ_b J with J = diag(1/√(3/2), √2), then M Σ_ac Mᵀ. |
+| 8 | B | The replay should fail if the lock changes. | `uv run --locked --group datasets …` in V0.3 §9 and the tools' docstrings. |
+
+**Mutation checks.** These changes fail the tests:
+- an inverted conversion, swapped orbits, a loose match tolerance, "partially" relabelled as
+  "supported" (round 73);
+- an empty drop list, a reduced roster, an unknown status, a traversal path, a truncated alias;
+- each evasion form of the scan.

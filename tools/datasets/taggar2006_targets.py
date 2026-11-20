@@ -1,6 +1,6 @@
 """Read the published benzene order parameters of Taggar et al. (2006), Tables 1–2 (Phase 2 V0.3).
 
-    uv run --group datasets python tools/datasets/taggar2006_targets.py \\
+    uv run --locked --group datasets python tools/datasets/taggar2006_targets.py \\
         --pdf datasets-local/sources/taggar-2006.pdf --out datasets-local/benzene-taggar2006-targets/targets.csv
 
 The paper is © 2006 American Chemical Society: its values are comparison targets used locally and
