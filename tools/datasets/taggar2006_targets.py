@@ -1,13 +1,14 @@
 """Read the published benzene order parameters of Taggar et al. (2006), Tables 1–2 (Phase 2 V0.3).
 
-    uv run --with pypdf==7.1.1 --with pdfminer.six==20260107 python tools/datasets/taggar2006_targets.py \\
+    uv run --group datasets python tools/datasets/taggar2006_targets.py \\
         --pdf datasets-local/sources/taggar-2006.pdf --out datasets-local/benzene-taggar2006-targets/targets.csv
 
 The paper is © 2006 American Chemical Society: its values are comparison targets used locally and
 are **never committed** (docs/phase2/v0.1-selection.md §5). This tool holds no data.
 
-Two independent readings of the PDF's text layer must agree token for token (decision 4, applied
-to a text layer rather than to a scan):
+Two independent extraction implementations of the PDF's one text layer must agree token for
+token (decision 4, applied to a text layer; the owner's spot-check against the rendered page is
+kept, since both read the same layer):
 - **A**, pypdf's text flow, parsed row by row ("benzene <sample> <S_zz token> …");
 - **B**, pdfminer's positioned text lines, joined by baseline: each S_zz token is paired with the
   "benzene" label and the sample on the same line of the table.

@@ -98,3 +98,14 @@ def test_the_sensitivity_recomputes_without_one_condition() -> None:
     assert report["fragile"] is True
     steady = pl.sensitivity(_cells({}), ROSTER, drop=["c2", "c3"])
     assert steady["fragile"] is False
+
+
+def test_the_rules_are_the_preregistered_ones() -> None:
+    """Added in the round 73 fix commit: the module's constants and precedence are the JSON's."""
+    import json
+
+    prereg = json.loads((ROOT / "docs" / "phase2" / "v0.3-preregistration.json").read_text(encoding="utf-8"))
+    criteria = prereg["criteria"]
+    assert pl.RELATIVE_TOLERANCE == criteria["independent"]["relative_tolerance"]
+    assert pl.PRECISION_FACTOR == criteria["independent"]["precision_factor"]
+    assert list(pl.PRECEDENCE) == criteria["label_precedence"]

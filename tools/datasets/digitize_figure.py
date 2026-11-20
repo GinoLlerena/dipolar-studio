@@ -1,12 +1,13 @@
 """Digitize the filled markers of a scanned scatter plot (Phase 2 V0.3).
 
-    uv run --with pypdf==7.1.1 --with pillow==13.0.0 python tools/datasets/digitize_figure.py \\
+    uv run --group datasets python tools/datasets/digitize_figure.py \\
         --pdf datasets-local/sources/chandrakumar-burnell-1993-bmr-issue.pdf \\
         --couplings datasets-local/odcb-chandrakumar1993/couplings.csv \\
         --out datasets-local/odcb-chandrakumar1993/targets.csv
 
 It reads Chandrakumar & Burnell (1993), Fig. 3 (the order parameters against the reduced
-temperature, filled markers only), and writes a condition-by-condition target list. **This tool
+temperature, filled markers only), cross-checks it against Fig. 2, and writes one row per
+condition and component. **This tool
 holds no data**: the figure, the temperatures and the targets stay local
 (docs/phase2/v0.1-selection.md §5). Only counts and precisions are printed.
 
@@ -22,9 +23,12 @@ The method (frozen by docs/phase2/v0.3-preregistration.md):
    of two overlapping markers is split by the known marker size (flag ``overlap-resolved``).
 5. **The point** is the bounding-box centre. For a triangle the centroid would sit h/6 lower; that
    offset is added to the declared precision.
-6. **Assignment** is by rank in the reduced temperature within each series (triangles: Table I;
-   squares: Table II), which requires as many markers as conditions. Each marker's own reduced
-   temperature is a consistency check against T/T_NI.
+6. **Assignment** (frozen, round 73): a marker is a condition's target only if its own T_r is
+   within MATCH_TOL_TR of T/T_NI, it is the only such marker of its series, and it matches no
+   other condition. Otherwise the cell is pending (no-marker, ambiguous). Rank is not used.
+7. **The Fig. 2 cross-check** records agrees, disagrees (the cell becomes pending), unavailable or
+   ambiguous for each cell (a unique marker within ±FIG2_MATCH_K kelvin).
+8. **The inputs are frozen:** the PDF's and the V0.2 transcription's SHA-256 are verified.
 """
 
 from __future__ import annotations
@@ -45,6 +49,17 @@ PDF_SHA256 = "f262c2f870e0b98a7c58da174423796620a62153abdf5cc46b37f024b5898c99"
 T_NI = {"I": 333.0, "II": 317.0}
 SERIES = {"triangle": "I", "square": "II"}
 TICK_STEP = 0.01
+#: The V0.2 transcription whose temperatures key the targets (docs/phase2/v0.2-corpus.md §2).
+COUPLINGS_SHA256 = "d871b1947785f437afe5f4d5bb7fe2fe84d0b05e49e2da6d22994d4186751760"
+#: Frozen by the preregistration (round 73, A3). A Fig. 3 marker is a condition's target only if
+#: its T_r is within MATCH_TOL_TR of T/T_NI, and it is the only such marker of its series, matching
+#: no other condition. The tolerance is below half the closest spacing of two conditions (0.0032).
+MATCH_TOL_TR = 0.0015
+#: A Fig. 2 marker cross-checks a condition if it is within FIG2_MATCH_K kelvin of it and of no
+#: other condition, and is the only one; it disagrees beyond FIG2_DISAGREEMENT_FACTOR times the
+#: summed precisions, which makes the target pending.
+FIG2_MATCH_K = 1.0
+FIG2_DISAGREEMENT_FACTOR = 2.0
 
 
 @dataclass(frozen=True)
@@ -324,6 +339,9 @@ def _split(mask: np.ndarray, r0: int, c0: int, size: float) -> list[Marker]:
 
 
 def temperatures(couplings: Path) -> dict[str, list[float]]:
+    """The conditions' temperatures, from the frozen V0.2 transcription only."""
+    if sha256(couplings) != COUPLINGS_SHA256:
+        raise ValueError(f"{couplings} is not the recorded V0.2 transcription")
     with couplings.open(encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
     out: dict[str, list[float]] = {}
@@ -365,53 +383,91 @@ def _read(ink: np.ndarray, figure: Figure, split: bool) -> list[tuple[Panel, Mar
     return out
 
 
+Reading = tuple[Panel, Marker, float, float, float, float]
+
+
+def _fig2_check(fig2: list[Reading], t: float, ts: list[float], value: float, prec: float) -> tuple[str, str, str]:
+    """(check, Fig. 2 value, its precision): agrees, disagrees, unavailable or ambiguous."""
+    near = [r for r in fig2 if abs(r[4] - t) <= FIG2_MATCH_K]
+    if not near:
+        return "unavailable", "", ""
+    shared = any(abs(r[4] - u) <= FIG2_MATCH_K for r in near for u in ts if u != t)
+    if len(near) > 1 or shared:
+        return "ambiguous", "", ""
+    v2, p2 = near[0][2], near[0][3]
+    check = "disagrees" if abs(v2 - value) > FIG2_DISAGREEMENT_FACTOR * (prec + p2) else "agrees"
+    return check, f"{v2:.5f}", f"{p2:.5f}"
+
+
 def digitize(
-    ink3: np.ndarray, ink2: np.ndarray, temps: dict[str, list[float]]
+    ink3: np.ndarray,
+    ink2: np.ndarray,
+    temps: dict[str, list[float]],
+    fig3: Figure = FIG3,
+    fig2: Figure = FIG2,
 ) -> tuple[list[dict[str, str]], dict[str, object]]:
-    """The Fig. 3 targets, assigned by rank, each cross-checked against Fig. 2 where Fig. 2 has a
-    single filled marker of its series within ±1 K of that condition, and no other."""
-    targets: list[dict[str, str]] = []
+    """One row per condition and component (the frozen roster). A row is a *target* when exactly
+    one Fig. 3 marker of its series lies within MATCH_TOL_TR of T/T_NI and matches no other
+    condition, and Fig. 2 does not disagree; otherwise it is *pending*, with the reason in flags
+    (no-marker, ambiguous, fig2-disagrees). Nothing is assigned by rank alone (round 73, A3)."""
+    rows: list[dict[str, str]] = []
     summary: dict[str, object] = {}
-    read3 = _read(ink3, FIG3, split=True)
-    read2 = _read(ink2, FIG2, split=False)
-    for panel in FIG3.panels:
+    read3 = _read(ink3, fig3, split=True)
+    read2 = _read(ink2, fig2, split=False)
+    for panel in fig3.panels:
         mine = [r for r in read3 if r[0].component == panel.component]
+        assigned = 0
         for kind, table in SERIES.items():
-            series = sorted((r for r in mine if r[1].kind == kind), key=lambda r: r[1].x)
+            series = [r for r in mine if r[1].kind == kind]
             ts = temps[table]
-            if len(series) != len(ts):
-                raise ValueError(f"{panel.component}: {len(series)} {kind}s for {len(ts)} conditions")
-            fig2 = [r for r in read2 if r[0].component == panel.component and r[1].kind == kind]
-            for (_, m, value, prec, tr, _dev), t in zip(series, ts, strict=True):
-                near = [r for r in fig2 if abs(r[4] - t) <= 1.0]
-                others = [u for u in ts if u != t and any(abs(r[4] - u) <= 1.0 for r in near)]
+            expected = {t: t / T_NI[table] for t in ts}
+            cross = [r for r in read2 if r[0].component == panel.component and r[1].kind == kind]
+            for t in ts:
                 row = {
                     "table": table,
                     "T_K": f"{t:g}",
                     "component": panel.component,
-                    "value": f"{value:.5f}",
-                    "precision": f"{prec:.5f}",
-                    "T_r_digitized": f"{tr:.5f}",
-                    "T_r_expected": f"{t / T_NI[table]:.5f}",
+                    "value": "",
+                    "precision": "",
+                    "T_r_digitized": "",
+                    "T_r_expected": f"{expected[t]:.5f}",
                     "fig2_value": "",
                     "fig2_precision": "",
-                    "status": "target",
-                    "flags": ";".join(m.flags),
+                    "fig2_check": "n/a",
+                    "status": "pending",
+                    "flags": "",
                 }
-                if len(near) == 1 and not others:
-                    v2, p2 = near[0][2], near[0][3]
-                    row["fig2_value"], row["fig2_precision"] = f"{v2:.5f}", f"{p2:.5f}"
-                    if abs(v2 - value) > 2.0 * (prec + p2):
-                        row["status"] = "pending"
-                        row["flags"] = ";".join([*m.flags, "fig2-disagrees"])
-                targets.append(row)
+                near = [r for r in series if abs(r[4] - expected[t]) <= MATCH_TOL_TR]
+                if not near:
+                    row["flags"] = "no-marker"
+                elif len(near) > 1 or any(abs(near[0][4] - expected[u]) <= MATCH_TOL_TR for u in ts if u != t):
+                    row["flags"] = "ambiguous"
+                else:
+                    _, m, value, prec, tr, _dev = near[0]
+                    check, v2, p2 = _fig2_check(cross, t, ts, value, prec)
+                    flags = [*m.flags, *(["fig2-disagrees"] if check == "disagrees" else [])]
+                    row.update(
+                        {
+                            "value": f"{value:.5f}",
+                            "precision": f"{prec:.5f}",
+                            "T_r_digitized": f"{tr:.5f}",
+                            "fig2_value": v2,
+                            "fig2_precision": p2,
+                            "fig2_check": check,
+                            "status": "pending" if check == "disagrees" else "target",
+                            "flags": ";".join(flags),
+                        }
+                    )
+                    assigned += 1
+                rows.append(row)
         summary[panel.component] = {
             "fig3_markers": len(mine),
+            "assigned": assigned,
             "overlap_resolved": sum("overlap-resolved" in r[1].flags for r in mine),
             "fig2_markers": sum(r[0].component == panel.component for r in read2),
-            "right_edge_check": float(np.median([r[5] for r in mine])),
+            "right_edge_check": float(np.median([r[5] for r in mine])) if mine else float("nan"),
         }
-    return targets, summary
+    return rows, summary
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -423,14 +479,21 @@ def main(argv: list[str] | None = None) -> int:
     if sha256(args.pdf) != PDF_SHA256:
         print("the PDF is not the recorded file", file=sys.stderr)
         return 1
-    rows, summary = digitize(page_ink(args.pdf, FIG3.page), page_ink(args.pdf, FIG2.page), temperatures(args.couplings))
+    try:
+        temps = temperatures(args.couplings)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    rows, summary = digitize(page_ink(args.pdf, FIG3.page), page_ink(args.pdf, FIG2.page), temps)
     with args.out.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
-    dr = [abs(float(str(r["T_r_digitized"])) - float(str(r["T_r_expected"]))) for r in rows]
+    dr = [abs(float(r["T_r_digitized"]) - float(r["T_r_expected"])) for r in rows if r["T_r_digitized"]]
     print(f"{len(rows)} targets written to {args.out}; sha256 {sha256(args.out)}")
-    print(f"max |T_r digitized − T/T_NI| = {max(dr):.4f}")
+    print(f"max |T_r digitized − T/T_NI| = {max(dr, default=0.0):.4f}")
+    checks = {c: sum(r["fig2_check"] == c for r in rows) for c in ("agrees", "disagrees", "unavailable", "ambiguous")}
+    print(f"Fig. 2 checks: {checks}")
     compared = [r for r in rows if r["fig2_value"]]
     z = [
         abs(float(r["fig2_value"]) - float(r["value"])) / (float(r["precision"]) + float(r["fig2_precision"]))

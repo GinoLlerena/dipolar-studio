@@ -152,7 +152,7 @@ def test_a_weak_direction_leaves_the_rank_unverified() -> None:
 
 
 def test_ideal_benzene_in_d6h_has_one_order_parameter() -> None:
-    r_h = 2.4778
+    r_h = 2.4716  # r_CC + r_CH of Gauss & Stanton's r_e (the V0.3 declared geometry)
     ring = np.array([[r_h * math.cos(k * math.pi / 3), r_h * math.sin(k * math.pi / 3), 0.0] for k in range(6)])
     pairs = [(0, 1), (0, 2), (0, 3)]  # one per D6h pair orbit: ortho, meta, para
     a = design_rows(ring, pairs, K)
