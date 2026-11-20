@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final, TypeGuard
 
 import numpy as np
 from numpy.typing import NDArray
@@ -43,6 +43,8 @@ TOLERANCE_MAX_A: Final = 0.1
 TOLERANCE_DEFAULT_A: Final = 0.01
 AXES_ATOL: Final = 1e-9
 MAX_ATOMS: Final = 1000
+#: The fixed fit's admission limit (D-11): FIT_TOO_LARGE beyond it, before any row is built.
+MAX_FIT_ROWS: Final = 20_000
 MAX_OPERATIONS: Final = 24
 
 #: The isotope table (D-6): element → (default mass number, allowed mass numbers). D is the only
@@ -67,6 +69,14 @@ PROTON: Final = ("H", None)
 Key = tuple[str, int | None]
 
 
+def _is_index(x: object) -> TypeGuard[int | np.integer[Any]]:
+    """A Python int or a NumPy integer scalar; never a bool, a float, a string or a NumPy
+    duration (``timedelta64`` subclasses ``np.signedinteger``; round 76)."""
+    if type(x) is int:
+        return True
+    return isinstance(x, np.signedinteger | np.unsignedinteger) and not isinstance(x, np.timedelta64)
+
+
 class SymmetryError(ValueError):
     """A refusal with a stable code (the application maps it to its error envelope)."""
 
@@ -88,6 +98,8 @@ def normalize_isotope(element: str, mass_number: int | None) -> Key:
     if element not in ISOTOPES:
         raise SymmetryError("ISOTOPE_NOT_SUPPORTED", f"element {element!r} is not in the isotope table")
     default, allowed = ISOTOPES[element]
+    if mass_number is not None and not _is_index(mass_number):
+        raise SymmetryError("ISOTOPE_NOT_SUPPORTED", f"a mass number must be an integer, not {mass_number!r}")
     if mass_number is None or mass_number == default:
         return (element, None)
     if element == "H" and mass_number == 2:
@@ -171,8 +183,7 @@ def match_operation(points: Array, keys: Sequence[Key], mapped: Array, tolerance
             i = int(idx[bad[0]])
             raise SymmetryError(
                 "SYMMETRY_NOT_SATISFIED",
-                f"atom {i} ({key[0]}) has no partner within {tolerance_a!r} Å "
-                f"(nearest {float(dist[bad[0], 0]):.15g} Å)",
+                f"atom {i} ({key[0]}) has no partner within {tolerance_a!r} Å (nearest {float(dist[bad[0], 0])!r} Å)",
             )
         if k == 2 and np.any(dist[:, 1] <= tolerance_a):
             i = int(idx[np.flatnonzero(dist[:, 1] <= tolerance_a)[0]])
@@ -211,7 +222,7 @@ class Validated:
         n = len(self.keys)
         out = []
         for x in (a, b):
-            if isinstance(x, bool) or not isinstance(x, int | np.integer) or not 0 <= int(x) < n:
+            if not _is_index(x) or not 0 <= int(x) < n:
                 raise SymmetryError("OBSERVATION_INVALID_INDEX", f"{x!r} is not an atom index in [0, {n})")
             out.append(int(x))
         if out[0] == out[1]:
@@ -256,7 +267,7 @@ def validate(
     xyz = np.asarray(coordinates, dtype=np.float64)
     n = len(elements)
     if xyz.shape != (n, 3) or len(mass_numbers) != n or n == 0 or not np.all(np.isfinite(xyz)):
-        raise SymmetryError("AXES_INVALID", "the coordinates must be a finite N × 3 array matching the atoms")
+        raise SymmetryError("GEOMETRY_INVALID", "the coordinates must be a finite N × 3 array matching the atoms")
     keys = tuple(normalize_isotope(e, m) for e, m in zip(elements, mass_numbers, strict=True))
 
     centroid = xyz.mean(axis=0)
@@ -269,6 +280,9 @@ def validate(
     for g, perm in zip(ops, perms, strict=True):
         averaged += y[perm] @ g  # g⁻¹ = gᵀ applied to row vectors
     averaged /= len(ops)
+    site_orbit = perms.min(axis=0)
+    for array in (q, centroid, perms, averaged, site_orbit, *ops):
+        array.setflags(write=False)  # the result is immutable: it cannot change a later fit
     return Validated(
         point_group=declaration.point_group,
         rotation=q,
@@ -277,7 +291,7 @@ def validate(
         permutations=perms,
         averaged=averaged,
         max_displacement_a=float(np.max(np.linalg.norm(averaged - y, axis=1))),
-        site_orbit=perms.min(axis=0),
+        site_orbit=site_orbit,
         keys=keys,
     )
 
@@ -296,8 +310,13 @@ def fixed_rows(validated: Validated, pairs: Sequence[tuple[int, int]], k_hz_a3: 
     keys: list[tuple[int, int]] = []
     seen: set[tuple[int, int]] = set()  # duplicate detection in O(1) per row (round 75)
     sizes: list[int] = []
+    if len(pairs) > MAX_FIT_ROWS:
+        raise SymmetryError("FIT_TOO_LARGE", f"{len(pairs)} observations: at most {MAX_FIT_ROWS} rows are fitted")
     for pair in pairs:
-        a, b = validated.endpoints(*pair)
+        try:
+            a, b = validated.endpoints(*pair)
+        except TypeError:
+            raise SymmetryError("OBSERVATION_INVALID_INDEX", f"{pair!r} is not a pair of atom indices") from None
         if validated.keys[a] != PROTON or validated.keys[b] != PROTON:
             raise SymmetryError("OBSERVATION_NOT_PROTON", f"pair ({a}, {b}): only ¹H–¹H couplings are observations")
         key, members = validated.pair_orbit(a, b)
@@ -311,4 +330,7 @@ def fixed_rows(validated: Validated, pairs: Sequence[tuple[int, int]], k_hz_a3: 
         keys.append(key)
         sizes.append(len(members))
     design = design_rows(validated.averaged, keys, k_hz_a3)
-    return FixedRows(design, fixed.SUBSPACES[validated.point_group], tuple(keys), tuple(sizes))
+    subspace = fixed.SUBSPACES[validated.point_group].copy()  # never the shared array (round 76)
+    for array in (design, subspace):
+        array.setflags(write=False)
+    return FixedRows(design, subspace, tuple(keys), tuple(sizes))

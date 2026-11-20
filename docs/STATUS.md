@@ -383,7 +383,9 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
        75–76, `docs/validation/round75-v1.2-symmetry.md`; budgets in
        `docs/validation/data/v12-symmetry-benchmark.json`).
      - **Next:** V1.3, the application (model `fixed`, schema v3, the symmetry and isotope
-       declarations).
+       declarations). It inherits from round 76: the D-5 orbit key from spin IDs, an explicit
+       mapping of the core's error codes, the core `ISOTOPES` table at import with integer mass
+       numbers, and the `MAX_FIT_ROWS` admission check in the worker.
      - **Decided by the owner on 2026-11-18:**
        - D-1: carry projects over by export file;
        - decision 4: two independent AI transcriptions, with the owner's spot-check;
