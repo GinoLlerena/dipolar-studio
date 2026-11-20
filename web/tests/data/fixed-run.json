@@ -1,0 +1,343 @@
+{
+ "science_revision": 4,
+ "science_hash": "sha256:bae0f0bdf27fe3aeb8affaad242c6da9bad40acc8a9ce385767e2d2ea3e42e45",
+ "model": {
+  "kind": "fixed",
+  "order": "point-group",
+  "frame": "symmetry"
+ },
+ "frame": "symmetry frame of the declared point group: x′ = Q(x − c), with Q the declared axes (their polar factor) and c the centroid of all atoms",
+ "estimand": "the orientational order tensor S of the rigid molecule in the declared symmetry frame: the coordinates the point group leaves free (D-7), from the couplings of the fixed, symmetrized geometry",
+ "n_obs": 3,
+ "rank": {
+  "required": 2,
+  "numerical": 2,
+  "verified": true,
+  "ratios": [
+   1.0,
+   0.1836616459610608
+  ],
+  "reason": "verified: numerical rank equals the required rank, with margin"
+ },
+ "components": [
+  {
+   "name": "Szz",
+   "label": "a named component of S, in the symmetry frame",
+   "status": "estimated",
+   "coefficients_b": [
+    0.8164965809277261,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "estimate": -0.1598730928383205,
+   "se": 0.00018039180076927382,
+   "intervals": [
+    {
+     "level": "68.3",
+     "lower": -0.16005348463908978,
+     "upper": -0.1596927010375512
+    },
+    {
+     "level": "95",
+     "lower": -0.1602266542709346,
+     "upper": -0.15951953140570638
+    }
+   ],
+   "interval_support": "supported"
+  },
+  {
+   "name": "Sxx-Syy",
+   "label": "a named component of S, in the symmetry frame",
+   "status": "estimated",
+   "coefficients_b": [
+    0.0,
+    1.4142135623730951,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "estimate": 0.2800189820845122,
+   "se": 0.0001814043676328493,
+   "intervals": [
+    {
+     "level": "68.3",
+     "lower": 0.27983757771687934,
+     "upper": 0.28020038645214507
+    },
+    {
+     "level": "95",
+     "lower": 0.27966343605731353,
+     "upper": 0.2803745281117109
+    }
+   ],
+   "interval_support": "supported"
+  },
+  {
+   "name": "Sxy",
+   "label": "fixed by symmetry: zero by the declaration, not estimated by the data",
+   "status": "fixed-by-symmetry",
+   "coefficients_b": [
+    0.0,
+    0.0,
+    0.7071067811865475,
+    0.0,
+    0.0
+   ],
+   "estimate": 0.0,
+   "se": null,
+   "intervals": null,
+   "interval_support": "not applicable: fixed by symmetry"
+  },
+  {
+   "name": "Sxz",
+   "label": "fixed by symmetry: zero by the declaration, not estimated by the data",
+   "status": "fixed-by-symmetry",
+   "coefficients_b": [
+    0.0,
+    0.0,
+    0.0,
+    0.7071067811865475,
+    0.0
+   ],
+   "estimate": 0.0,
+   "se": null,
+   "intervals": null,
+   "interval_support": "not applicable: fixed by symmetry"
+  },
+  {
+   "name": "Syz",
+   "label": "fixed by symmetry: zero by the declaration, not estimated by the data",
+   "status": "fixed-by-symmetry",
+   "coefficients_b": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.7071067811865475
+   ],
+   "estimate": 0.0,
+   "se": null,
+   "intervals": null,
+   "interval_support": "not applicable: fixed by symmetry"
+  }
+ ],
+ "covariance_b": {
+  "coordinates": [
+   "b1",
+   "b2"
+  ],
+  "basis_b": [
+   [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   [
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  ],
+  "matrix": [
+   [
+    4.881180267717204e-08,
+    2.5858834906192885e-08
+   ],
+   [
+    2.5858834906192885e-08,
+    1.645377229813697e-08
+   ]
+  ]
+ },
+ "null_directions_b": [],
+ "adequacy": {
+  "chi2": 2.3720381427544592,
+  "nu": 1,
+  "p_value": 0.12352568365396509,
+  "status": "given",
+  "code": null
+ },
+ "admissibility": {
+  "status": "admissible",
+  "lambda_min": -0.1598730928383205,
+  "representative_b": null,
+  "certificate": "direct: the fitted tensor",
+  "family": "the fitted tensor"
+ },
+ "rows": [
+  {
+   "coupling_id": "cpl_000001",
+   "pair": [
+    "spn_000001",
+    "spn_000002"
+   ],
+   "orbit": [
+    "spn_000001",
+    "spn_000002"
+   ],
+   "multiplicity": 2,
+   "observed": {
+    "value": -1742.648,
+    "unit": "Hz"
+   },
+   "sigma": {
+    "value": 0.3,
+    "unit": "Hz"
+   },
+   "predicted": {
+    "value": -1742.6350245520275,
+    "unit": "Hz"
+   },
+   "residual": {
+    "value": -0.01297544797239425,
+    "unit": "Hz"
+   },
+   "normalized_residual": -0.043251493241314165
+  },
+  {
+   "coupling_id": "cpl_000002",
+   "pair": [
+    "spn_000001",
+    "spn_000004"
+   ],
+   "orbit": [
+    "spn_000001",
+    "spn_000004"
+   ],
+   "multiplicity": 2,
+   "observed": {
+    "value": 91.396,
+    "unit": "Hz"
+   },
+   "sigma": {
+    "value": 0.3,
+    "unit": "Hz"
+   },
+   "predicted": {
+    "value": 91.59826727551729,
+    "unit": "Hz"
+   },
+   "residual": {
+    "value": -0.2022672755172863,
+    "unit": "Hz"
+   },
+   "normalized_residual": -0.6742242517242877
+  },
+  {
+   "coupling_id": "cpl_000003",
+   "pair": [
+    "spn_000001",
+    "spn_000003"
+   ],
+   "orbit": [
+    "spn_000001",
+    "spn_000003"
+   ],
+   "multiplicity": 2,
+   "observed": {
+    "value": -9.421,
+    "unit": "Hz"
+   },
+   "sigma": {
+    "value": 0.3,
+    "unit": "Hz"
+   },
+   "predicted": {
+    "value": -9.83621442635416,
+    "unit": "Hz"
+   },
+   "residual": {
+    "value": 0.4152144263541615,
+    "unit": "Hz"
+   },
+   "normalized_residual": 1.384048087847205
+  }
+ ],
+ "spins": [
+  {
+   "id": "spn_000001",
+   "label": "H9"
+  },
+  {
+   "id": "spn_000002",
+   "label": "H10"
+  },
+  {
+   "id": "spn_000003",
+   "label": "H11"
+  },
+  {
+   "id": "spn_000004",
+   "label": "H12"
+  }
+ ],
+ "rms_residual": {
+  "value": 0.2667604623676989,
+  "unit": "Hz"
+ },
+ "symmetry": {
+  "point_group": "D2h",
+  "axes": [
+   [
+    1.0,
+    0.0,
+    0.0
+   ],
+   [
+    0.0,
+    1.0,
+    0.0
+   ],
+   [
+    0.0,
+    0.0,
+    1.0
+   ]
+  ],
+  "tolerance": {
+   "value": 0.01,
+   "unit": "Å"
+  },
+  "medium": "achiral-uniaxial",
+  "max_displacement": {
+   "value": 4.440892098500626e-16,
+   "unit": "Å"
+  }
+ },
+ "assumptions": [
+  "fixed geometry: the declared coordinates, symmetrized under the declared point group, with no vibrational or conformational averaging",
+  "Gaussian errors, independent, with the stated σ (not rescaled by χ²/ν)",
+  "an unconstrained linear estimate: nothing is clipped to the physical region",
+  "an achiral, uniaxial medium",
+  "principal values and principal axes have no intervals"
+ ],
+ "warnings": [
+  {
+   "code": "SYMMETRIZED",
+   "message": "the fit uses the symmetrized geometry: atoms moved by up to 4.44e-16 Å"
+  }
+ ],
+ "provenance": {
+  "fit_version": "fixed-linear.1",
+  "numerical_context": {
+   "admissibility_atol": 1e-12,
+   "biphenyl_template": "regular-hexagon-bisector.1",
+   "feasibility_certificate": "dual-certificate.1",
+   "fixed_fit": "fixed-linear.1",
+   "forward_model": "cartesian-traceless5.1",
+   "inner_solver": "whitened-svd.1",
+   "nuclide_table": "codata2018-iupac.1",
+   "rank_policy": "required-rank-d.1",
+   "rank_rtol": 1e-10,
+   "symmetry_check": "group-action-average.1",
+   "tensor_basis": "orthonormal-b.1"
+  }
+ },
+ "statement": "Fixed-geometry fit: the order tensor by weighted linear least squares on the coordinates the declared symmetry leaves free (one row per observed pair orbit), known σ. Exact Gaussian intervals are given only when the rank is verified; every linear functional of the free coordinates is then estimable."
+}

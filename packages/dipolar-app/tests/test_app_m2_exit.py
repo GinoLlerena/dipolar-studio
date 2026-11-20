@@ -295,6 +295,8 @@ EVERY_OPERATION: list[Step] = [
     ),
     ("molecule.set_isotope", lambda r: {"atom": 0, "mass_number": 12, "expected_science_revision": r}, "robot", None),
     ("molecule.declarations", lambda r: {}, "robot", None),
+    # V1.4: the Cs suggestion (a query).
+    ("molecule.suggest_symmetry", lambda r: {}, "robot", None),
 ]
 
 

@@ -1,0 +1,4 @@
+spin_a,spin_b,equivalent_pairs,multiplicity,D_obs_Hz,sigma_Hz
+H2,H3,H2-H3 H5-H6,2,-1742.648,0.3
+H2,H6,H2-H6 H3-H5,2,91.396,0.3
+H2,H5,H2-H5 H3-H6,2,-9.421,0.3
