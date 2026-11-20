@@ -17,6 +17,12 @@ dev = [
     "ipykernel>=6.29",
     "pyyaml>=6.0",
 ]
+# Phase 2 V0.3 dataset tools only (tools/datasets/*); not installed by default.
+datasets = [
+    "pypdf==7.1.1",
+    "pillow==13.0.0",
+    "pdfminer.six==20260107",
+]
 
 [tool.uv]
 package = false

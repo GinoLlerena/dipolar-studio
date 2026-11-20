@@ -70,13 +70,14 @@ Concentration Dependence in Liquid Crystal NMR", *J. Phys. Chem. B* **110**, 136
   - Run 1's single-solute series shares one tube (not independent samples);
   - each mixed sample is linked to its co-solutes.
 
-## A worked scale check (V0.1)
+## The coupling ratios (V0.1)
 
-- The first row (Run 1, 1.31 mol %) has D12 = −1024.174 Hz. The paper's S_zz for it is −0.25942.
-  With z normal to the ring, D12 = −K·S_zz / (2 r³), where K = −120120 Hz·Å³ for ¹H–¹H. So the
-  ortho H–H distance is r = 2.4778 Å.
-- Its ratios are D13/D12 = 0.194036 and D14/D12 = 0.126594. A rigid regular hexagon gives
-  0.192450 and 0.125000, so the measured ratios are 0.824 % and 1.275 % higher.
+- In the first row (Run 1, 1.31 mol %), D13/D12 = 0.194036 and D14/D12 = 0.126594. A rigid
+  regular hexagon gives 0.192450 and 0.125000, so the measured ratios are 0.824 % and 1.275 %
+  higher.
+- A scale check against the paper's published S_zz is kept in the local, untracked target record
+  (`datasets-local/benzene-taggar2006-targets/README.md`): the paper's values are © ACS and are
+  not reproduced here (round 73).
 
 ## Columns of `couplings.csv`
 

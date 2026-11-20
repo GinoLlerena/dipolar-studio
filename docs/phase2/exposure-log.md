@@ -19,6 +19,10 @@ Each entry is appended and never edited. A correction is a new entry.
 | 2026-11-18 | round 68 reviewer (GPT-6.2-Sol) | Taggar SI; Chandrakumar & Burnell Tables I–II; Pizzirusso Table 5 | all values | review of V0.1 |
 | 2026-11-18 | round 69 reviewer (GPT-6.2-Sol) | Taggar SI and paper Tables 1–2; Chandrakumar & Burnell Tables I–II and Figs. 2–3; the excluded sources' tables | all values | review of V0.1 |
 | 2026-11-18 | transcription task B (Codex, GPT-6.2-Sol) and the author agent (transcription A) | Chandrakumar & Burnell (1993), Tables I–II | all values (transcribed) | V0.2, decision 4 |
+| 2026-11-19 | the author agent (Claude) | Chandrakumar & Burnell (1993), Figs. 2–3 | all plotted order parameters (digitized; local only) | V0.3 targets |
+| 2026-11-19 | the author agent (Claude) | Taggar et al. (2006), Tables 1–2 (S_zz) | all values (read from the text layer; local only) | V0.3 targets |
+| 2026-11-19 | round 73 reviewer (GPT-6.2-Sol) | Chandrakumar & Burnell Tables I–II and Figs. 1–3 (raw crops, overlays, local couplings and targets); Taggar et al. pp. 1364–1365 (Tables 1–3), the benzene targets and the SI | all values | review of V0.3 |
+| 2026-11-19 | round 74 reviewer (GPT-6.2-Sol) | Chandrakumar & Burnell couplings and Figs. 2–3 targets (local), both Fig. 3 panels; Taggar et al. Tables 1–2 (the 15 benzene targets) | all values | review of V0.3 |
 
 **Kinds of access.**
 - **Retrieval-only** access (downloading, not reading values) does not expose a source.

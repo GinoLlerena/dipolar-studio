@@ -1,0 +1,123 @@
+{
+  "about": "Phase 2 V0.3 preregistration, machine-readable. Frozen with docs/phase2/v0.3-preregistration.md and validated by docs/phase2/v0.3-preregistration.schema.json; read by the V1.5 report. It holds no third-party values: inputs and targets are referenced by local path and SHA-256.",
+  "version": "prereg.1",
+  "frozen_on": "2026-11-19",
+  "amendments": [],
+  "model": {
+    "fit": "dipolar_core.fixed.fit_fixed",
+    "fixed_fit_version": "fixed-linear.1",
+    "adequacy_alpha": 0.001,
+    "weak_rtol": 1e-06,
+    "nuclide_table": "codata2018-iupac.1",
+    "isotope": "1H",
+    "motions": "none",
+    "medium": "achiral uniaxial",
+    "per_condition": true
+  },
+  "error_model": {
+    "primary": "independent Gaussian, sigma as printed",
+    "covariance": null,
+    "secondary_descriptive": "standard errors scaled by sqrt(chi2/nu)",
+    "paper_frame_errors": "the full fitted covariance, transformed by the conversion matrix"
+  },
+  "geometry": {
+    "source": "Gauss and Stanton, J. Phys. Chem. A 104, 2865 (2000), r_e",
+    "r_cc_angstrom": 1.3914,
+    "r_ch_angstrom": 1.0802,
+    "shape": "planar regular hexagon, radial C-H"
+  },
+  "datasets": {
+    "benzene-taggar2006": {
+      "couplings": {
+        "path": "datasets/benzene-zli1132-taggar2006/couplings.csv",
+        "sha256": "4c3de0c0ace13409aac7f44a039af21d9c309d0c244d88fe338e9d83d33c4804"
+      },
+      "point_group": "D6h",
+      "conditions": 15,
+      "observations_per_condition": 3,
+      "nu": 2,
+      "ring_positions": {"H1": 0, "H2": 60, "H3": 120, "H4": 180, "H5": 240, "H6": 300},
+      "orbits": {"D12": ["H1", "H2"], "D13": ["H1", "H3"], "D14": ["H1", "H4"]},
+      "estimands": ["S_zz"],
+      "frame": "V1 D6h (D-4): z along C6, normal to the ring; x along one C2'",
+      "frame_map_matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+      "conversion_matrix": [[1]],
+      "roster_cells": 15,
+      "targets": {
+        "path": "datasets-local/benzene-taggar2006-targets/targets.csv",
+        "sha256": "af653a83753142d130451ccff37d83b889df3d9892866f7890963d4c871efcfb",
+        "form": "table",
+        "count": 15,
+        "pending": 0
+      },
+      "flags": {
+        "co_solutes": ["1/mix1", "2/mix2.1", "2/mix2.2", "2/mix2.3"],
+        "shared_tube": "run 1 single-solute series"
+      }
+    },
+    "odcb-chandrakumar1993": {
+      "couplings": {
+        "path": "datasets-local/odcb-chandrakumar1993/couplings.csv",
+        "sha256": "d871b1947785f437afe5f4d5bb7fe2fe84d0b05e49e2da6d22994d4186751760"
+      },
+      "point_group": "C2v",
+      "conditions": 22,
+      "observations_per_condition": 4,
+      "nu": 2,
+      "ring_positions": {"H1": 0, "H2": 60, "H3": 120, "H4": 180},
+      "orbits": {"D12=D34": ["H1", "H2"], "D13=D24": ["H1", "H3"], "D14": ["H1", "H4"], "D23": ["H2", "H3"]},
+      "estimands": ["S_zz", "S_xx-S_yy"],
+      "frame": "paper: z normal to the ring, y the in-plane C2 axis, x parallel to H2-H3",
+      "frame_map_matrix": [[0, 0, 1], [1, 0, 0], [0, 1, 0]],
+      "conversion_matrix": [[-0.5, 0.5], [-1.5, -0.5]],
+      "roster_cells": 44,
+      "targets": {
+        "path": "datasets-local/odcb-chandrakumar1993/targets.csv",
+        "sha256": "b8e5c24469a4bcdd5b7e3ce43cf64d370bd330437fca048c558147e3ef8b8f50",
+        "form": "figure",
+        "count": 44,
+        "pending": 0
+      },
+      "flags": {
+        "near_duplicate": ["II/300", "II/302"],
+        "co_solutes": ["II/300"],
+        "colon_tokens": "read as decimals (V0.2)",
+        "transcription": "two identical AI transcriptions; owner spot-check pending"
+      }
+    }
+  },
+  "digitization": {
+    "primary_figure": "Fig. 3",
+    "cross_check_figure": "Fig. 2",
+    "match_tolerance_T_r": 0.0015,
+    "fig2_match_kelvin": 1,
+    "fig2_disagreement_factor": 2
+  },
+  "criteria": {
+    "independent": {
+      "label": "independent support (declared geometry)",
+      "relative_tolerance": 0.05,
+      "precision_factor": 2,
+      "S_zz_margin": "relative_tolerance * |S_zz,pub| + precision_factor * p",
+      "S_xx-S_yy_margin": "relative_tolerance * |S_zz,pub| + precision_factor * p (an axial-scale heuristic)"
+    },
+    "reproduction": {
+      "label": "reproduction (the authors' analysis)",
+      "requires": ["geometry", "objective", "weights", "corrections"],
+      "table_margin": "max(printed sigma, half a unit in the last printed digit)",
+      "figure_margin": "precision_factor * p",
+      "fallback_label": "approximate reproduction (assumed weights 1/sigma^2)"
+    },
+    "eligibility": ["rank-unverified", "no-target", "s_zz-target-pending"],
+    "label_precedence": [
+      "unresolved failure",
+      "explained discrepancy",
+      "pending",
+      "partially supported",
+      "experimentally supported"
+    ],
+    "sensitivity": {
+      "odcb-chandrakumar1993": ["II/300", "II/302"]
+    }
+  }
+}
