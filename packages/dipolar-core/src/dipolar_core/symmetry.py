@@ -9,7 +9,8 @@ input coordinates, a matching tolerance, and the medium (achiral, uniaxial only)
 3. the coordinates are centred on the unweighted centroid and turned into the symmetry frame
    (x′ = Q x, with Q the polar factor of the declared axes);
 4. each operation g of the group must map every atom onto the unique atom of the same isotope
-   within the tolerance, giving a permutation π_g; the permutations must compose like the group
+   within the tolerance (inclusive, on the computed distance: a match exactly at the cutoff can
+   depend on the input frame by rounding), giving a permutation π_g; the permutations must compose like the group
    table (π_gh = π_g ∘ π_h), so they are a group action;
 5. the averaged geometry x*_i = |G|⁻¹ Σ_g g⁻¹ x_{π_g(i)} is exactly symmetric, and is what the
    fit uses; the largest |x*_i − x_i| is reported.
@@ -165,12 +166,13 @@ def match_operation(points: Array, keys: Sequence[Key], mapped: Array, tolerance
         dist, near = tree.query(mapped[idx], k=k)
         dist = np.asarray(dist).reshape(len(idx), k)
         near = np.asarray(near).reshape(len(idx), k)
-        bad = np.flatnonzero(dist[:, 0] > tolerance_a)
+        bad = np.flatnonzero(dist[:, 0] > tolerance_a)  # the cutoff is inclusive
         if bad.size:
             i = int(idx[bad[0]])
             raise SymmetryError(
                 "SYMMETRY_NOT_SATISFIED",
-                f"atom {i} ({key[0]}) has no partner within {tolerance_a} Å (nearest {float(dist[bad[0], 0]):.3g} Å)",
+                f"atom {i} ({key[0]}) has no partner within {tolerance_a!r} Å "
+                f"(nearest {float(dist[bad[0], 0]):.15g} Å)",
             )
         if k == 2 and np.any(dist[:, 1] <= tolerance_a):
             i = int(idx[np.flatnonzero(dist[:, 1] <= tolerance_a)[0]])
@@ -203,11 +205,22 @@ class Validated:
     site_orbit: NDArray[np.intp]  # the smallest atom index of each atom's site orbit
     keys: tuple[Key, ...]
 
+    def endpoints(self, a: object, b: object) -> tuple[int, int]:
+        """Two distinct atom indices in [0, n): integers only (bool, floats and strings are
+        refused, never truncated or wrapped)."""
+        n = len(self.keys)
+        out = []
+        for x in (a, b):
+            if isinstance(x, bool) or not isinstance(x, int | np.integer) or not 0 <= int(x) < n:
+                raise SymmetryError("OBSERVATION_INVALID_INDEX", f"{x!r} is not an atom index in [0, {n})")
+            out.append(int(x))
+        if out[0] == out[1]:
+            raise SymmetryError("OBSERVATION_INVALID_INDEX", "a coupling needs two distinct atoms")
+        return out[0], out[1]
+
     def pair_orbit(self, a: int, b: int) -> tuple[tuple[int, int], frozenset[tuple[int, int]]]:
         """(key, members) of the unordered pair's orbit: both endpoints move together."""
-        a, b = int(a), int(b)
-        if a == b:
-            raise SymmetryError("OBSERVATION_NOT_PROTON", "a coupling needs two distinct atoms")
+        a, b = self.endpoints(a, b)
         members = frozenset((int(min(p[a], p[b])), int(max(p[a], p[b]))) for p in self.permutations)
         return min(members), members
 
@@ -281,17 +294,20 @@ def fixed_rows(validated: Validated, pairs: Sequence[tuple[int, int]], k_hz_a3: 
     """One design row per observed ¹H–¹H pair orbit (D-5), from the orbit's key on the averaged
     geometry. A second observation of an orbit is refused: it is a symmetry copy, not new data."""
     keys: list[tuple[int, int]] = []
+    seen: set[tuple[int, int]] = set()  # duplicate detection in O(1) per row (round 75)
     sizes: list[int] = []
-    for a, b in pairs:
-        if validated.keys[int(a)] != PROTON or validated.keys[int(b)] != PROTON:
+    for pair in pairs:
+        a, b = validated.endpoints(*pair)
+        if validated.keys[a] != PROTON or validated.keys[b] != PROTON:
             raise SymmetryError("OBSERVATION_NOT_PROTON", f"pair ({a}, {b}): only ¹H–¹H couplings are observations")
         key, members = validated.pair_orbit(a, b)
-        if key in keys:
+        if key in seen:
             raise SymmetryError(
                 "PAIR_ORBIT_REPEATED",
                 f"pair ({a}, {b}) is in the orbit of {key}, already observed: repeat measurements of one "
                 "pair orbit are not accepted in this release",
             )
+        seen.add(key)
         keys.append(key)
         sizes.append(len(members))
     design = design_rows(validated.averaged, keys, k_hz_a3)

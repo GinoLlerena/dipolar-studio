@@ -622,3 +622,12 @@ def test_a_reversed_non_proton_pair_is_refused() -> None:
     with pytest.raises(sym.SymmetryError) as err:
         sym.fixed_rows(v, [(7, 6)], K)  # H–Cl, the proton first
     assert err.value.code == "OBSERVATION_NOT_PROTON"
+
+
+def test_operations_carry_no_roundoff_residue() -> None:
+    """Added after the round 75 freeze (the snapping mutant survived the frozen zero test): every
+    entry of every operation is an exact zero or a real coefficient (|x| ≥ 0.5)."""
+    for group in sym.SUPPORTED_GROUPS:
+        for g in sym.operations(group):
+            entries = np.abs(g).ravel()
+            assert np.all((entries == 0.0) | (entries >= 0.5 - 1e-12)), group

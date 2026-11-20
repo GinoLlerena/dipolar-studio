@@ -6,17 +6,29 @@
   },
   "numpy": "2.5.4",
   "results": {
-    "validation_D6h_984_atoms": {
-      "cpu_s_median": 0.09104100000000004,
-      "cpu_s_max": 0.10208600000000001,
-      "peak_mb": 0.39978694915771484,
+    "validation_D6h_1000_atoms_15_identities": {
+      "cpu_s_median": 0.11227100000000001,
+      "cpu_s_max": 0.12763599999999997,
+      "peak_mb": 0.40614891052246094,
+      "peak_mb_note": "tracemalloc peak of Python/numpy allocations during the call",
+      "process_rss_mb": {
+        "before": 53.8359375,
+        "after": 53.8359375,
+        "increase": 0.0
+      },
       "budget": "1 s CPU, 200 MB (1000 atoms, 24 operations)"
     },
     "pair_orbit_lookup": {
-      "pairs": 787,
-      "cpu_us_per_pair_median": 35.790343074968305,
+      "pairs": 2000,
+      "cpu_us_per_pair_median": 35.22599999999998,
       "operations": 24,
       "budget": "O(|G|) per observed pair"
+    },
+    "fixed_rows_C1_20000_observations": {
+      "cpu_s_median": 0.11540000000000017,
+      "cpu_s_max": 0.12413199999999991,
+      "peak_mb": 6.408172607421875,
+      "budget": "within the fixed fit's admission budget (2 s, D-11)"
     }
   }
 }

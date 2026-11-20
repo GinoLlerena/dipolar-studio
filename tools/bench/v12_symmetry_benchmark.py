@@ -65,24 +65,80 @@ def cpu_name() -> str:
         return platform.processor()
 
 
+IDENTITIES = [
+    ("H", None), ("D", None), ("B", None), ("C", None), ("C", 13), ("N", None), ("N", 15), ("O", None),
+    ("F", None), ("Si", None), ("P", None), ("S", None), ("Cl", None), ("Br", None), ("I", None),
+]  # fmt: skip
+
+
+def exact_limit(n_atoms: int) -> tuple[np.ndarray, list[str], list[int | None]]:
+    """Exactly n_atoms in D6h: generic 24-atom orbits, then 2-atom orbits on the C6 axis (outside
+    the generic box) to fill; each orbit cycles through the 15 supported isotope identities."""
+    generic = large_d6h(n_atoms)
+    orbits = [generic[i : i + 24] for i in range(0, len(generic), 24)]
+    z = 25.0
+    while sum(len(o) for o in orbits) < n_atoms:
+        orbits.append(np.array([[0.0, 0.0, z], [0.0, 0.0, -z]]))
+        z += 2.0
+    elements: list[str] = []
+    masses: list[int | None] = []
+    for k, orbit in enumerate(orbits):
+        element, mass = IDENTITIES[k % len(IDENTITIES)]
+        elements += [element] * len(orbit)
+        masses += [mass] * len(orbit)
+    return np.vstack(orbits), elements, masses
+
+
+_RSS_CHILD = """
+import resource, sys, numpy as np
+sys.path.insert(0, sys.argv[1])
+import v12_symmetry_benchmark as b
+from dipolar_core import symmetry as sym
+def rss():
+    r = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return r / 2**20 if sys.platform == "darwin" else r / 2**10
+xyz, elements, masses = b.exact_limit(sym.MAX_ATOMS)
+decl = sym.Declaration("D6h", np.eye(3))
+sym.validate(xyz[:24], elements[:24], masses[:24], decl)  # warm the imports
+before = rss()
+sym.validate(xyz, elements, masses, decl)
+print(before, rss())
+"""
+
+
 def main() -> int:
-    xyz = large_d6h(sym.MAX_ATOMS)
+    xyz, elements, masses = exact_limit(sym.MAX_ATOMS)
     n = len(xyz)
-    elements, masses = ["H"] * n, [None] * n
     decl = sym.Declaration("D6h", np.eye(3))
     sym.validate(xyz, elements, masses, decl)  # warm (imports scipy.spatial)
+    child = subprocess.run(
+        [sys.executable, "-c", _RSS_CHILD, str(Path(__file__).parent)], capture_output=True, text=True, check=True
+    )
+    before, after = (float(x) for x in child.stdout.split())
     results: dict[str, object] = {
-        f"validation_D6h_{n}_atoms": measure(lambda: sym.validate(xyz, elements, masses, decl), 5)
-        | {"budget": "1 s CPU, 200 MB (1000 atoms, 24 operations)"}
+        f"validation_D6h_{n}_atoms_15_identities": measure(lambda: sym.validate(xyz, elements, masses, decl), 5)
+        | {
+            "peak_mb_note": "tracemalloc peak of Python/numpy allocations during the call",
+            "process_rss_mb": {"before": before, "after": after, "increase": after - before},
+            "budget": "1 s CPU, 200 MB (1000 atoms, 24 operations)",
+        }
     }
     v = sym.validate(xyz, elements, masses, decl)
-    pairs = [(i, j) for i in range(0, n, 7) for j in range(i + 1, n, 97)][:2000]
+    protons = [i for i, (e, m) in enumerate(zip(elements, masses, strict=True)) if e == "H" and m is None]
+    pairs = [(a, b) for i, a in enumerate(protons) for b in protons[i + 1 :]][:2000]
     per = measure(lambda: [v.pair_orbit(a, b) for a, b in pairs], 5)
     results["pair_orbit_lookup"] = {
         "pairs": len(pairs),
         "cpu_us_per_pair_median": per["cpu_s_median"] / len(pairs) * 1e6,
         "operations": len(v.operations),
         "budget": "O(|G|) per observed pair",
+    }
+    rng = np.random.default_rng(31)
+    c1 = rng.uniform(-60.0, 60.0, size=(201, 3))
+    vc1 = sym.validate(c1, ["H"] * 201, [None] * 201, sym.Declaration("C1", np.eye(3)))
+    many = [(i, j) for i in range(201) for j in range(i + 1, 201)][:20_000]
+    results["fixed_rows_C1_20000_observations"] = measure(lambda: sym.fixed_rows(vc1, many, -120120.0), 3) | {
+        "budget": "within the fixed fit's admission budget (2 s, D-11)"
     }
     record = {
         "hardware": {"cpu": cpu_name(), "machine": platform.machine(), "python": platform.python_version()},
