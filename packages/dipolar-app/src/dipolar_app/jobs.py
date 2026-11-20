@@ -70,11 +70,13 @@ def compute(kind: str, project_json: str, options: dict[str, Any], revision: int
     """Compute one job from its input snapshot. Raises ``OperationError`` for a reported failure."""
     if kind != "fit":
         raise ValueError(f"unknown job kind {kind!r}")
+    from dipolar_app.project import paused_gc
     from dipolar_app.science_ops import compute_fit, compute_fixed
 
-    project = Project.model_validate_json(project_json)
-    if project.model.kind == "fixed":  # the same admission check as fit.run (D-11), before any row
-        return compute_fixed(project, revision, science_hash).model_dump(mode="json")
+    with paused_gc():  # bounded work over many small objects (round 77)
+        project = Project.model_validate_json(project_json)
+        if project.model.kind == "fixed":  # the same admission check as fit.run (D-11), before any row
+            return compute_fixed(project, revision, science_hash).model_dump(mode="json")
     result = compute_fit(project, bool(options.get("intervals", False)), revision, science_hash)
     return result.model_dump(mode="json")
 

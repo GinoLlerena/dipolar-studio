@@ -238,6 +238,19 @@ def _register_science(registry: Registry) -> None:
             ),
         ),
         Operation(
+            name="molecule.declarations",
+            kind="query",
+            effect="none",
+            capability=Capability.QUERY,
+            summary="The molecule's declared symmetry (with the largest displacement of its symmetrized "
+            "geometry) and its non-default isotopes.",
+            input_model=S.DeclarationsIn,
+            output_model=S.DeclarationsOut,
+            handler=S.molecule_declarations,
+            idempotent=True,
+            examples=({},),
+        ),
+        Operation(
             name="molecule.set_isotope",
             kind="command",
             effect="model",

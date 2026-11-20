@@ -28,7 +28,6 @@ ones.
 
 from __future__ import annotations
 
-import json
 import math
 import re
 from collections.abc import Sequence
@@ -173,9 +172,16 @@ def _active_run(state: SessionState, blobs: Any) -> tuple[Any, dict[str, Any] | 
     """The latest run and its result (None when there is no run or its blob is unreadable)."""
     if not state.runs:
         return None, None
+    from dipolar_app.science_ops import decode_result
+
     run = state.runs[-1]
     text = blobs.text(run.result_sha256)
-    return run, (json.loads(text) if text is not None else None)
+    if text is None:
+        return run, None
+    try:  # the run's own decoder: a blob that does not match its record is unreadable (round 77)
+        return run, decode_result(run.model_kind, text).model_dump(mode="json")
+    except ValueError:
+        return run, None
 
 
 def geometry(project: Project, phi_deg: float) -> tuple[list[str], list[str], list[Vec3], list[tuple[int, int]]]:

@@ -1,5 +1,5 @@
 // GENERATED FILE: do not edit. Regenerate with `uv run python tools/codegen/ts_contract.py`.
-// Source: packages/dipolar-app/registry.snapshot.json (sha256 8c82082e3942439c43aec8efc806c52beaf71fac31e1008601c9f106a73f9fc1).
+// Source: packages/dipolar-app/registry.snapshot.json (sha256 41ee410ef24c2b3417b83ea7339d8f07a341457247b5da383ed76df3f2a97e63).
 // CI fails if this file is stale (tests/test_ts_contract.py).
 //
 // Value constraints that TypeScript cannot express (bounds, lengths, patterns) appear as doc
@@ -379,6 +379,14 @@ export type IntervalOut = {
   parameter: string;
   supported: boolean;
   upper: number | null;
+};
+
+export type IsotopeOut = {
+  /** integer */
+  atom: number;
+  element: string;
+  /** integer */
+  mass_number: number;
 };
 
 export type JobError = {
@@ -969,6 +977,18 @@ export type ModelSetOut = {
   science_revision: number;
 };
 
+/** `molecule.declarations` input. */
+export type DeclarationsIn = { [key: string]: never };
+
+/** `molecule.declarations` output. */
+export type DeclarationsOut = {
+  isotopes: IsotopeOut[];
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+  symmetry: SymmetryOut | null;
+};
+
 /** `molecule.set_isotope` input. */
 export type SetIsotopeIn = {
   /** integer, minimum 0, exclusiveMaximum 1000 */
@@ -1402,6 +1422,8 @@ export interface Operations {
   "job.wait": { input: JobWaitIn; output: JobWaitOut };
   /** Set the model: kind (rigid, jump4, fixed), order model, frame and torsion domain (none for fixed: the declared symmetry's point-group order in its frame). */
   "model.set": { input: ModelSetIn; output: ModelSetOut };
+  /** The molecule's declared symmetry (with the largest displacement of its symmetrized geometry) and its non-default isotopes. */
+  "molecule.declarations": { input: DeclarationsIn; output: DeclarationsOut };
   /** Set a non-hydrogen atom's mass number (C-13, N-15; null for the default isotope), revalidated against the declared symmetry. */
   "molecule.set_isotope": { input: SetIsotopeIn; output: SetIsotopeOut };
   /** Declare the imported molecule's point group (C1, Cs, C2v, D2h, D3h, D6h), its axes, the matching tolerance and the medium, validated against the geometry; null clears it. */
@@ -1515,6 +1537,7 @@ export const OPERATIONS = {
   "job.status": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "job.wait": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "model.set": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
+  "molecule.declarations": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "molecule.set_isotope": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
   "molecule.set_symmetry": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
   "molecule.set_torsion": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },

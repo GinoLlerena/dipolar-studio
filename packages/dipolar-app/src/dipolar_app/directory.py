@@ -15,9 +15,16 @@ directory is opened only when each of these is positively written by this versio
 - the snapshot and the next snapshot of an interrupted compaction, when present (``project_schema``,
   ``snapshot_schema`` and the numerical context).
 
-A directory with no record and no snapshot holds nothing to carry over and opens as new. A journal
-whose only bytes are a torn first record (no complete line) holds nothing acknowledged; it is
-treated the same way, and opening quarantines those bytes as for any torn tail (documented).
+**A directory with no readable record** (round 77) is opened only when its version is known:
+
+- a first record without its final newline (a record cut short, never acknowledged) is judged by
+  its metadata when it parses, and otherwise by its bytes: it must carry this version's
+  ``journal_schema``, ``project_schema`` and numerical context, or the directory is refused;
+- with no record and no snapshot, the directory may hold only the lock file, a ready file, an empty
+  journal, empty directories, and torn-record quarantines of this version. Anything else (result
+  blobs, archives, a quarantine of unknown version) is refused: opening would recover, collect or
+  overwrite it. A directory that this version left with an unrecognizable torn first record is
+  refused too; it holds nothing acknowledged, and moving its files away opens it as new.
 """
 
 from __future__ import annotations
@@ -46,18 +53,51 @@ class DirectoryRefused(Exception):
     """The directory was written by another version; nothing in it was changed."""
 
 
-def _first_record(journal: Path) -> dict[str, Any] | None:
-    """The journal's first complete record, or None (no file, empty, or only a torn first line)."""
+def _markers() -> tuple[bytes, ...]:
+    """Byte strings every record of this version carries (canonical JSON: sorted keys, no spaces)."""
+    from dipolar_app.project import canonical_json
+
+    return (
+        f'"journal_schema":{JOURNAL_SCHEMA_VERSION}'.encode(),
+        f'"project_schema":{PROJECT_SCHEMA_VERSION}'.encode(),
+        ('"numerical_context":' + canonical_json(numerical_context())).encode(),
+    )
+
+
+def _torn_is_current(raw: bytes) -> bool:
+    """Whether the bytes of a record cut short were written by this version."""
+    try:
+        record = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return all(marker in raw for marker in _markers())
+    return isinstance(record, dict) and _is_current(
+        record.get("project_schema"),
+        record.get("journal_schema"),
+        JOURNAL_SCHEMA_VERSION,
+        record.get("numerical_context"),
+    )
+
+
+def _first_record(journal: Path) -> tuple[dict[str, Any] | None, bool]:
+    """(the journal's first complete record, whether it holds any bytes at all). A first record
+    without its newline is refused here unless it was written by this version."""
     try:
         handle = journal.open("rb")
     except FileNotFoundError:
-        return None
+        return None, False
     with handle:
         line = handle.readline(MAX_FIRST_RECORD + 1)
+    if not line:
+        return None, False
     if not line.endswith(b"\n"):
         if len(line) > MAX_FIRST_RECORD:
             raise DirectoryRefused(f"{journal.name}: its first record is larger than this version reads; not opened")
-        return None  # nothing acknowledged
+        if not _torn_is_current(line):
+            raise DirectoryRefused(
+                f"{journal.name} holds only a record cut short, not written by this version (it may be "
+                f"Dipolar Studio 0.1's). {PHASE1_MESSAGE}"
+            )
+        return None, True  # this version's own unacknowledged record: recovery quarantines it
     try:
         record = json.loads(line)
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -67,7 +107,7 @@ def _first_record(journal: Path) -> dict[str, Any] | None:
         ) from None
     if not isinstance(record, dict):
         raise DirectoryRefused(f"{journal.name}: its first line is not a record; the directory was not changed")
-    return record
+    return record, True
 
 
 def _header(path: Path) -> dict[str, Any] | None:
@@ -87,10 +127,14 @@ def _header(path: Path) -> dict[str, Any] | None:
     return body
 
 
+def _is_current(project_schema: object, store_schema: object, store_current: int, context: object) -> bool:
+    return context == numerical_context() and project_schema == PROJECT_SCHEMA_VERSION and store_schema == store_current
+
+
 def _verdict(name: str, project_schema: object, store_schema: object, store_current: int, context: object) -> None:
     """Refuse unless a file was written by this version: its project schema, its own schema and the
     numerical context must all be this version's."""
-    if context == numerical_context() and project_schema == PROJECT_SCHEMA_VERSION and store_schema == store_current:
+    if _is_current(project_schema, store_schema, store_current, context):
         return
     newer = (
         isinstance(project_schema, int)
@@ -105,12 +149,32 @@ def _verdict(name: str, project_schema: object, store_schema: object, store_curr
     raise DirectoryRefused(PHASE1_MESSAGE)
 
 
+#: What a directory with no record may hold and still open as new.
+_FRESH_FILES = frozenset({JOURNAL_NAME, "serve.lock", "serve.ready.json"})
+
+
+def _check_fresh(project_dir: Path) -> None:
+    """No record and no snapshot: open as new only if nothing else of value is there."""
+    for path in sorted(project_dir.rglob("*")):
+        if path.is_dir():
+            continue
+        name = path.relative_to(project_dir).as_posix()
+        if name in _FRESH_FILES:
+            continue
+        if name.startswith(f"{JOURNAL_NAME}.torn-") and _torn_is_current(path.read_bytes()):
+            continue
+        raise DirectoryRefused(
+            f"This project directory has no record this version can read, but it holds {name}: the version "
+            f"that wrote it is unknown. {PHASE1_MESSAGE}"
+        )
+
+
 def check_directory(project_dir: Path) -> None:
     """Raise ``DirectoryRefused`` unless this version may open ``project_dir`` (see the module
     docstring). Reads only."""
     from dipolar_app.snapshot import NEXT_NAME, SNAPSHOT_NAME, SNAPSHOT_SCHEMA_VERSION
 
-    record = _first_record(project_dir / JOURNAL_NAME)
+    record, has_bytes = _first_record(project_dir / JOURNAL_NAME)
     if record is not None:
         _verdict(
             JOURNAL_NAME,
@@ -119,9 +183,11 @@ def check_directory(project_dir: Path) -> None:
             JOURNAL_SCHEMA_VERSION,
             record.get("numerical_context"),
         )
+    snapshots = 0
     for name in (SNAPSHOT_NAME, NEXT_NAME):
         body = _header(project_dir / name)
         if body is not None:
+            snapshots += 1
             _verdict(
                 name,
                 body.get("project_schema"),
@@ -129,3 +195,5 @@ def check_directory(project_dir: Path) -> None:
                 SNAPSHOT_SCHEMA_VERSION,
                 body.get("numerical_context"),
             )
+    if record is None and not has_bytes and not snapshots:
+        _check_fresh(project_dir)

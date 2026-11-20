@@ -308,29 +308,54 @@ class FixedRows:
 
 def fixed_rows(validated: Validated, pairs: Sequence[tuple[int, int]], k_hz_a3: float) -> FixedRows:
     """One design row per observed ¹H–¹H pair orbit (D-5), from the orbit's key on the averaged
-    geometry. A second observation of an orbit is refused: it is a symmetry copy, not new data."""
-    keys: list[tuple[int, int]] = []
-    seen: set[tuple[int, int]] = set()  # duplicate detection in O(1) per row (round 75)
-    sizes: list[int] = []
+    geometry. A second observation of an orbit is refused: it is a symmetry copy, not new data.
+
+    The orbits are computed for all rows at once from the permutations (round 77: O(|G|) per row
+    in NumPy). The refusal is the first in row order, as a row-by-row check would give it: each
+    row's endpoints, then its isotopes, then whether its orbit was already observed."""
     if len(pairs) > MAX_FIT_ROWS:
         raise SymmetryError("FIT_TOO_LARGE", f"{len(pairs)} observations: at most {MAX_FIT_ROWS} rows are fitted")
+    ends: list[tuple[int, int]] = []
+    first_error: SymmetryError | None = None
     for pair in pairs:
         try:
             a, b = validated.endpoints(*pair)
         except TypeError:
-            raise SymmetryError("OBSERVATION_INVALID_INDEX", f"{pair!r} is not a pair of atom indices") from None
+            first_error = SymmetryError("OBSERVATION_INVALID_INDEX", f"{pair!r} is not a pair of atom indices")
+            break
+        except SymmetryError as exc:
+            first_error = exc
+            break
         if validated.keys[a] != PROTON or validated.keys[b] != PROTON:
-            raise SymmetryError("OBSERVATION_NOT_PROTON", f"pair ({a}, {b}): only ¹H–¹H couplings are observations")
-        key, members = validated.pair_orbit(a, b)
-        if key in seen:
-            raise SymmetryError(
-                "PAIR_ORBIT_REPEATED",
-                f"pair ({a}, {b}) is in the orbit of {key}, already observed: repeat measurements of one "
-                "pair orbit are not accepted in this release",
+            first_error = SymmetryError(
+                "OBSERVATION_NOT_PROTON", f"pair ({a}, {b}): only ¹H–¹H couplings are observations"
             )
-        seen.add(key)
-        keys.append(key)
-        sizes.append(len(members))
+            break
+        ends.append((a, b))
+    n = len(validated.keys)
+    keys: list[tuple[int, int]] = []
+    sizes: list[int] = []
+    if ends:
+        idx = np.asarray(ends, dtype=np.intp)
+        perms = validated.permutations.astype(np.int64)
+        pa, pb = perms[:, idx[:, 0]], perms[:, idx[:, 1]]
+        codes = np.sort(np.minimum(pa, pb) * n + np.maximum(pa, pb), axis=0)  # |G| × N, each column sorted
+        key_codes = codes[0].tolist()
+        counts = (1 + np.count_nonzero(np.diff(codes, axis=0), axis=0)).tolist()
+        seen: set[int] = set()  # duplicate detection in O(1) per row (round 75)
+        for (a, b), code, size in zip(ends, key_codes, counts, strict=True):
+            key = (code // n, code % n)
+            if code in seen:
+                raise SymmetryError(
+                    "PAIR_ORBIT_REPEATED",
+                    f"pair ({a}, {b}) is in the orbit of {key}, already observed: repeat measurements of one "
+                    "pair orbit are not accepted in this release",
+                )
+            seen.add(code)
+            keys.append(key)
+            sizes.append(int(size))
+    if first_error is not None:
+        raise first_error
     design = design_rows(validated.averaged, keys, k_hz_a3)
     subspace = fixed.SUBSPACES[validated.point_group].copy()  # never the shared array (round 76)
     for array in (design, subspace):

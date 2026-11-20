@@ -37,12 +37,13 @@ import numpy as np
 from dipolar_core.context import numerical_context
 from dipolar_core.inference import is_admissible
 from dipolar_core.problem import Problem
-from pydantic import Field
+from pydantic import Field, TypeAdapter
 
 from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.formats import (
     FormatError,
     ImportDiff,
+    Orbits,
     apply_import,
     dumps_project,
     loads_project,
@@ -57,6 +58,7 @@ from dipolar_app.project import (
     ModelSpec,
     Project,
     SymmetrySpec,
+    paused_gc,
     science_hash,
     short,
 )
@@ -68,7 +70,7 @@ from dipolar_app.science import (
     fixed_problem_for,
     invalid_classes,
     orbit_changes,
-    pair_orbit,
+    orbit_index,
     problem_for,
     refusal,
     validate_project,
@@ -395,7 +397,8 @@ class AtomOut(Wire):
     x: float
     y: float
     z: float
-    #: Absent for the element's default isotope (D-6), so 0.10.0 responses are unchanged.
+    #: A fixed-geometry project's non-default isotope (D-6); absent otherwise, so other projects keep
+    #: the 0.10.0 shape (molecule.declarations reads it for any project).
     mass_number: int | None = Field(default=None, exclude_if=_absent)
 
 
@@ -462,7 +465,7 @@ class DescribeProjectOut(Wire):
     equivalences: tuple[str, ...]
     ready_to_fit: bool
     not_ready_reason: str | None
-    #: The declared symmetry (imported geometry); absent when none is declared.
+    #: The declared symmetry of a fixed-geometry project; absent otherwise (see ``mass_number``).
     symmetry: SymmetryOut | None = Field(default=None, exclude_if=_absent)
 
 
@@ -482,6 +485,9 @@ def describe_project(ctx: Context, _: DescribeProjectIn) -> DescribeProjectOut:
     state = ctx.read()
     project = require_project(state)
     g = project.molecule.geometry
+    # The declarations appear here only for a fixed-geometry project: every other project keeps the
+    # 0.10.0 shape (round 77); molecule.declarations reads them for any project.
+    fixed = project.model.kind == "fixed"
     geometry: TemplateOut | ImportedOut
     if isinstance(g, BiphenylTemplate):
         geometry = TemplateOut(kind="template", template=g.template, r_cc=g.r_cc, r_ch=g.r_ch, r_inter=g.r_inter)
@@ -490,7 +496,7 @@ def describe_project(ctx: Context, _: DescribeProjectIn) -> DescribeProjectOut:
             kind="imported",
             source_format=g.source_format,
             atoms=tuple(
-                AtomOut(index=i, element=a.element, x=a.x, y=a.y, z=a.z, mass_number=a.mass_number)
+                AtomOut(index=i, element=a.element, x=a.x, y=a.y, z=a.z, mass_number=a.mass_number if fixed else None)
                 for i, a in enumerate(g.atoms)
             ),
             torsion=g.torsion,
@@ -525,7 +531,7 @@ def describe_project(ctx: Context, _: DescribeProjectIn) -> DescribeProjectOut:
         equivalences=equivalences_of(project),
         ready_to_fit=reason is None,
         not_ready_reason=reason,
-        symmetry=symmetry_out(project),
+        symmetry=symmetry_out(project) if fixed else None,
     )
 
 
@@ -1117,11 +1123,17 @@ class ReconcileOut(Science):
     ignored_columns: tuple[str, ...]
 
 
-def orbit_function(project: Project) -> Callable[[str, str], tuple[tuple[str, str], frozenset[frozenset[str]]]] | None:
-    """Rows are keyed by pair orbit under a fixed-geometry model (D-5), and by pair otherwise."""
+def orbit_function(project: Project) -> Orbits | None:
+    """Rows are keyed by pair orbit under a fixed-geometry model (D-5), and by pair otherwise. The
+    orbit index is prepared once, so each row costs O(|G|) (round 77)."""
     if project.model.kind != "fixed":
         return None
-    return lambda a, b: pair_orbit(project, a, b)
+    index = orbit_index(project)
+
+    def class_of(members: frozenset[frozenset[str]]) -> tuple[str, ...]:
+        return index.class_entries(tuple(sorted(index.code(*sorted(p)) for p in members)))
+
+    return Orbits(of=index.orbit, class_of=class_of)
 
 
 def _pairs(project: Project, keys: tuple[tuple[str, str], ...], diff: ImportDiff) -> tuple[PairOut, ...]:
@@ -1149,6 +1161,11 @@ def _pairs(project: Project, keys: tuple[tuple[str, str], ...], diff: ImportDiff
 
 
 def couplings_reconcile(ctx: Context, p: ReconcileIn) -> ReconcileOut:
+    with paused_gc():
+        return _couplings_reconcile(ctx, p)
+
+
+def _couplings_reconcile(ctx: Context, p: ReconcileIn) -> ReconcileOut:
     state = ctx.read()
     project = require_project(state)
     try:
@@ -1194,6 +1211,10 @@ def couplings_import(ctx: Context, p: ImportCouplingsIn) -> ImportCouplingsOut:
         raise OperationError(ErrorCode.INVALID_ARGUMENT, str(exc), offending_field="csv") from None
 
     def plan(state: SessionState) -> tuple[list[Event], ImportCouplingsOut]:
+        with paused_gc():
+            return _import_plan(state)
+
+    def _import_plan(state: SessionState) -> tuple[list[Event], ImportCouplingsOut]:
         check_revision(p.expected_science_revision, state)
         project = require_project(state)
         orbits = orbit_function(project)
@@ -1303,10 +1324,11 @@ class SetSymmetryOut(Science):
 
 
 def _refuse_orbit_changes(before: Project, after: Project) -> None:
-    """D-3: under a fixed-geometry fit, a symmetry or isotope edit is refused if any observed row's
-    full orbit membership changes (a merge, a split or an expansion). Rows of a draft carry no
-    orbit, so a draft's declarations change freely; entering ``fixed`` checks them."""
-    if before.model.kind != "fixed" or not before.couplings:
+    """D-3: while rows exist, a symmetry or isotope edit is refused if any row's full orbit
+    membership changes (a merge, a split or an expansion), in a draft as under a fixed-geometry fit
+    (round 77). Without a declaration a pair's orbit is the pair itself, so a first declaration or
+    a clearing is refused when it would change an orbit."""
+    if not before.couplings:
         return
     try:
         rows = orbit_changes(before, after)
@@ -1590,6 +1612,8 @@ class FixedRunOut(Wire):
     statement: str
 
 
+_ROWS: TypeAdapter[tuple[FixedRow, ...]] = TypeAdapter(tuple[FixedRow, ...])
+
 FIXED_ASSUMPTIONS = (
     "fixed geometry: the declared coordinates, symmetrized under the declared point group, with no "
     "vibrational or conformational averaging",
@@ -1609,10 +1633,17 @@ def _vector(values: np.ndarray) -> Vector5:
 def compute_fixed(project: Project, science_revision: int, science_hash: str) -> FixedRunOut:
     """The fixed-geometry fit of ``project`` (D-8 to D-10), as a job computes it. Pure, like
     ``compute_fit``. The admission limit is checked first (``FIT_TOO_LARGE``)."""
+    with paused_gc():
+        return _compute_fixed(project, science_revision, science_hash)
+
+
+def _compute_fixed(project: Project, science_revision: int, science_hash: str) -> FixedRunOut:
     from dipolar_core.fixed import FIXED_FIT_VERSION, fit_fixed
 
+    from dipolar_app.science import _fixed_problem_for
+
     try:
-        problem = fixed_problem_for(project)
+        problem = _fixed_problem_for(project, check=False)  # the worker's input was validated on commit
     except ValueError as exc:
         code, details = refusal(exc)
         if code is ErrorCode.INVALID_ARGUMENT:
@@ -1709,19 +1740,31 @@ def compute_fixed(project: Project, science_revision: int, science_hash: str) ->
         warnings.append(FixedWarning(code="SYMMETRIZED", message=moved))
     declared = project.molecule.symmetry
     assert declared is not None
-    rows = tuple(
-        FixedRow(
-            coupling_id=c.id,
-            pair=(c.spin_a, c.spin_b),
-            orbit=problem.keys[i],
-            multiplicity=int(problem.rows.multiplicities[i]),
-            observed=c.value,
-            sigma=c.sigma,
-            predicted=hz(float(result.predictions[i])),
-            residual=hz(float(result.residuals[i])),
-            normalized_residual=float(result.residuals[i] / c.sigma.value),
-        )
-        for i, c in enumerate(project.couplings)
+    # Validated in one call by pydantic's core (about 20 000 rows; round 77: building them one by one
+    # took most of the fit's time).
+    rows = _ROWS.validate_python(
+        [
+            {
+                "coupling_id": c.id,
+                "pair": (c.spin_a, c.spin_b),
+                "orbit": problem.keys[i],
+                "multiplicity": multiplicity,
+                "observed": c.value,
+                "sigma": c.sigma,
+                "predicted": {"value": predicted, "unit": "Hz"},
+                "residual": {"value": residual, "unit": "Hz"},
+                "normalized_residual": residual / c.sigma.value,
+            }
+            for i, (c, multiplicity, predicted, residual) in enumerate(
+                zip(
+                    project.couplings,
+                    problem.rows.multiplicities,
+                    result.predictions.tolist(),
+                    result.residuals.tolist(),
+                    strict=True,
+                )
+            )
+        ]
     )
     return FixedRunOut(
         science_revision=science_revision,
@@ -1770,3 +1813,51 @@ def compute_fixed(project: Project, science_revision: int, science_hash: str) ->
             "coordinates is then estimable."
         ),
     )
+
+
+# --------------------------------------------------------------------------- molecule.declarations (V1.3)
+class DeclarationsIn(Wire):
+    pass
+
+
+class IsotopeOut(Wire):
+    atom: int
+    element: str
+    mass_number: int
+
+
+class DeclarationsOut(Science):
+    """The molecule's declarations for any project (round 77): ``project.describe`` shows them only
+    for a fixed-geometry project, so that every other project keeps its 0.10.0 shape."""
+
+    symmetry: SymmetryOut | None
+    isotopes: tuple[IsotopeOut, ...]  # the atoms with a non-default isotope, in atom order
+
+
+def molecule_declarations(ctx: Context, _: DeclarationsIn) -> DeclarationsOut:
+    state = ctx.read()
+    project = require_project(state)
+    g = project.molecule.geometry
+    isotopes: tuple[IsotopeOut, ...] = ()
+    if isinstance(g, ImportedGeometry):
+        isotopes = tuple(
+            IsotopeOut(atom=k, element=a.element, mass_number=a.mass_number)
+            for k, a in enumerate(g.atoms)
+            if a.mass_number is not None
+        )
+    return DeclarationsOut(
+        science_revision=state.science_revision,
+        science_hash=state.science_hash,
+        symmetry=symmetry_out(project),
+        isotopes=isotopes,
+    )
+
+
+# --------------------------------------------------------------------------- run results
+def decode_result(model_kind: str, text: str) -> FitRunOut | FixedRunOut:
+    """A stored run result, decoded by the run record's model kind: trusted metadata recorded at
+    submission, never the blob (D-10). Raises ValueError when the blob does not match it; every
+    reader (run.get, run.report, the scene) uses this one decoder (round 77)."""
+    if model_kind == "fixed":
+        return FixedRunOut.model_validate_json(text)
+    return FitRunOut.model_validate_json(text)

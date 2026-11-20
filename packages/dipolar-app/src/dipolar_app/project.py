@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
+import gc
 import hashlib
 import json
 import threading
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Iterator
 from importlib import resources
 from typing import Annotated, Any, Literal
 
@@ -324,3 +326,29 @@ def load_example(name: ExampleName) -> Project:
         couplings=couplings,
         model=ModelSpec(kind="rigid", order="bisector-diagonal", phi_domain_deg=(0.0, 90.0)),
     )
+
+
+_GC_LOCK = threading.Lock()
+_GC_PAUSES = 0
+_GC_WAS_ENABLED = False
+
+
+@contextlib.contextmanager
+def paused_gc() -> Iterator[None]:
+    """Pause the cyclic garbage collector during a bounded computation over many small objects (a
+    20 000-row fixed fit or import: the collector took about 40 % of the time; round 77). Reference
+    counting still frees memory; the collector resumes, and runs, when the last pause ends. Pauses
+    nest across threads: the collector's state is restored only by the last one."""
+    global _GC_PAUSES, _GC_WAS_ENABLED
+    with _GC_LOCK:
+        if _GC_PAUSES == 0:
+            _GC_WAS_ENABLED = gc.isenabled()
+            gc.disable()
+        _GC_PAUSES += 1
+    try:
+        yield
+    finally:
+        with _GC_LOCK:
+            _GC_PAUSES -= 1
+            if _GC_PAUSES == 0 and _GC_WAS_ENABLED:
+                gc.enable()

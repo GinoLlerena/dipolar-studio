@@ -59,8 +59,23 @@ OPTIONAL_COLUMNS: Final = ("sigma_source", "multiplicity", "equivalent_pairs", "
 #: The XYZ elements: the core's isotope table (D-6; round 76: B and Si were missing).
 ELEMENTS: Final = frozenset(ISOTOPES)
 
-#: (key, members) of a pair of spins' orbit: the key is the smallest sorted spin-ID pair (D-5).
-OrbitOf = Callable[[str, str], tuple[tuple[str, str], frozenset[frozenset[str]]]]
+Members = frozenset[frozenset[str]]
+
+
+@dataclass(frozen=True)
+class Orbits:
+    """The pair orbits of a fixed-geometry project, prepared once per reconciliation (D-5).
+
+    ``of(a, b)`` gives (key, members) of a pair of spins: the key is the smallest sorted spin-ID
+    pair. ``class_of(members)`` gives the class that stands for an omitted ``equivalent_pairs``
+    (empty for a single pair); it raises ValueError when the labels cannot express it unambiguously.
+    """
+
+    of: Callable[[str, str], tuple[tuple[str, str], Members]]
+    class_of: Callable[[Members], tuple[str, ...]]
+
+
+OrbitOf = Orbits
 
 # A plain decimal number in ASCII (M3 step 2): float() alone also accepts "1_000", Unicode digits,
 # "inf" and "nan". A decimal comma ("1,5") is never guessed: in this comma-separated format it
@@ -269,12 +284,6 @@ def _labels_in_order(row: CouplingRow, mapping: Mapping[str, str], c: Coupling) 
     return (row.spin_a, row.spin_b) if mapping[row.spin_a] == c.spin_a else (row.spin_b, row.spin_a)
 
 
-def _orbit_class(members: frozenset[frozenset[str]], label_of: Mapping[str, str]) -> tuple[str, ...]:
-    """An orbit as a class of the project's labels, ordered by spin-ID pair (``science.orbit_class``)."""
-    pairs = sorted(tuple(sorted(p)) for p in members)
-    return tuple(f"{label_of[a]}-{label_of[b]}" for a, b in pairs)
-
-
 def _check_orbit_fields(
     row: CouplingRow,
     members: frozenset[frozenset[str]],
@@ -312,6 +321,9 @@ def _check_orbit_fields(
 def _resolved(
     table: CouplingTable, mapping: Mapping[str, str], project: Project, orbit_of: OrbitOf | None = None
 ) -> dict[tuple[str, str], CouplingRow]:
+    """The rows by key (their pair, or under a fixed-geometry model their pair-orbit key), with the
+    mapping, repeats and the orbit fields checked; the same checks for reconciliation and import."""
+    label_of = {s.id: s.label for s in project.molecule.spins}
     targets = list(mapping.values())
     if len(set(targets)) != len(targets):
         raise FormatError("the mapping must be one-to-one: two labels map to the same spin")
@@ -341,14 +353,19 @@ def _resolved(
                     "(merge symmetry copies into one row with a multiplicity)"
                 )
         else:
-            key, members = orbit_of(ids[0], ids[1])
+            key, members = orbit_of.of(ids[0], ids[1])
             if key in out:
                 raise FormatError(
                     f"row {row.row}: the pair {row.spin_a}–{row.spin_b} is in the pair orbit of row {out[key].row}: "
                     "repeat measurements of one pair orbit are not accepted in this release",
                     ErrorCode.OBSERVATIONS_CONFLICT,
                 )
-            _check_orbit_fields(row, members, mapping, {s.id: s.label for s in project.molecule.spins})
+            _check_orbit_fields(row, members, mapping, label_of)
+            if row.equivalent_pairs is None:
+                try:
+                    orbit_of.class_of(members)  # the class an import would store must parse back
+                except ValueError as exc:
+                    raise FormatError(f"row {row.row}: {exc}") from None
         out[key] = row
     return out
 
@@ -356,7 +373,7 @@ def _resolved(
 def _current(project: Project, orbit_of: OrbitOf | None) -> dict[tuple[str, str], Coupling]:
     if orbit_of is None:
         return {_pair_key(c.spin_a, c.spin_b): c for c in project.couplings}
-    return {orbit_of(c.spin_a, c.spin_b)[0]: c for c in project.couplings}
+    return {orbit_of.of(c.spin_a, c.spin_b)[0]: c for c in project.couplings}
 
 
 def _incoming_class(
@@ -368,9 +385,10 @@ def _incoming_class(
     """(multiplicity, class in the project's labels) that applying ``row`` stores."""
     if orbit_of is None:
         return row.multiplicity_or_one, _translated_class(row, mapping, label_of)
-    _, members = orbit_of(mapping[row.spin_a], mapping[row.spin_b])
-    explicit = _translated_class(row, mapping, label_of) if row.equivalent_pairs is not None else None
-    return len(members), explicit or _orbit_class(members, label_of)
+    _, members = orbit_of.of(mapping[row.spin_a], mapping[row.spin_b])
+    if row.equivalent_pairs is not None:
+        return len(members), _translated_class(row, mapping, label_of)
+    return len(members), orbit_of.class_of(members)
 
 
 def reconcile(
@@ -454,7 +472,7 @@ def apply_import(
     for row in table.rows:  # file order
         a, b = confirmed_mapping[row.spin_a], confirmed_mapping[row.spin_b]
         source = (row.spin_a, row.spin_b)
-        key = _pair_key(a, b) if orbit_of is None else orbit_of(a, b)[0]
+        key = _pair_key(a, b) if orbit_of is None else orbit_of.of(a, b)[0]
         if key in current:
             cid = current[key].id
             if (current[key].spin_a, current[key].spin_b) == (b, a):  # keep the stored orientation
@@ -572,6 +590,7 @@ def loads_project(text: str) -> Project:
     project_data = document["project"]
     if not isinstance(project_data, dict) or project_data.get("schema_version") != PROJECT_SCHEMA_VERSION:
         raise FormatError("the project's own schema_version must match the file's")
+    _normalize_default_masses(project_data)
     project = Project.model_validate_json(canonical_json(project_data), strict=True)
     try:
         validate_project(project)
@@ -581,6 +600,22 @@ def loads_project(text: str) -> Project:
         code, details = refusal(exc)
         raise FormatError(f"inconsistent project: {exc}", code, details) from None
     return project
+
+
+def _normalize_default_masses(project_data: dict[str, Any]) -> None:
+    """D-6: a default mass number written out (C-12, H-1) is the default isotope, spelled absent, so
+    both spellings load to one identity (round 77). Anything else is left for validation."""
+    molecule = project_data.get("molecule")
+    geometry = molecule.get("geometry") if isinstance(molecule, dict) else None
+    atoms = geometry.get("atoms") if isinstance(geometry, dict) else None
+    if not isinstance(atoms, list):
+        return
+    for atom in atoms:
+        if not isinstance(atom, dict) or atom.get("element") not in ISOTOPES:
+            continue
+        mass = atom.get("mass_number")
+        if type(mass) is int and mass == ISOTOPES[atom["element"]][0]:
+            del atom["mass_number"]
 
 
 def project_from_xyz(

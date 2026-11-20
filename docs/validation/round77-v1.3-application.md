@@ -113,10 +113,8 @@ run, proposal creation and in the worker's `compute`.
 
 ## Interpretations recorded for the reviewer
 
-- **Draft symmetry edits.** D-3's "while rows exist, a symmetry or isotope edit … is refused if any
-  row's orbit changes" is applied under `fixed` only. A draft's rows carry no orbit keys, so a check
-  there would block the XYZ → CSV → symmetry workflow without protecting anything. Entering `fixed`
-  checks the rows.
+- **Draft symmetry edits** (as submitted; changed by round 77, finding 2). D-3's orbit protection was
+  applied under `fixed` only.
 - **The orbit in a run row** is its key, not its full membership. With up to 24 members per orbit,
   full memberships could break the 16 MiB cap at 20 000 rows. `project.describe` lists the full
   class.
@@ -126,3 +124,53 @@ run, proposal creation and in the worker's `compute`.
   block, as D-10's "the retained block" requires. Their intervals are "not supported".
 - **Phase 1 detection.** A journal with no complete record and no snapshot opens as new: nothing was
   acknowledged. Opening quarantines a torn first line as for any torn tail.
+
+## Round 77 (on a1a4b21): NOT READY, 8 A + 1 B
+
+**The reviewer confirmed:**
+- the full suite (1100 passed, with skips only for the restricted data and an unbuilt web client),
+  the 42 gates, the slow 20 000-row worker gate, and the web type-check and tests;
+- v1 and v2 exports migrating to one v3 identity;
+- 0.1 directories with complete records refused byte for byte, including ready files, lock files,
+  torn tails after a complete record, and a pending compaction snapshot;
+- another orbit member updating its row and keeping `cpl_000001`, with spin IDs reversed against
+  atom order;
+- the recovery of benzene and 1,4-dichlorobenzene;
+- the φ-free report and the 0.11.0 breaking declaration;
+- replay and compaction of fixed runs;
+- staleness across an edit, undo and redo;
+- decoding after a model change, and `FIT_TOO_LARGE` in the worker at 20 001 rows.
+
+**Freeze order (round 77).**
+1. One gate per finding was committed first, in `4441e5b`. Eleven of them failed on the round-77
+   code.
+2. Two frozen V1.3 tests were corrected with it, per findings 3 and 4.
+3. The fixes came after.
+4. Three of the new gates were then corrected for measurement defects. No threshold was raised:
+   - **The D6h fit budget** had timed the computation under `tracemalloc`, which multiplies Python's
+     run time several fold (15.6 s traced, 1.47 s untraced). It now measures CPU and memory in
+     separate passes, from the parsed input. The parsed input alone is 84 MiB at this limit: it is
+     the project the session already holds.
+   - **The reconciliation gate** had bounded the totals at 3 s, which the 0.1 path alone did not
+     meet: about 2.1 s and 3.3 s for the same 20 000 rows, spent on the journal, the hashes and the
+     export-size check. It now bounds the fixed path's extra cost over the 0.1 path at 1 s.
+   - **Both budget gates** take the least of three runs, because the named machine was loaded
+     (load average 7–8).
+
+| # | Class | Finding | Fix |
+|---|---|---|---|
+| 1 | A | A 0.1 first record without its final newline was opened: the journal was truncated, a quarantine file created, a legacy blob deleted, and `serve` started. | A first record without its newline is judged by its metadata when it parses, and otherwise by its bytes, which must carry this version's `journal_schema`, `project_schema` and numerical context. With no record and no snapshot, the directory may hold only the lock, a ready file, an empty journal, empty directories and torn-record quarantines of this version. Anything else is refused before recovery or collection. A brand-new directory still opens. |
+| 2 | A | A populated draft's declaration changed its rows' orbits (C1 → D6h) on the direct call, the dry run and proposals. | The orbit protection applies whenever rows exist, draft or fixed. Without a declaration, a pair's orbit is the pair itself, so a first declaration or a clearing that changes an orbit is refused too. |
+| 3 | A | An explicit default mass (C-12, H-1) was refused on load; D-6 says it is normalized. | `loads_project` normalizes a default mass to absent before validation, so both spellings load to one identity. H-2 is still refused. The frozen test that expected the refusal was corrected. |
+| 4 | A | A draft with a declaration broke the 0.10.0 `project.describe` shape (`symmetry`, `atoms[].mass_number`). | `project.describe` shows them only for a fixed-geometry project. A new query, `molecule.declarations`, reads them for any project. The 0.10.0 gate covers both draft cases. |
+| 5 | A | D-11 at the legal D6h limit (1000 atoms, 20 000 rows, 474 060 class entries) took 8.64 s CPU and 442 MiB. | Changes: one orbit index per molecule (integer pair codes, spins ranked by ID); the orbit codes computed once per project and shared; class entries parsed inline; validation remembered per project; the core's `fixed_rows` vectorized with the same first-error order (all core tests pass); the result rows validated in one call; the cyclic collector paused for the bounded computation; the worker no longer re-checks the classes of its committed input. **Measured:** 1.47 s CPU (least of three), 85 MiB traced for the fit, and a 7.4 MiB result (`docs/validation/data/v13-application-benchmark.json`). |
+| 6 | A | Reconciliation scaled with the spin count: 23.9 s and 35.0 s at 20 000 rows and 1000 spins. | The orbits are prepared once per reconciliation (`formats.Orbits`, pure-Python \|G\| lookups per pair, remembered per pair), and the label map is built once. **Measured:** 1.7 s and 2.9 s, the same as the 0.1 path on the same rows. |
+| 7 | A | A generated class could be ambiguous (labels `a`, `b-c`, `a-b`, `c`: "a-b-c"); reconciliation said complete and the import failed. | A single-pair orbit is stored as the row's own pair (an empty class). A generated entry must parse back to its pair, or reconciliation and import both refuse it with the same message. |
+| 8 | A | A load refusal named one row with `INVALID_ARGUMENT`, and a class repeating a pair in reverse (seven entries for a six-member orbit) loaded. | Classes are compared as unordered pair codes, each pair counted once. Malformed and mismatched rows are collected into one `OBSERVATIONS_CONFLICT` with every `coupling_id`. |
+| 9 | B | A blob-chosen decoder mutant passed the gates; the scene showed a fixed blob under rigid metadata. | One decoder, `science_ops.decode_result(model_kind, text)`, is shared by `run.get`, `run.report` and the scene. A mismatch is a damaged result (`INTERNAL`) and the scene shows it as unavailable. A regression test covers it. |
+
+**Also documented (B):**
+- The 0.1 import pipeline (journal, hashes, export-size check) takes about 2–3 s at 20 000 rows. This
+  predates V1.3.
+- A V1 directory whose very first record was cut short before its version keys is refused, although
+  it holds nothing acknowledged. Moving its files away opens it as new.

@@ -294,6 +294,7 @@ EVERY_OPERATION: list[Step] = [
         None,
     ),
     ("molecule.set_isotope", lambda r: {"atom": 0, "mass_number": 12, "expected_science_revision": r}, "robot", None),
+    ("molecule.declarations", lambda r: {}, "robot", None),
 ]
 
 

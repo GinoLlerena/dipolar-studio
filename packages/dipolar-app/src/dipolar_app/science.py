@@ -120,9 +120,17 @@ def _resolve_pair(entry: str, by_label: dict[str, str]) -> frozenset[str]:
 MAX_BOND_A = 10.0
 
 
+_VALID = ByIdentity(size=8)
+
+
 def validate_project(project: Project) -> None:
     """Raise ValueError naming the first broken invariant, or return None. A ``SymmetryError`` or a
-    ``ScienceError`` carries its own code (``refusal``)."""
+    ``ScienceError`` carries its own code (``refusal``). A project is immutable, so a validated
+    one is remembered by identity (a fit validates the project it was just given)."""
+    _VALID.get(project, lambda: _validate_project(project))
+
+
+def _validate_project(project: Project) -> bool:
     g, m = project.molecule.geometry, project.model
     spins = project.molecule.spins
     if len({s.id for s in spins}) != len(spins):
@@ -224,6 +232,7 @@ def validate_project(project: Project) -> None:
         _validate_fixed_classes(project)
     else:
         _validate_observation_classes(project)
+    return True
 
 
 def _validate_observation_classes(project: Project) -> None:
@@ -343,45 +352,159 @@ def _validate_symmetry(molecule: Molecule) -> Validated:
 Orbit = frozenset[frozenset[str]]
 
 
+class OrbitIndex:
+    """The pair orbits of a molecule's spins under its declaration, prepared once per molecule
+    (round 77: per-pair work is O(|G|), never O(spins)).
+
+    Spins are ranked by spin ID, so a pair's integer code ``min(r) · n + max(r)`` orders pairs as
+    their sorted spin-ID pairs do: the smallest code of an orbit is its D-5 key. Without a
+    declaration, a pair's orbit is the pair itself."""
+
+    def __init__(self, project: Project) -> None:
+        spins = project.molecule.spins
+        self.ids = sorted(s.id for s in spins)
+        self.n = len(self.ids)
+        self.rank = {spin_id: k for k, spin_id in enumerate(self.ids)}
+        self.label = [""] * self.n
+        for s in spins:
+            self.label[self.rank[s.id]] = s.label
+        self.rank_of_label = {label: k for k, label in enumerate(self.label)}
+        self._orbits: dict[int, tuple[tuple[str, str], Orbit]] = {}
+        if project.molecule.symmetry is None:
+            self.images = np.arange(self.n, dtype=np.int64)[None, :]  # the identity only
+            self.complete = True
+            self.columns = [(k,) for k in range(self.n)]
+            return
+        validated = validated_symmetry(project)
+        rank_of_atom = np.full(len(validated.keys), -1, dtype=np.int64)
+        for s in spins:
+            rank_of_atom[int(s.atom)] = self.rank[s.id]  # type: ignore[arg-type]
+        atoms = np.empty(self.n, dtype=np.intp)
+        for s in spins:
+            atoms[self.rank[s.id]] = int(s.atom)  # type: ignore[arg-type]
+        self.images = rank_of_atom[validated.permutations[:, atoms]]  # |G| × spins: the image's rank
+        self.complete = bool(np.all(self.images >= 0))
+        self.columns = [tuple(column) for column in self.images.T.tolist()]  # each spin's images
+
+    def codes(self, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        """|G| × N codes of the images of the pairs (ranks a, b)."""
+        if not self.complete:
+            raise ValueError("every H atom must be a spin for the pair orbits to be complete")
+        ia, ib = self.images[:, a], self.images[:, b]
+        out: np.ndarray = np.minimum(ia, ib) * self.n + np.maximum(ia, ib)
+        return out
+
+    def code(self, a: str, b: str) -> int:
+        ra, rb = self.rank[a], self.rank[b]
+        return min(ra, rb) * self.n + max(ra, rb)
+
+    def pair(self, code: int) -> tuple[str, str]:
+        return self.ids[code // self.n], self.ids[code % self.n]
+
+    def members(self, codes: Any) -> tuple[int, ...]:
+        """A column of codes as its sorted distinct members."""
+        return tuple(sorted(set(codes.tolist())))
+
+    def orbit(self, a: str, b: str) -> tuple[tuple[str, str], Orbit]:
+        """(key, members as spin-ID pairs) of one pair: |G| lookups in plain Python (round 77: a
+        reconciliation asks for one pair at a time), remembered per pair."""
+        if not self.complete:
+            raise ValueError("every H atom must be a spin for the pair orbits to be complete")
+        ra, rb = self.rank[a], self.rank[b]
+        own = min(ra, rb) * self.n + max(ra, rb)
+        found = self._orbits.get(own)
+        if found is None:
+            n = self.n
+            members = sorted(
+                {x * n + y if x < y else y * n + x for x, y in zip(self.columns[ra], self.columns[rb], strict=True)}
+            )
+            found = self.pair(members[0]), frozenset(frozenset(self.pair(c)) for c in members)
+            self._orbits[own] = found
+        return found
+
+    def entry_code(self, entry: str) -> int | None:
+        """An "A-B" class entry as a pair code, or None if it does not name exactly one pair of
+        distinct spins (``split_pair_label``; a single hyphen is the fast path)."""
+        if entry.count("-") == 1:
+            a, _, b = entry.partition("-")
+            if a not in self.rank_of_label or b not in self.rank_of_label:
+                return None
+        else:
+            try:
+                a, b = split_pair_label(entry, self.rank_of_label)
+            except ValueError:
+                return None
+        ra, rb = self.rank_of_label[a], self.rank_of_label[b]
+        if ra == rb:
+            return None
+        return min(ra, rb) * self.n + max(ra, rb)
+
+    def class_entries(self, members: tuple[int, ...]) -> tuple[str, ...]:
+        """An orbit as an ``equivalent_pairs`` class, ordered by spin-ID pair: empty for a single
+        pair (the row's own pair), and refused when an entry would not parse back to its pair
+        under the project's labels (round 77: labels may contain hyphens)."""
+        if len(members) == 1:
+            return ()
+        out = []
+        for code in members:
+            a, b = code // self.n, code % self.n
+            entry = f"{self.label[a]}-{self.label[b]}"
+            if self.entry_code(entry) != code:
+                raise ValueError(
+                    f"the class entry {entry!r} for the pair orbit is ambiguous with these spin labels; "
+                    "rename the spins so that no 'A-B' entry splits two ways"
+                )
+            out.append(entry)
+        return tuple(out)
+
+
+_ORBIT_INDEXES = ByIdentity(size=8)
+
+
+def orbit_index(project: Project) -> OrbitIndex:
+    """The orbit index of the project's molecule, computed once per molecule object."""
+    value: OrbitIndex = _ORBIT_INDEXES.get(project.molecule, lambda: OrbitIndex(project))
+    return value
+
+
+_CODES = ByIdentity(size=4)
+
+
+def coupling_codes(project: Project) -> tuple[OrbitIndex, list[tuple[int, ...]]]:
+    """Each coupling's orbit as its sorted member codes (the first is its key), computed once per
+    project object (validation and the fit share it)."""
+    value: tuple[OrbitIndex, list[tuple[int, ...]]] = _CODES.get(project, lambda: _coupling_codes(project))
+    return value
+
+
+def _coupling_codes(project: Project) -> tuple[OrbitIndex, list[tuple[int, ...]]]:
+    index = orbit_index(project)
+    if not project.couplings:
+        return index, []
+    rank = index.rank
+    a = np.array([rank[c.spin_a] for c in project.couplings], dtype=np.intp)
+    b = np.array([rank[c.spin_b] for c in project.couplings], dtype=np.intp)
+    codes = np.sort(index.codes(a, b), axis=0)  # each column sorted: duplicates are adjacent
+    if codes.shape[0] == 1:
+        return index, [(int(x),) for x in codes[0].tolist()]
+    fresh = np.vstack([np.ones((1, codes.shape[1]), dtype=bool), np.diff(codes, axis=0) != 0])
+    columns, keep = codes.T.tolist(), fresh.T.tolist()
+    return index, [
+        tuple(x for x, k in zip(col, flags, strict=True) if k) for col, flags in zip(columns, keep, strict=True)
+    ]
+
+
 def coupling_orbits(project: Project) -> list[tuple[tuple[str, str], Orbit]]:
-    """Each coupling's pair orbit under the declared symmetry: its D-5 key (the smallest sorted
-    pair of spin IDs) and its members as spin-ID pairs. Every H atom is a spin in a fixed-geometry
-    project, so every member is a pair of spins; the symmetry must be declared and valid. Computed
-    for all couplings at once from the core's permutations (|G| lookups per pair, D-4)."""
-    return _orbits(project, [(c.spin_a, c.spin_b) for c in project.couplings])
-
-
-def _orbits(project: Project, pairs: list[tuple[str, str]]) -> list[tuple[tuple[str, str], Orbit]]:
-    if not pairs:
-        return []
-    validated = validated_symmetry(project)
-    spins = project.molecule.spins
-    atom_of = {s.id: s.atom for s in spins}
-    ids = sorted(s.id for s in spins)
-    rank_of_atom = np.full(len(validated.keys), -1, dtype=np.int64)
-    for rank, spin_id in enumerate(ids):
-        rank_of_atom[atom_of[spin_id]] = rank
-    a = np.array([atom_of[x] for x, _ in pairs], dtype=np.intp)
-    b = np.array([atom_of[y] for _, y in pairs], dtype=np.intp)
-    ra, rb = rank_of_atom[validated.permutations[:, a]], rank_of_atom[validated.permutations[:, b]]  # |G| × N
-    if np.any(ra < 0) or np.any(rb < 0):
-        raise ValueError("every H atom must be a spin for the pair orbits to be complete")
-    n = len(ids)
-    codes = np.minimum(ra, rb) * n + np.maximum(ra, rb)
-    keys = codes.min(axis=0)
-    out = []
-    for j in range(len(pairs)):
-        members = frozenset(frozenset((ids[c // n], ids[c % n])) for c in set(codes[:, j].tolist()))
-        key = int(keys[j])
-        out.append(((ids[key // n], ids[key % n]), members))
-    return out
+    """Each coupling's pair orbit: its D-5 key (the smallest sorted pair of spin IDs) and its
+    members as spin-ID pairs."""
+    index, orbits = coupling_codes(project)
+    return [(index.pair(m[0]), frozenset(frozenset(index.pair(c)) for c in m)) for m in orbits]
 
 
 def pair_orbit(project: Project, spin_a: str, spin_b: str) -> tuple[tuple[str, str], Orbit]:
-    """(key, members) of the orbit of the pair of spins (D-5): each member of the core's orbit
-    (atom indices, both endpoints permuted together) mapped to spin IDs, each pair sorted, and the
-    key the smallest (round 76)."""
-    return _orbits(project, [(spin_a, spin_b)])[0]
+    """(key, members) of the orbit of the pair of spins (D-5): the core's orbit (both endpoints
+    permuted together) mapped to spin IDs, each pair sorted, and the key the smallest (round 76)."""
+    return orbit_index(project).orbit(spin_a, spin_b)
 
 
 def orbit_key(project: Project, spin_a: str, spin_b: str) -> tuple[str, str]:
@@ -389,49 +512,63 @@ def orbit_key(project: Project, spin_a: str, spin_b: str) -> tuple[str, str]:
 
 
 def orbit_class(project: Project, members: Orbit) -> tuple[str, ...]:
-    """An orbit as an ``equivalent_pairs`` class: "A-B" labels, ordered by spin-ID pair."""
-    label = {s.id: s.label for s in project.molecule.spins}
-    pairs = sorted(tuple(sorted(p)) for p in members)
-    return tuple(f"{label[a]}-{label[b]}" for a, b in pairs)
+    """An orbit as an ``equivalent_pairs`` class (``OrbitIndex.class_entries``)."""
+    index = orbit_index(project)
+    return index.class_entries(tuple(sorted(index.code(*sorted(p)) for p in members)))
 
 
-def stored_class(project: Project, c: Coupling) -> set[frozenset[str]]:
-    """A coupling's stored class as spin-ID pairs (its own pair when the class is empty)."""
-    by_label = {s.label: s.id for s in project.molecule.spins}
+def _class_codes(index: OrbitIndex, c: Coupling) -> list[int] | None:
+    """A coupling's stored class as pair codes (its own pair when empty), or None if an entry is
+    malformed. The common entry (one hyphen, two known labels) is parsed inline: a fixed project
+    can hold about 480 000 entries (round 77)."""
     if not c.equivalent_pairs:
-        return {frozenset((c.spin_a, c.spin_b))}
-    try:
-        return {_resolve_pair(e, by_label) for e in c.equivalent_pairs}
-    except ValueError as exc:
-        raise ValueError(f"coupling {c.id}: {exc}") from None
+        return [index.code(c.spin_a, c.spin_b)]
+    ranks, n = index.rank_of_label, index.n
+    out = []
+    for entry in c.equivalent_pairs:
+        a, sep, b = entry.partition("-")
+        ra, rb = ranks.get(a), ranks.get(b)
+        if sep and ra is not None and rb is not None and ra != rb and "-" not in b:
+            out.append(ra * n + rb if ra < rb else rb * n + ra)
+            continue
+        code = index.entry_code(entry)
+        if code is None:
+            return None
+        out.append(code)
+    return out
+
+
+def _conflict(ids: list[str], repeated: bool, reason: str) -> ScienceError:
+    ids = sorted(set(ids))
+    if repeated:
+        reason = "repeat measurements of one pair orbit are not accepted in this release; " + reason
+    return ScienceError(ErrorCode.OBSERVATIONS_CONFLICT, f"couplings {', '.join(ids)}: {reason}", {"coupling_ids": ids})
 
 
 def _validate_fixed_classes(project: Project) -> None:
-    """D-5: one row per pair orbit, and each row's class is exactly its orbit (as sets), with the
-    orbit's size as multiplicity. Every conflicting row is listed."""
-    seen: dict[tuple[str, str], str] = {}
+    """D-5: one row per pair orbit, and each row's class is exactly its orbit (unordered pairs,
+    each once), with the orbit's size as multiplicity. Every conflicting row is listed, malformed
+    classes included (round 77)."""
+    index, orbits = coupling_codes(project)
+    seen: dict[int, str] = {}
     conflicts: list[str] = []
     repeated = False
-    for c, (key, members) in zip(project.couplings, coupling_orbits(project), strict=True):
-        if key in seen:
-            conflicts += [seen[key], c.id]
+    for c, members in zip(project.couplings, orbits, strict=True):
+        if members[0] in seen:
+            conflicts += [seen[members[0]], c.id]
             repeated = True
-        seen.setdefault(key, c.id)
-        entries = c.equivalent_pairs or ()
-        own = stored_class(project, c)
-        if own != members or c.multiplicity != len(members) or len(set(entries)) != len(entries):
+        seen.setdefault(members[0], c.id)
+        codes = _class_codes(index, c)
+        if (
+            codes is None
+            or len(set(codes)) != len(codes)
+            or tuple(sorted(codes)) != members
+            or c.multiplicity != len(members)
+        ):
             conflicts.append(c.id)
     if conflicts:
-        ids = sorted(set(conflicts))
-        reason = (
-            "repeat measurements of one pair orbit are not accepted in this release"
-            if repeated
-            else "each row's equivalent pairs must be exactly its pair orbit, with the orbit's size as multiplicity"
-        )
-        raise ScienceError(
-            ErrorCode.OBSERVATIONS_CONFLICT,
-            f"couplings {', '.join(ids)}: {reason}",
-            {"coupling_ids": ids},
+        raise _conflict(
+            conflicts, repeated, "each row's equivalent pairs must be exactly its pair orbit, each pair once"
         )
 
 
@@ -439,46 +576,43 @@ def canonicalize_for_fixed(project: Project) -> Project:
     """Entering the fixed-geometry model (D-3): each row's class becomes its pair orbit, keeping
     the coupling ID, value, σ and provenance. Refused (listing the rows) when two rows fall in one
     orbit, or a row's class is neither its orbit (as sets) nor its own single pair."""
-    orbits = coupling_orbits(project)
-    seen: dict[tuple[str, str], str] = {}
+    index, orbits = coupling_codes(project)
+    seen: dict[int, str] = {}
     conflicts: list[str] = []
     repeated = False
     out = []
-    for c, (key, members) in zip(project.couplings, orbits, strict=True):
-        if key in seen:
-            conflicts += [seen[key], c.id]
+    for c, members in zip(project.couplings, orbits, strict=True):
+        if members[0] in seen:
+            conflicts += [seen[members[0]], c.id]
             repeated = True
-        seen.setdefault(key, c.id)
-        own = stored_class(project, c)
-        if own == members and len(set(c.equivalent_pairs)) == len(c.equivalent_pairs):
+        seen.setdefault(members[0], c.id)
+        codes = _class_codes(index, c)
+        if codes is not None and len(set(codes)) == len(codes) and tuple(sorted(codes)) == members:
             out.append(c.model_copy(update={"multiplicity": len(members)}))
-        elif len(own) == 1:
-            canonical = orbit_class(project, members)
-            out.append(c.model_copy(update={"equivalent_pairs": canonical, "multiplicity": len(members)}))
+        elif codes is not None and len(codes) == 1:
+            entries = index.class_entries(members)
+            out.append(c.model_copy(update={"equivalent_pairs": entries, "multiplicity": len(members)}))
         else:
             conflicts.append(c.id)
     if conflicts:
-        ids = sorted(set(conflicts))
-        reason = (
-            "two rows fall in one pair orbit (repeat measurements of one pair orbit are not accepted in this release)"
-            if repeated
-            else "a row's equivalent pairs are neither its pair orbit nor its own single pair"
-        )
-        raise ScienceError(
-            ErrorCode.OBSERVATIONS_CONFLICT,
-            f"couplings {', '.join(ids)}: {reason}; remove them (couplings.remove) or re-import them",
-            {"coupling_ids": ids},
+        raise _conflict(
+            conflicts,
+            repeated,
+            "a row's equivalent pairs must be its pair orbit or its own single pair; remove the rows "
+            "(couplings.remove) or re-import them",
         )
     return project.model_copy(update={"couplings": tuple(out)})
 
 
 def orbit_changes(before: Project, after: Project) -> list[str]:
-    """The rows whose full pair-orbit membership differs between two fixed-geometry projects (a
-    merge, a split or an expansion: D-3 symmetry and isotope edits)."""
+    """The rows whose full pair-orbit membership differs between two projects (a merge, a split or
+    an expansion: D-3 declaration and isotope edits). Without a declaration a pair's orbit is the
+    pair itself."""
     if not before.couplings:
         return []
-    old, new = coupling_orbits(before), coupling_orbits(after)
-    return [c.id for c, (_, a), (_, b) in zip(after.couplings, old, new, strict=True) if a != b]
+    _, old = coupling_codes(before)
+    _, new = coupling_codes(after)
+    return [c.id for c, a, b in zip(after.couplings, old, new, strict=True) if a != b]
 
 
 def invalid_classes(project: Project) -> list[str]:
@@ -518,7 +652,11 @@ def fixed_problem_for(project: Project) -> FixedProblem:
     return value
 
 
-def _fixed_problem_for(project: Project) -> FixedProblem:
+def _fixed_problem_for(project: Project, *, check: bool = True) -> FixedProblem:
+    """``check=False`` is for the job worker only: its input is the session's committed project,
+    validated when it was committed, so the classes are not checked again (round 77, the D-11
+    budget). The declared symmetry, the rows and their keys are still computed from the input, and
+    the core still refuses bad endpoints, non-proton pairs and repeated orbits."""
     from dipolar_core.nuclides import dipolar_constant_hz_a3
     from dipolar_core.symmetry import fixed_rows
 
@@ -529,7 +667,10 @@ def _fixed_problem_for(project: Project) -> FixedProblem:
             "FIT_TOO_LARGE",
             f"{len(project.couplings)} observations: at most {MAX_FIT_ROWS} rows are fitted",
         )
-    validate_project(project)
+    if check:
+        validate_project(project)
+    elif project.molecule.symmetry is None:
+        raise ValueError("a fixed-geometry fit needs the molecule's declared symmetry")
     if not project.couplings:
         raise ValueError("the project has no couplings to fit")
     validated = validated_symmetry(project)
@@ -538,7 +679,8 @@ def _fixed_problem_for(project: Project) -> FixedProblem:
     rows = fixed_rows(validated, pairs, dipolar_constant_hz_a3("1H", "1H"))
     y = np.array([c.value.value for c in project.couplings])
     sigma = np.array([c.sigma.value for c in project.couplings])
-    keys = tuple(key for key, _ in coupling_orbits(project))
+    index, orbits = coupling_codes(project)
+    keys = tuple(index.pair(m[0]) for m in orbits)
     return FixedProblem(validated, rows, y, sigma, keys)
 
 

@@ -44,9 +44,10 @@ CONTRACT_CHANGES: tuple[dict[str, Any], ...] = (
             "BREAKING: project.describe and model.set return a model without phi_domain for a fixed-geometry "
             "project (kind 'fixed', order 'point-group', frame 'symmetry')",
             "added: molecule.set_symmetry, molecule.set_isotope and couplings.remove (proposable, undoable, "
-            "with expected_science_revision)",
+            "with expected_science_revision), and the query molecule.declarations",
             "added: model.set takes kind 'fixed'; its phi_domain is optional (absent for 'fixed', required otherwise)",
-            "added: project.describe has symmetry and atoms[].mass_number when they are set (absent otherwise)",
+            "added: project.describe has symmetry and atoms[].mass_number for a fixed-geometry project only "
+            "(molecule.declarations reads them for any project)",
             "added: error codes OBSERVATIONS_CONFLICT, SYMMETRY_NOT_SATISFIED, POINT_GROUP_NOT_SUPPORTED, "
             "MEDIUM_NOT_SUPPORTED, ISOTOPE_NOT_SUPPORTED, NO_TORSION and FIT_TOO_LARGE",
             "fit.preview and fit.landscape refuse a fixed-geometry model (NO_TORSION); run.report renders a "

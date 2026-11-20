@@ -40,6 +40,7 @@ from dipolar_app.science_ops import (
     FixedRunOut,
     Science,
     check_revision,
+    decode_result,
     readiness,
     require_project,
 )
@@ -400,9 +401,12 @@ def _stored_run(ctx: Context, run_id: str) -> tuple[SessionState, Run, FitRunOut
     text = ctx.session.blobs.text(run.result_sha256)
     if text is None:
         raise OperationError(ErrorCode.INTERNAL, f"the result of {run.id} is missing or damaged")
-    if run.model_kind == "fixed":
-        return state, run, FixedRunOut.model_validate_json(text)
-    return state, run, FitRunOut.model_validate_json(text)
+    try:
+        return state, run, decode_result(run.model_kind, text)
+    except ValueError:  # a ValidationError: the blob is not a result of the run's model kind
+        raise OperationError(
+            ErrorCode.INTERNAL, f"the result of {run.id} does not match its run record: it is damaged"
+        ) from None
 
 
 def run_get(ctx: Context, p: RunGetIn) -> RunGetOut:

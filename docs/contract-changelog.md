@@ -14,11 +14,13 @@ Fixed-geometry fits of imported molecules (`docs/phase2/v1.0-design.md`, D-3 to 
 - **Breaking:** `project.describe` and `model.set` return a model without `phi_domain` for a
   fixed-geometry project (`kind` "fixed", `order` "point-group", `frame` "symmetry").
 - **Added:** `molecule.set_symmetry`, `molecule.set_isotope` and `couplings.remove`, each with
-  `expected_science_revision`, proposable, with a dry run, and undoable.
+  `expected_science_revision`, proposable, with a dry run, and undoable; and the query
+  `molecule.declarations` (the declared symmetry and the non-default isotopes of any project).
 - **Added:** `model.set` takes `kind: "fixed"`; its `phi_domain` is optional: absent for "fixed" and
   required otherwise (`INVALID_ARGUMENT` names it).
-- **Added:** `project.describe` has `symmetry` and `geometry.atoms[].mass_number` when they are set.
-  Both keys are absent otherwise.
+- **Added:** for a fixed-geometry project, `project.describe` has `symmetry` and
+  `geometry.atoms[].mass_number` (when set). Every other project keeps the 0.10.0 shape, even with
+  declarations; `molecule.declarations` reads them.
 - **Added:** the error codes `OBSERVATIONS_CONFLICT`, `SYMMETRY_NOT_SATISFIED`,
   `POINT_GROUP_NOT_SUPPORTED`, `MEDIUM_NOT_SUPPORTED`, `ISOTOPE_NOT_SUPPORTED`, `NO_TORSION` and
   `FIT_TOO_LARGE`. A refusal from the core keeps its own code in `details.core_code`.

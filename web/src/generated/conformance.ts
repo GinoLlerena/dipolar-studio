@@ -22,6 +22,7 @@ void ({"job_id": "job_000001"} satisfies OperationInput<"job.status">); // examp
 void ({"job_id": "job_000001", "timeout_s": 5.0} satisfies OperationInput<"job.wait">); // example 0
 void ({"expected_science_revision": 1, "frame": "bisector", "kind": "jump4", "order": "bisector-diagonal", "phi_domain": [{"unit": "deg", "value": 0.0}, {"unit": "deg", "value": 90.0}]} satisfies OperationInput<"model.set">); // example 0
 void ({"expected_science_revision": 2, "frame": "symmetry", "kind": "fixed", "order": "point-group"} satisfies OperationInput<"model.set">); // example 1
+void ({} satisfies OperationInput<"molecule.declarations">); // example 0
 void ({"atom": 0, "expected_science_revision": 2, "mass_number": 13} satisfies OperationInput<"molecule.set_isotope">); // example 0
 void ({"expected_science_revision": 1, "symmetry": {"axes": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], "medium": "achiral-uniaxial", "point_group": "D6h", "tolerance": {"unit": "Å", "value": 0.01}}} satisfies OperationInput<"molecule.set_symmetry">); // example 0
 void ({"expected_science_revision": 2, "symmetry": null} satisfies OperationInput<"molecule.set_symmetry">); // example 1

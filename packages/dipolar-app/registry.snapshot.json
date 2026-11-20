@@ -5,9 +5,9 @@
       "changes": [
         "BREAKING: run.get can return a FixedRunOut (result.model.kind 'fixed') for a fixed-geometry run; a client that assumes the search-era FitRunOut fails on such a run",
         "BREAKING: project.describe and model.set return a model without phi_domain for a fixed-geometry project (kind 'fixed', order 'point-group', frame 'symmetry')",
-        "added: molecule.set_symmetry, molecule.set_isotope and couplings.remove (proposable, undoable, with expected_science_revision)",
+        "added: molecule.set_symmetry, molecule.set_isotope and couplings.remove (proposable, undoable, with expected_science_revision), and the query molecule.declarations",
         "added: model.set takes kind 'fixed'; its phi_domain is optional (absent for 'fixed', required otherwise)",
-        "added: project.describe has symmetry and atoms[].mass_number when they are set (absent otherwise)",
+        "added: project.describe has symmetry and atoms[].mass_number for a fixed-geometry project only (molecule.declarations reads them for any project)",
         "added: error codes OBSERVATIONS_CONFLICT, SYMMETRY_NOT_SATISFIED, POINT_GROUP_NOT_SUPPORTED, MEDIUM_NOT_SUPPORTED, ISOTOPE_NOT_SUPPORTED, NO_TORSION and FIT_TOO_LARGE",
         "fit.preview and fit.landscape refuse a fixed-geometry model (NO_TORSION); run.report renders a fixed-geometry run without a torsion (format dipolar-fixed-report.1)",
         "unchanged for projects without a fixed model: every response keeps the 0.10.0 shapes"
@@ -3235,6 +3235,219 @@
       "proposable": true,
       "revision_check": "expected_science_revision (required)",
       "summary": "Set the model: kind (rigid, jump4, fixed), order model, frame and torsion domain (none for fixed: the declared symmetry's point-group order in its frame)."
+    },
+    {
+      "capability": "query",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {}
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "DeclarationsIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "max_request_bytes": 1048576,
+      "name": "molecule.declarations",
+      "output_schema": {
+        "$defs": {
+          "Angstrom": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Å",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "exclusiveMinimum": 0,
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Angstrom",
+            "type": "object"
+          },
+          "IsotopeOut": {
+            "additionalProperties": false,
+            "properties": {
+              "atom": {
+                "title": "Atom",
+                "type": "integer"
+              },
+              "element": {
+                "title": "Element",
+                "type": "string"
+              },
+              "mass_number": {
+                "title": "Mass Number",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "atom",
+              "element",
+              "mass_number"
+            ],
+            "title": "IsotopeOut",
+            "type": "object"
+          },
+          "Length": {
+            "additionalProperties": false,
+            "description": "A distance that may be zero (for example the largest displacement of a symmetrization).",
+            "properties": {
+              "unit": {
+                "const": "Å",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "minimum": 0,
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Length",
+            "type": "object"
+          },
+          "SymmetryOut": {
+            "additionalProperties": false,
+            "properties": {
+              "axes": {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  }
+                ],
+                "title": "Axes",
+                "type": "array"
+              },
+              "max_displacement": {
+                "$ref": "#/$defs/Length"
+              },
+              "medium": {
+                "title": "Medium",
+                "type": "string"
+              },
+              "point_group": {
+                "title": "Point Group",
+                "type": "string"
+              },
+              "tolerance": {
+                "$ref": "#/$defs/Angstrom"
+              }
+            },
+            "required": [
+              "point_group",
+              "axes",
+              "tolerance",
+              "medium",
+              "max_displacement"
+            ],
+            "title": "SymmetryOut",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "description": "The molecule's declarations for any project (round 77): ``project.describe`` shows them only\nfor a fixed-geometry project, so that every other project keeps its 0.10.0 shape.",
+        "properties": {
+          "isotopes": {
+            "items": {
+              "$ref": "#/$defs/IsotopeOut"
+            },
+            "title": "Isotopes",
+            "type": "array"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          },
+          "symmetry": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SymmetryOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "symmetry",
+          "isotopes"
+        ],
+        "title": "DeclarationsOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none",
+      "summary": "The molecule's declared symmetry (with the largest displacement of its symmetrized geometry) and its non-default isotopes."
     },
     {
       "capability": "science_mutation",
