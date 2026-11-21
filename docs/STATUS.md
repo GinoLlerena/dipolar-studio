@@ -389,8 +389,16 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
        `molecule.declarations`, `couplings.remove`), rows keyed by pair orbit, `FixedRunOut` and its
        φ-free report, 0.1 directories refused unchanged (D-1, `dipolar_app.directory`), contract 0.11.0
        (breaking, `docs/contract-changelog.md`). Gate tests: `packages/dipolar-app/tests/test_app_v13_fixed.py`.
-     - **Next:** V1.4, the browser and the robot (a Fit workspace without φ, the estimable
-       combinations panel, a one-ring Structure view, a robot tutorial on three browsers).
+     - **Done:** V1.4, the browser and the robot (PR #26, tag `v1.4-browser`; rounds 79–80, both NOT
+       READY, every finding fixed with a gate frozen first, merged on the owner's decision; record
+       `docs/validation/round79-v1.4-browser.md`, design `docs/phase2/v1.4-browser.md`): contract
+       0.12.0 (no torsion in the scene of a fixed-geometry project, its symmetry frame, the query
+       `molecule.suggest_symmetry`), the symmetry form and fixed model in the Data workspace, the
+       estimable-combinations panel, the one-ring Structure view, and the fixed-geometry tutorial
+       (`datasets/dichlorobenzene-synthetic/`, `robot.py --scenario fixed-tutorial`,
+       `web/e2e/fixed-tutorial.spec.ts`). Isotopes are shown in the page, edited through the API.
+     - **Next:** V1.5, the verification report and the Phase 2 exit (`docs/phase2-proposal.md`
+       §V1.5); it needs the external-reproduction path (open, below).
      - **Decided by the owner on 2026-11-18:**
        - D-1: carry projects over by export file;
        - decision 4: two independent AI transcriptions, with the owner's spot-check;
