@@ -402,7 +402,8 @@ def test_the_dataset_is_what_its_generator_writes(tmp_path: Path) -> None:
     for name in ("dichlorobenzene.xyz", "couplings.csv"):  # the user's files: byte for byte
         assert (work / name).read_bytes() == (DCB / name).read_bytes(), name
     # truth.json carries a least-squares fit, whose last bits depend on the platform's linear
-    # algebra (CI, Linux): its numbers are compared to 1e-12 relative, everything else exactly.
+    # algebra (CI, Linux): its numbers are compared to 1e-12 relative (1e-15 absolute, for the
+    # noiseless fit's χ² of ~1e-25), everything else exactly.
     _same_json(json.loads((work / "truth.json").read_text(encoding="utf-8")), _truth())
 
 
@@ -420,7 +421,8 @@ def _same_json(a: Any, b: Any, path: str = "truth") -> None:
         for k, (x, y) in enumerate(zip(a, b, strict=True)):
             _same_json(x, y, f"{path}[{k}]")
     elif isinstance(a, float) and isinstance(b, float):
-        assert math.isclose(a, b, rel_tol=1e-12, abs_tol=1e-300), (path, a, b)
+        # abs_tol: the noiseless fit's χ² is rounding noise (~1e-25), whatever the platform.
+        assert math.isclose(a, b, rel_tol=1e-12, abs_tol=1e-15), (path, a, b)
     else:
         assert a == b and type(a) is type(b), (path, a, b)
 

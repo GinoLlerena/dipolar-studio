@@ -153,7 +153,11 @@ later requests through at once, so the unroute was dropped.
 byte for byte, but its reference fit's last bits depend on the platform's linear algebra (Linux CI
 differed), and the generator wrote CRLF on Windows. The generator now writes LF everywhere; the XYZ
 and CSV files (the user's inputs) are still compared byte for byte, and `truth.json` is compared
-key for key with its numbers to 1e-12 relative.
+key for key with its numbers to 1e-12 relative or 1e-15 absolute (the noiseless fit's χ² is
+rounding noise, ~1e-25, and differed in its leading digits). CI's browser job also caught
+`coverage.spec.ts`, "loading a project file in the page loads it on the server", loading before
+the page showed the robot's edit (refused at the revision the page showed); like the V1.4 specs, it
+now waits for the page to show rev 2.
 
 **Outcome:** both rounds under the cap were NOT READY. Every finding of both is fixed with a gate
 frozen first; the owner decides whether to merge.
