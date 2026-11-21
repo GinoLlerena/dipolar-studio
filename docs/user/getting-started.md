@@ -121,7 +121,8 @@ intervals are exact. The worked example is synthetic 1,4-dichlorobenzene
    declaration is checked against every atom; a refusal says what does not match. If every proton
    lies in one plane and no group beyond C1 is declared, the form **suggests Cs** with that plane as
    the mirror. It is only a suggestion: a planar molecule fitted as C1 cannot have its rank
-   verified, and declaring Cs makes its in-plane order estimable.
+   verified, and declaring Cs reduces the model to the in-plane block of the order tensor. Which
+   combinations of that block your couplings determine is what the fit reports.
 3. **Choose the model** "Fixed geometry (no torsion)" and apply it. It has no φ domain.
 4. **Import the couplings**, one row per observed pair orbit: a symmetry copy is not a new
    observation (see [file formats](file-formats.md)).
@@ -129,8 +130,10 @@ intervals are exact. The worked example is synthetic 1,4-dichlorobenzene
    its estimate, standard error and exact 68.3 % and 95 % intervals), the components fixed by
    symmetry, the rank, the adequacy and the admissibility, and what the results assume. There is
    no torsion, so no preview slider and no χ²(φ) landscape.
-6. The **Structure** tab shows the molecule face-on along its symmetry axis of least spread, with
-   the axes x′, y′, z′ and every pair of each observed orbit.
+6. The **Structure** tab looks along the declared symmetry axis on which the molecule is least
+   spread out, so a ring is seen face-on when one of the declared axes is normal to its plane. It
+   draws the axes x′, y′, z′ and the pairs of each observed orbit (up to a drawing limit of 2000
+   arcs, the selected couplings' pairs always included).
 
 Isotopes (¹³C, ¹⁵N, D) are declared with the operation `molecule.set_isotope` (Python or HTTP);
 the page shows them in the atom table.

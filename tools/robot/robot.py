@@ -83,6 +83,11 @@ class RobotError(Exception):
     pass
 
 
+#: A request's own timeout: longer than the server's bound on job.wait (30 s), so a wait that the
+#: server ends at its bound is never cut off by the client first (round 79 runs, under load).
+HTTP_TIMEOUT_S = 60
+
+
 class Client:
     def __init__(self, base_url: str, token: str) -> None:
         self.base_url = base_url
@@ -95,7 +100,7 @@ class Client:
         if data is not None:
             request.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_S) as response:
                 payload: Any = json.loads(response.read())
         except urllib.error.HTTPError as exc:
             payload = json.loads(exc.read())
@@ -276,12 +281,23 @@ TUTORIAL_MODEL = {"kind": "rigid", "order": "c2z", "frame": "input"}
 
 
 def _atom_names(xyz: str) -> list[str]:
-    """The atom names listed in the XYZ comment line ("…; atoms: C1 C2 … H6'"), in file order."""
-    comment = xyz.splitlines()[1] if len(xyz.splitlines()) > 1 else ""
+    """The atom names listed in the XYZ comment line ("…; atoms: C1 C2 … H6'"), in file order: one
+    unique name per atom (round 79: a duplicated name silently mapped a label to the wrong proton)."""
+    lines = xyz.splitlines()
+    comment = lines[1] if len(lines) > 1 else ""
     _, _, listed = comment.partition("atoms:")
     names = listed.split()
     if not names:
         raise RobotError("the XYZ comment line does not list the atom names, so the mapping cannot be confirmed")
+    try:
+        count = int(lines[0].split()[0])
+    except (IndexError, ValueError):
+        raise RobotError("the XYZ file does not start with its atom count") from None
+    if len(names) != count:
+        raise RobotError(f"the XYZ comment line lists {len(names)} atom names for {count} atoms")
+    repeated = sorted({n for n in names if names.count(n) > 1})
+    if repeated:
+        raise RobotError(f"the XYZ comment line repeats the atom names {repeated}: the mapping would be ambiguous")
     return names
 
 
@@ -410,6 +426,27 @@ def _wait_for_run(robot: Client, revision: int, args: dict[str, Any] | None = No
     return run
 
 
+def _consistent(
+    project: dict[str, Any], run: dict[str, Any], view: dict[str, Any], svg: dict[str, Any], exported: dict[str, Any]
+) -> None:
+    """Everything the report carries is of one science state (round 79: another client's change
+    between the fit and the export left a stale run and a different export reported as success)."""
+    revision, digest = project["science_revision"], project["science_hash"]
+    record = run["run"]
+    if record["stale"] or record["science_hash"] != digest:
+        raise RobotError(f"{record['id']} is not the fit of the current science state")
+    if view["science_revision"] != revision or view["run"] != {
+        "run_id": record["id"],
+        "stale": False,
+        "available": True,
+    }:
+        raise RobotError(f"the view does not show {record['id']} at science revision {revision}")
+    if svg["science_revision"] != revision:
+        raise RobotError(f"the rendered view is of science revision {svg['science_revision']}, not {revision}")
+    if exported["science_revision"] != revision or exported["science_hash"] != digest:
+        raise RobotError("the exported project is not the science state that was fitted")
+
+
 #: The fixed-geometry fit (V1.3): the order tensor alone, in the declared symmetry's frame.
 FIXED_MODEL = {"kind": "fixed", "order": "point-group", "frame": "symmetry"}
 
@@ -455,21 +492,25 @@ def run_fixed_tutorial(ready_file: Path, xyz_path: Path, csv_path: Path, point_g
     if fit["model"]["kind"] != "fixed":
         raise RobotError(f"{run['run']['id']} is not a fixed-geometry run")
 
-    # 6. Select the worst row; the view draws its whole orbit selected; export.
+    # 6. Select the worst row; the view draws its whole orbit selected; export. The view the robot
+    #    verifies is set first: the couplings layer may have been hidden (round 79).
     worst = max(fit["rows"], key=lambda r: abs(r["normalized_residual"]))
+    robot.call("view.set_layers", {"labels": True, "bonds": True, "couplings": True})
     robot.call("view.select", {"ids": [worst["coupling_id"]]})
     view = robot.call("render.describe_view")
     if [s["id"] for s in view["selection"]] != [worst["coupling_id"]]:
         raise RobotError("the selection is not visible in render.describe_view")
     if view["phi"] is not None:
         raise RobotError("the view describes a torsion for a fixed-geometry project")
-    svg = robot.call("render.view_svg")["svg"]
+    rendered = robot.call("render.view_svg")
+    svg = rendered["svg"]
     arcs = svg.count(f'data-id="{worst["coupling_id"]}"')
     if arcs != worst["multiplicity"]:
         raise RobotError(
             f"the view draws {arcs} arcs of {worst['coupling_id']}, not its orbit's {worst['multiplicity']}"
         )
     exported = robot.call("project.export")
+    _consistent(project, robot.call("run.get", {"run_id": run["run"]["id"]}), view, rendered, exported)
     coupling = next(c for c in project["couplings"] if c["id"] == worst["coupling_id"])
     return {
         "ok": True,

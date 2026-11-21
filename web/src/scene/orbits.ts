@@ -30,12 +30,14 @@ export function orbitMembers(images: readonly (readonly number[])[] | null, a: n
  * two atoms by index in `atoms`. */
 export type OrbitArc = { id: string; copy: number; a: number; b: number };
 
-/** The arcs to draw for `rows` (in the order to fill): every row's observed pair, then the copies
- * of each row in turn while fewer than `max` arcs are drawn. `omitted` counts the copies left out. */
+/** The arcs to draw for `rows` (in the order to fill): every row's observed pair; the copies of the
+ * rows in `keep` (selected or highlighted) whatever the budget (round 79); then the copies of each
+ * other row in turn while fewer than `max` arcs are drawn. `omitted` counts the copies left out. */
 export function orbitArcs(
   rows: readonly { id: string; a: number; b: number }[],
   images: readonly (readonly number[])[] | null,
   max = 2000,
+  keep: ReadonlySet<string> = new Set(),
 ): { arcs: OrbitArc[]; omitted: number } {
   const placed: OrbitArc[][] = [];
   const copies: OrbitArc[][] = [];
@@ -47,6 +49,13 @@ export function orbitArcs(
   let budget = max - rows.length;
   let omitted = 0;
   copies.forEach((list, k) => {
+    if (keep.has(rows[k]?.id ?? "")) {
+      (placed[k] as OrbitArc[]).push(...list);
+      budget -= list.length;
+    }
+  });
+  copies.forEach((list, k) => {
+    if (keep.has(rows[k]?.id ?? "")) return;
     for (const arc of list) {
       if (budget > 0) {
         (placed[k] as OrbitArc[]).push(arc);

@@ -18,7 +18,7 @@ import {
   radiusAbout,
   ZOOM_STEP,
 } from "../scene/view";
-import { mostRelevant } from "../limits";
+import { MAX_DRAWN, mostRelevant } from "../limits";
 import { strings } from "../strings";
 import type { Studio, StudioState } from "../studio";
 import { Panel, selectableRow, Spacer, useRowWindow } from "./common";
@@ -264,7 +264,7 @@ function ScenePane({
     if (!frame) return { arcs: rowsOf(drawn).map((r) => ({ ...r, copy: 0 })), omitted: 0 };
     const first = (c: (typeof drawn)[number]) => (scene.selection.includes(c.id) || scene.highlights.includes(c.id) ? 0 : 1);
     const ordered = [...drawn].sort((p, q) => first(p) - first(q) || Math.abs(normalized.get(q.id) ?? 0) - Math.abs(normalized.get(p.id) ?? 0));
-    return orbitArcs(rowsOf(ordered), frame.images);
+    return orbitArcs(rowsOf(ordered), frame.images, MAX_DRAWN, new Set([...scene.selection, ...scene.highlights]));
   }, [scene, drawn, normalized, frame]);
   const byId = useMemo(() => new Map(scene.couplings.map((c) => [c.id, c])), [scene]);
   const axes = frame

@@ -591,7 +591,9 @@ def test_r79_the_robot_refuses_ambiguous_atom_names_before_any_change(
     xyz[1] = f"synthetic 1,4-dichlorobenzene (D2h); atoms: {names}"
     path = tmp_path / "ambiguous.xyz"
     path.write_text("\n".join(xyz) + "\n", encoding="utf-8")
-    proc = _robot(server, clean_env, "--scenario", "fixed-tutorial", "--xyz", str(path), "--csv", str(DCB / "couplings.csv"))
+    proc = _robot(
+        server, clean_env, "--scenario", "fixed-tutorial", "--xyz", str(path), "--csv", str(DCB / "couplings.csv")
+    )
     assert proc.returncode == 1, proc.stdout
     assert "atom names" in json.loads(proc.stdout)["error"]
     assert server.call("render.describe_view")["result"]["science_revision"] == 0  # nothing was changed

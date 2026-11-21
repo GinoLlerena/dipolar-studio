@@ -235,6 +235,9 @@ test("round 79: an edit after Apply is not erased by the arriving description", 
   await server.ok("robot", "molecule.set_symmetry", { symmetry: { point_group: "D6h" }, expected_science_revision: 1 });
   await openTab(app, "Data");
   await expect(app.locator(".crumb .muted")).toContainText("rev 2 ");
+  // The project description shows rev 2 too (the declarations are current only then).
+  await expect(pane(app, "pane-symmetry")).toContainText("Declared: D6h");
+  await expect(pane(app, "pane-symmetry").getByRole("button", { name: "Clear" })).toBeEnabled();
   let release: () => void = () => {};
   const held = new Promise<void>((r) => (release = r));
   await app.route("**/api/v1/ops/project.describe", async (route) => {

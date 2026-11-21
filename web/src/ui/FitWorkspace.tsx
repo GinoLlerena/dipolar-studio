@@ -64,7 +64,11 @@ function RunControls({ studio, state, onSubmitted }: Props & { onSubmitted: () =
   const { view, project, busy, jobs } = state;
   const [intervals, setIntervals] = useState(false);
   const active = jobs.filter((j) => j.status === "queued" || j.status === "running");
-  const ready = Boolean(view?.project_open && project?.ready_to_fit);
+  // The fit is of the project the page shows: while the view and the project description disagree
+  // on the science revision, it waits (round 79: it used the view's newer revision before the
+  // description showed what had changed).
+  const inSync = project !== null && view !== null && project.science_revision === view.science_revision;
+  const ready = Boolean(view?.project_open && project?.ready_to_fit && inSync);
   // A fixed-geometry fit has exact intervals and no option (D-8): fit.run(intervals) has no effect.
   const fixedFit = project?.model.kind === "fixed";
   return (
@@ -77,10 +81,10 @@ function RunControls({ studio, state, onSubmitted }: Props & { onSubmitted: () =
             disabled={!ready || busy !== null || !view}
             title={ready ? undefined : (project?.not_ready_reason ?? strings.notReadyToFit)}
             onClick={async () => {
-              if (!view) return;
+              if (!project) return;
               const args = fixedFit
-                ? { expected_science_revision: view.science_revision }
-                : { expected_science_revision: view.science_revision, intervals };
+                ? { expected_science_revision: project.science_revision }
+                : { expected_science_revision: project.science_revision, intervals };
               const submitted = await studio.command("fit.run", (t) => callOperation("fit.run", args, t));
               if (submitted) onSubmitted();
             }}
@@ -95,7 +99,7 @@ function RunControls({ studio, state, onSubmitted }: Props & { onSubmitted: () =
           )}
         </div>
         {fixedFit && <p className="help">{strings.fixedIntervals}</p>}
-        {!ready && view?.project_open && <p className="help">{project?.not_ready_reason ?? strings.notReadyToFit}</p>}
+        {!ready && view?.project_open && inSync && <p className="help">{project?.not_ready_reason ?? strings.notReadyToFit}</p>}
         {active.map((job) => (
           <div key={job.id} className="row job-active">
             <span className="spinner" aria-hidden="true" />

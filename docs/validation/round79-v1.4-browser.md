@@ -81,4 +81,47 @@ change reads.
 
 ## Round 79
 
+Commit `c2d337d`. **Verdict: NOT READY** (7 A, 4 B). The reviewer ran the Python suite (1156
+passed, 3 skipped for local datasets), the web tests (72), both type checks, projection parity
+(8 cases), the fixed browser specs on the three browsers, and targeted probes for each finding.
+Corrections 1–4 were judged appropriate; correction 5 hid finding 2.
+
+Gates frozen first in `4912588`; fixes in the next commit.
+
+| # | Class | Finding | Fix |
+|---|---|---|---|
+| 1 | A | Clear sent the project's newer revision and removed a declaration the page had not shown; Run fit used the view's revision before the project description showed the change. | Declare and Clear act at the shown declaration's revision and are disabled while it is older than the project; Run fit acts at the project's revision and waits while the view and the project disagree. Gates: two delayed-response browser tests. |
+| 2 | A | A late description after Apply erased an edit made meanwhile; correction 5 waited past that window. | The model inspector (and the symmetry form) stay disabled after a command until the page shows its revision. Gate: a delayed-description browser test. Correction 5 stays: it now describes the designed behaviour, and the new test covers the window. |
+| 3 | A | The fixed comparator let identical unknown numbers (integers, and provenance numbers by prefix) through, and `in` hid a one-sided `__proto__` key. | Every number of a fixed result has its own rule (counts, ranks, the two numerical-context numbers); own keys with `Object.hasOwn`, in both comparators. Gates in `compare.test.ts`. |
+| 4 | A | The page could show a wrong fit while both browser gates passed (they counted cells and compared API reads). | `e2e/rendered.ts`: the shown estimates, standard errors, interval endpoints and residual-table numbers must equal the result's within half a unit of the last shown digit, in the Fit spec and in the tutorial (against the robot's run). |
+| 5 | A | The Cs suggestion said the in-plane block "is estimable". | It says Cs reduces the model to the in-plane block and the fit says which combinations the couplings determine; the user guide too. Gate: the reason's wording. |
+| 6 | A | The robot took the first of duplicated atom names, mapped a label to the wrong proton and succeeded with a wrong fit. | One unique name per atom, as many names as atoms, checked before any change. Gates: three malformed comment lines, nothing changed. |
+| 7 | A | The robot reported success with a stale run and an export of another science state. | `_consistent`: the run is current and of the project's science hash, the view shows it at that revision, the SVG and the export are of that state. Gate: each mismatch raises. |
+| B1 | B | The collinearity rule differed from E-5's wording. | E-5 now states the rule used (every spin within the tolerance of the least-squares line); a boundary test pins it. |
+| B2 | B | The browser and SVG drawing limits differ; at the limit, a selected row got no copies. | Selected and highlighted rows' copies are always drawn (gate in `orbits.test.ts`); both limits are documented in E-3. |
+| B3 | B | The guide overstated face-on and the orbit display. | The guide and E-3 say face-on needs a declared axis normal to the plane, and give the drawing limit. |
+| B4 | B | With the couplings layer hidden, the robot's tutorial failed after its fit. | The robot sets the layers it verifies. Gate: a hidden layer beforehand. |
+
+**A correction to a round-79 gate (before review):** the delayed-description test held
+`project.describe` as soon as the crumb showed rev 2, while the description of rev 2 could still be
+in flight; Apply then (correctly) acted at the revision the page showed and was refused. The test
+now waits until the symmetry form is current (it is only when the project description is) before
+holding the reads.
+
+**Found by the full browser runs after the fixes:**
+- The symmetry form judged itself current against the project description alone. With the view
+  already at a newer revision, Clear was enabled and refused (`REVISION_CONFLICT`). The rule is
+  now one for every form: a command acts at the revision of the data it shows, and only while that
+  data, the project description and the view show the same revision (the symmetry form, the model
+  inspector and Run fit).
+- The robot's HTTP timeout (30 s) equalled the server's bound on `job.wait` (30 s): under load a
+  wait the server ended at its bound was cut off first ("timed out", the biphenyl tutorial). The
+  robot's requests now time out at 60 s.
+- The browser harness resent a query once after `ECONNRESET` on a reused kept-alive connection;
+  the same idle-close race also shows as `UND_ERR_SOCKET` ("other side closed"), seen once in the
+  biphenyl tutorial (the reviewer saw it too). It is now resent the same way, once, for queries
+  only.
+
+## Round 80
+
 *(pending)*

@@ -123,8 +123,18 @@ function covarianceScale(result: Obj): number {
 
 /** The rule for the number at `path` of a FixedRunOut, or null when there is none. */
 function fixedRule(path: string, owner: Obj, result: Obj, t: FixedTolerances): Rule | null {
-  if (path.startsWith("provenance.numerical_context.")) return { abs: 0 }; // inputs: exactly
   switch (path) {
+    // Counts, ranks and revisions: exactly (round 79: every number has its own rule here).
+    case "science_revision":
+    case "n_obs":
+    case "rank.required":
+    case "rank.numerical":
+    case "adequacy.nu":
+    case "rows[].multiplicity":
+    // The numerical context's numbers: inputs, exactly.
+    case "provenance.numerical_context.admissibility_atol":
+    case "provenance.numerical_context.rank_rtol":
+      return { abs: 0 };
     case "components[].coefficients_b[]":
     case "covariance_b.basis_b[][]":
     case "null_directions_b[][]":
@@ -173,10 +183,17 @@ export function fixedResultDifferences(a: Json, b: Json, t: FixedTolerances): st
   if (kind(a) !== "fixed" || kind(b) !== "fixed") {
     return [`result: not two fixed-geometry results (${JSON.stringify(kind(a))} and ${JSON.stringify(kind(b))})`];
   }
-  return differences(a, b, (path, owner, top) => fixedRule(path, owner, top, t));
+  return differences(a, b, (path, owner, top) => fixedRule(path, owner, top, t), false);
 }
 
-function differences(a: Json, b: Json, ruleOf: (path: string, owner: Obj, top: Obj) => Rule | null): string[] {
+/** `integersWithoutRule`: whether an integer without a rule is compared exactly (the search-era
+ * result's counts and ranks) or is a difference (the fixed-geometry result names all of its own). */
+function differences(
+  a: Json,
+  b: Json,
+  ruleOf: (path: string, owner: Obj, top: Obj) => Rule | null,
+  integersWithoutRule = true,
+): string[] {
   const out: string[] = [];
   const top = (a !== null && typeof a === "object" && !Array.isArray(a) ? a : {}) as { [key: string]: Json };
   const walk = (x: Json, y: Json, path: string, shown: string, owner: { [key: string]: Json }) => {
@@ -195,7 +212,8 @@ function differences(a: Json, b: Json, ruleOf: (path: string, owner: Obj, top: O
       }
       const keys = new Set([...Object.keys(x), ...Object.keys(y)]);
       for (const k of keys) {
-        if (!(k in x) || !(k in y)) out.push(`${shown}.${k}: on one side only`);
+        // Own keys only (round 79: `in` saw an inherited `__proto__` or `constructor` on the other side).
+        if (!Object.hasOwn(x, k) || !Object.hasOwn(y, k)) out.push(`${shown}.${k}: on one side only`);
         else walk(x[k] as Json, y[k] as Json, path === "" ? k : `${path}.${k}`, `${shown}.${k}`, x);
       }
       return;
@@ -204,7 +222,7 @@ function differences(a: Json, b: Json, ruleOf: (path: string, owner: Obj, top: O
       const r = ruleOf(path, owner, top);
       if (r !== null) {
         if (!within(x, y, r)) out.push(`${shown}: ${x} and ${y} (${JSON.stringify(r)})`);
-      } else if (!(Number.isInteger(x) && Number.isInteger(y))) {
+      } else if (!integersWithoutRule || !(Number.isInteger(x) && Number.isInteger(y))) {
         out.push(`${shown}: no tolerance rule for this quantity`);
       } else if (x !== y) {
         out.push(`${shown}: ${x} and ${y}`); // counts and ranks: exactly

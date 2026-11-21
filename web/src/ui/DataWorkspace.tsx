@@ -271,7 +271,14 @@ function ModelPane({ studio, state, project, model }: Props & { project: Describ
   const from = Number(draft.from);
   const to = Number(draft.to);
   const numbers = fixedFit || (draft.from.trim() !== "" && draft.to.trim() !== "" && Number.isFinite(from) && Number.isFinite(to));
-  const apply = () => {
+  // After Apply, the inspector stays closed until the page shows the model it applied (round 79: a
+  // late description erased an edit made meanwhile).
+  const [pending, setPending] = useState<number | null>(null);
+  // It also waits while the project shown is older than the newest revision the page shows (the
+  // view's): Apply acts at the project's revision (round 79).
+  const behind = state.view !== null && project.science_revision !== state.view.science_revision;
+  const waiting = (pending !== null && project.science_revision < pending) || behind;
+  const apply = async () => {
     const args: ModelSetIn = fixedFit
       ? { kind: "fixed", order: "point-group", frame: "symmetry", expected_science_revision: project.science_revision }
       : {
@@ -284,7 +291,8 @@ function ModelPane({ studio, state, project, model }: Props & { project: Describ
           ],
           expected_science_revision: project.science_revision,
         };
-    void studio.command("model.set", (t) => callOperation("model.set", args, t));
+    const out = await studio.command("model.set", (t) => callOperation("model.set", args, t));
+    if (out) setPending(out.science_revision);
   };
   const orders = fixedFit ? (["point-group"] as const) : ORDERS;
   const frames = fixedFit ? (["symmetry"] as const) : FRAMES;
@@ -292,7 +300,12 @@ function ModelPane({ studio, state, project, model }: Props & { project: Describ
     <Panel title={strings.model} id="pane-model">
       <div className="form">
         <label htmlFor="model-kind">{strings.modelKind}</label>
-        <select id="model-kind" value={draft.kind} onChange={(e) => setDraft(withKind(draft, e.target.value as ModelDraft["kind"]))}>
+        <select
+          id="model-kind"
+          value={draft.kind}
+          disabled={waiting}
+          onChange={(e) => setDraft(withKind(draft, e.target.value as ModelDraft["kind"]))}
+        >
           {KINDS.map((k) => (
             <option key={k} value={k}>
               {strings.kindName[k]}
@@ -303,7 +316,7 @@ function ModelPane({ studio, state, project, model }: Props & { project: Describ
         <select
           id="model-order"
           value={draft.order}
-          disabled={fixedFit}
+          disabled={fixedFit || waiting}
           onChange={(e) => setDraft({ ...draft, order: e.target.value as ModelDraft["order"] })}
         >
           {orders.map((k) => (
@@ -316,7 +329,7 @@ function ModelPane({ studio, state, project, model }: Props & { project: Describ
         <select
           id="model-frame"
           value={draft.frame}
-          disabled={fixedFit}
+          disabled={fixedFit || waiting}
           onChange={(e) => setDraft({ ...draft, frame: e.target.value as ModelDraft["frame"] })}
         >
           {frames.map((k) => (
@@ -333,6 +346,7 @@ function ModelPane({ studio, state, project, model }: Props & { project: Describ
                 aria-label={`${strings.phiDomain} ${strings.phiFrom}`}
                 inputMode="decimal"
                 className="short"
+                disabled={waiting}
                 value={draft.from}
                 onChange={(e) => setDraft({ ...draft, from: e.target.value })}
               />
@@ -341,6 +355,7 @@ function ModelPane({ studio, state, project, model }: Props & { project: Describ
                 aria-label={`${strings.phiDomain} ${strings.phiTo}`}
                 inputMode="decimal"
                 className="short"
+                disabled={waiting}
                 value={draft.to}
                 onChange={(e) => setDraft({ ...draft, to: e.target.value })}
               />
@@ -349,10 +364,15 @@ function ModelPane({ studio, state, project, model }: Props & { project: Describ
         )}
       </div>
       <div className="row end">
-        <button type="button" disabled={!changed} onClick={() => setDraft(saved)}>
+        <button type="button" disabled={!changed || waiting} onClick={() => setDraft(saved)}>
           {strings.resetModel}
         </button>
-        <button type="button" className="primary" disabled={!changed || !numbers || state.busy !== null} onClick={apply}>
+        <button
+          type="button"
+          className="primary"
+          disabled={!changed || !numbers || waiting || state.busy !== null}
+          onClick={() => void apply()}
+        >
           {strings.applyModel}
         </button>
       </div>
@@ -386,7 +406,13 @@ function SymmetryPane({ studio, state, project }: Props & { project: DescribePro
   const declarations = state.declarations;
   // The suggestion is shown only for the science state on screen; the declaration is the latest
   // read, so a science change that leaves it alone (a couplings import) never resets the form.
-  const current = declarations && declarations.declared.science_revision === project.science_revision ? declarations : null;
+  const newest = state.view?.science_revision ?? -1;
+  const current =
+    declarations &&
+    declarations.declared.science_revision === project.science_revision &&
+    project.science_revision === newest
+      ? declarations
+      : null;
   const declared = declarations?.declared.symmetry ?? null;
   const [draft, setDraft] = useState<SymmetryDraft>(() => symmetryDraft(declared));
   // The form follows the declaration (and the geometry) when they change, not every science change.
@@ -395,10 +421,19 @@ function SymmetryPane({ studio, state, project }: Props & { project: DescribePro
   useEffect(() => setDraft(symmetryDraft(declared)), [declaredKey]);
   const numbers = [...draft.axes.flat(), draft.tolerance].every((v) => v.trim() !== "" && Number.isFinite(Number(v)));
   const suggestion = current?.suggested.suggestion ?? null;
-  const declare = (symmetry: SymmetryIn | null) =>
-    void studio.command("molecule.set_symmetry", (t) =>
-      callOperation("molecule.set_symmetry", { symmetry, expected_science_revision: project.science_revision }, t),
+  // Declare and Clear act on the declaration the form shows, at its revision, and wait while it is
+  // older than the project (round 79: Clear removed a declaration the page had not shown yet), and,
+  // after a declaration, until the page shows it.
+  const [pending, setPending] = useState<number | null>(null);
+  const shownRevision = declarations?.declared.science_revision ?? -1;
+  const waiting = current === null || (pending !== null && shownRevision < pending);
+  const declare = async (symmetry: SymmetryIn | null) => {
+    if (!current) return;
+    const out = await studio.command("molecule.set_symmetry", (t) =>
+      callOperation("molecule.set_symmetry", { symmetry, expected_science_revision: current.declared.science_revision }, t),
     );
+    if (out) setPending(out.science_revision);
+  };
   const row = (k: number) => {
     const [x = 0, y = 0, z = 0] = (draft.axes[k] ?? []).map(Number);
     return [x, y, z] as [number, number, number];
@@ -459,15 +494,15 @@ function SymmetryPane({ studio, state, project }: Props & { project: DescribePro
         <span className="muted">{strings.mediumName}</span>
       </div>
       <div className="row end">
-        <button type="button" disabled={!declared || state.busy !== null} onClick={() => declare(null)}>
+        <button type="button" disabled={!declared || waiting || state.busy !== null} onClick={() => void declare(null)}>
           {strings.clearSymmetry}
         </button>
         <button
           type="button"
           className="primary"
-          disabled={!numbers || state.busy !== null}
+          disabled={!numbers || waiting || state.busy !== null}
           onClick={() =>
-            declare({
+            void declare({
               point_group: draft.group,
               axes: [row(0), row(1), row(2)],
               tolerance: { value: Number(draft.tolerance), unit: "Å" },
