@@ -746,7 +746,8 @@ def test_the_contract_moves_to_0_11_0_as_breaking() -> None:
     from dipolar_app.operations import build_registry
     from dipolar_app.registry import CONTRACT_VERSION
 
-    assert CONTRACT_VERSION == "0.11.0"
+    # V1.4 moved the contract on to 0.12.0; the 0.11.0 entry stays in the changelog.
+    assert tuple(int(x) for x in CONTRACT_VERSION.split(".")) >= (0, 11, 0)
     snapshot = build_registry().snapshot()
     entry = next(x for x in snapshot["changelog"] if x["version"] == "0.11.0")
     assert entry["breaking"] is True

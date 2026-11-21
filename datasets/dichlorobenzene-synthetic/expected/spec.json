@@ -1,0 +1,32 @@
+{
+  "dataset": "dichlorobenzene-synthetic",
+  "frozen_on": "2026-11-20",
+  "reference_implementation": "datasets/dichlorobenzene-synthetic/generate.py (NumPy weighted least squares in Sxx, Syy; independent of dipolar-core)",
+  "model": "fixed geometry, D2h, symmetry frame = input frame",
+  "estimand": "the order tensor in the symmetry frame: Szz and Sxx − Syy (D2h leaves two free components)",
+  "N_rule": "N counts the 3 observed pair orbits; each orbit's second pair is a symmetry copy, not an observation",
+  "likelihood": "Gaussian, diagonal, known sigma = 0.3 Hz (not rescaled by chi2/nu)",
+  "tolerances": {
+    "regression": {
+      "predictions_atol_Hz": 1e-06,
+      "S_atol": 1e-09,
+      "S_interval_endpoint_atol": 1e-09,
+      "stderr_rtol": 1e-06,
+      "objective_rtol": 1e-06,
+      "ratio_rtol": 1e-09,
+      "coefficient_atol": 1e-12,
+      "covariance_rtol": 1e-06,
+      "displacement_atol_A": 1e-12
+    },
+    "reference": {
+      "S_atol": 1e-08,
+      "stderr_rtol": 1e-06,
+      "objective_rtol": 1e-06,
+      "predictions_atol_Hz": 1e-06
+    },
+    "noiseless_recovery_atol": {
+      "S": 1e-09
+    },
+    "note": "regression: the page's run against the robot's (web/e2e/fixed-tutorial.spec.ts, e2e/compare.ts fixedResultDifferences); reference: the engine against generate.py's own fit"
+  }
+}

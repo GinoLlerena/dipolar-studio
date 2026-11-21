@@ -41,6 +41,9 @@ test("loading a project file in the page loads it on the server", async ({ app, 
     expected_science_revision: 1,
   });
   await openTab(app, "Data");
+  // The page loads at the revision it shows: wait until it shows the edit (CI, V1.4: the load was
+  // sent at rev 1 and refused when the page had not read rev 2 yet).
+  await expect(app.locator(".crumb .muted")).toContainText("rev 2 ");
   await app.locator("label.button", { hasText: "Load a project file…" }).locator("input[type=file]").setInputFiles({
     name: "loaded.dipolar.json",
     mimeType: "application/json",

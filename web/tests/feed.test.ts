@@ -33,7 +33,7 @@ test("what each feed line makes the page read again", () => {
     refreshFor({ kind: "commit", cursor: 8, seq: 2, operation: "x", actor: "user", revisions, domains, jobs: [] });
   assert.deepEqual(commit(["workspace"]), ["view", "scene"]);
   // A science change also makes pending proposals stale (M3 step 3).
-  assert.deepEqual(commit(["science", "workspace"]), ["view", "project", "history", "runs", "jobs", "scene", "proposals"]);
+  assert.deepEqual(commit(["science", "workspace"]), ["view", "project", "history", "runs", "jobs", "scene", "proposals", "declarations"]);
   assert.deepEqual(commit(["job"]), ["view", "runs", "jobs", "scene"]);
   assert.deepEqual(commit(["proposal"]), ["proposals"]); // the inbox (M3 step 3)
 });

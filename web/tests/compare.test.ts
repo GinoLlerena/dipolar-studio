@@ -101,3 +101,133 @@ test("a number without a rule is a difference even when equal on both sides (fai
   b.validity.new_measure = 0.5;
   assert.match(resultDifferences(a, b, TOL).join("\n"), /no tolerance rule/);
 });
+
+// ------------------------------------------------------------------ V1.4: fixed-geometry runs
+// The fixed-geometry tutorial compares FixedRunOut results (docs/phase2/v1.4-browser.md E-6) with
+// its own frozen tolerances (datasets/dichlorobenzene-synthetic/expected/spec.json), fail-closed.
+import { readFileSync } from "node:fs";
+import { fixedResultDifferences, type FixedTolerances } from "../e2e/compare.ts";
+
+const FIXED_TOL: FixedTolerances = (
+  JSON.parse(readFileSync(new URL("../../datasets/dichlorobenzene-synthetic/expected/spec.json", import.meta.url), "utf-8")) as {
+    tolerances: { regression: FixedTolerances };
+  }
+).tolerances.regression;
+/** A real result: the tutorial's run (contract 0.11.0's FixedRunOut). */
+const fixedRun = (): any => JSON.parse(readFileSync(new URL("./data/fixed-run.json", import.meta.url), "utf-8"));
+
+test("an equal fixed result, and one within the tolerances, has no difference", () => {
+  assert.deepEqual(fixedResultDifferences(fixedRun(), fixedRun(), FIXED_TOL), []);
+  const near = fixedRun();
+  near.components[0].estimate += 5e-10;
+  near.components[1].intervals[1].upper -= 5e-10;
+  near.components[0].se *= 1 + 5e-7;
+  near.rows[2].predicted.value += 5e-7;
+  near.rows[2].residual.value -= 5e-7;
+  near.adequacy.chi2 *= 1 + 5e-7;
+  near.rank.ratios[1] *= 1 + 5e-10;
+  near.covariance_b.matrix[0][1] *= 1 + 5e-7;
+  assert.deepEqual(fixedResultDifferences(fixedRun(), near, FIXED_TOL), []);
+});
+
+/** Every leaf of a JSON value, by path. */
+function leaves(value: any, path: (string | number)[] = []): (string | number)[][] {
+  if (value !== null && typeof value === "object") {
+    const keys = Array.isArray(value) ? value.map((_, i) => i) : Object.keys(value);
+    const inner = keys.flatMap((k) => leaves(value[k], [...path, k]));
+    return inner.length ? inner : [path];
+  }
+  return [path];
+}
+
+test("every altered leaf of a fixed result is a difference (mutation over the whole result)", () => {
+  const paths = leaves(fixedRun());
+  assert.ok(paths.length > 150, `${paths.length} leaves`);
+  for (const path of paths) {
+    const altered = fixedRun();
+    const owner = path.slice(0, -1).reduce((o: any, k) => o[k], altered);
+    const key = path[path.length - 1] as string | number;
+    const v = owner[key];
+    if (typeof v === "number") owner[key] = v + Math.max(1e-3, Math.abs(v) * 1e-3);
+    else if (typeof v === "string") owner[key] = `${v}·`;
+    else if (typeof v === "boolean") owner[key] = !v;
+    else if (v === null) owner[key] = 0;
+    else if (Array.isArray(v)) owner[key] = [0];
+    else owner[key] = { extra: 0 };
+    assert.notDeepEqual(fixedResultDifferences(fixedRun(), altered, FIXED_TOL), [], path.join("."));
+  }
+});
+
+test("a fixed result's shape changes are differences", () => {
+  const changes: [string, (r: any) => void][] = [
+    ["a row missing", (r) => r.rows.pop()],
+    ["a component missing", (r) => r.components.pop()],
+    ["a field on one side only", (r) => (r.extra = true)],
+    ["a number without a tolerance rule", (r) => (r.rank.new_measure = 0.5)],
+    ["a search result in its place", (r) => (r.theta = [{ name: "phi_deg", value: 0 }])],
+  ];
+  for (const [name, change] of changes) {
+    const altered = fixedRun();
+    change(altered);
+    assert.notDeepEqual(fixedResultDifferences(fixedRun(), altered, FIXED_TOL), [], name);
+  }
+});
+
+test("a search-era result is not compared under the fixed rules, nor the reverse", () => {
+  assert.notDeepEqual(fixedResultDifferences(result(), result(), FIXED_TOL), []);
+  assert.notDeepEqual(resultDifferences(fixedRun(), fixedRun(), TOL), []);
+});
+
+// ------------------------------------------------------------------ round 79
+test("round 79: a number without a rule in a fixed result is a difference, integer or not", () => {
+  for (const [name, value] of [
+    ["an unknown integer", 1],
+    ["an unknown float", 0.5],
+  ] as const) {
+    const a = fixedRun();
+    const b = fixedRun();
+    a.rank.new_measure = value;
+    b.rank.new_measure = value;
+    assert.match(fixedResultDifferences(a, b, FIXED_TOL).join("\n"), /no tolerance rule/, name);
+  }
+  const a = fixedRun();
+  const b = fixedRun();
+  a.provenance.numerical_context.new_atol = 1e-9;
+  b.provenance.numerical_context.new_atol = 1e-9;
+  assert.match(fixedResultDifferences(a, b, FIXED_TOL).join("\n"), /no tolerance rule/, "an unknown numerical-context number");
+});
+
+test("round 79: a one-sided key named like an inherited property is a difference", () => {
+  const withProto = (text: string, key: string) => JSON.parse(text.replace(`"${key}":{`, `"${key}":{"__proto__":{},`));
+  const fixedText = JSON.stringify(fixedRun());
+  assert.notDeepEqual(fixedResultDifferences(fixedRun(), withProto(fixedText, "adequacy"), FIXED_TOL), []);
+  assert.notDeepEqual(fixedResultDifferences(withProto(fixedText, "adequacy"), fixedRun(), FIXED_TOL), []);
+  const searchText = JSON.stringify(result());
+  assert.notDeepEqual(resultDifferences(result(), withProto(searchText, "validity"), TOL), []);
+  const constructor = JSON.parse(searchText.replace('"validity":{', '"validity":{"constructor":1,'));
+  assert.notDeepEqual(resultDifferences(constructor, result(), TOL), []);
+});
+
+// ------------------------------------------------------------------ round 80
+test("round 80: a key whose name looks like a path takes no rule of that path", () => {
+  const a = fixedRun();
+  const b = fixedRun();
+  a["rank.required"] = 2;
+  b["rank.required"] = 2;
+  assert.notDeepEqual(fixedResultDifferences(a, b, FIXED_TOL), [], "a literal 'rank.required' key");
+  const c = fixedRun();
+  const d = fixedRun();
+  c.rows[0]["predicted.value"] = 1.5;
+  d.rows[0]["predicted.value"] = 1.5;
+  assert.notDeepEqual(fixedResultDifferences(c, d, FIXED_TOL), [], "a literal 'predicted.value' key");
+  const e = result();
+  const f = result();
+  e["validity.inner_condition_number"] = 3.5;
+  f["validity.inner_condition_number"] = 3.5;
+  assert.notDeepEqual(resultDifferences(e, f, TOL), [], "a literal key in a search result");
+  const g = fixedRun();
+  const h = fixedRun();
+  g.components[0]["intervals[]"] = 0.5;
+  h.components[0]["intervals[]"] = 0.5;
+  assert.notDeepEqual(fixedResultDifferences(g, h, FIXED_TOL), [], "a key with brackets");
+});

@@ -46,7 +46,7 @@ export class Server {
 
   /** One registry call over HTTP. A query is sent once more, and the retry logged, only when its
    * connection was reset: Node's fetch reuses a kept-alive connection that the server may have
-   * closed while idle (ECONNRESET, seen after the robot's seconds-long run, M3 exit audit). Any
+   * closed while idle (ECONNRESET or UND_ERR_SOCKET, seen after the robot's seconds-long run, M3 exit audit). Any
    * other failure, a second reset, and any failure of a command are errors. */
   async call(who: Who, operation: string, args: object = {}, options: object = {}): Promise<Envelope> {
     const send = () =>
@@ -60,8 +60,10 @@ export class Server {
       response = await send();
     } catch (error) {
       const code = (error as { cause?: { code?: string } }).cause?.code;
-      if (!QUERIES.has(operation) || code !== "ECONNRESET") throw error;
-      console.warn(`harness: ${operation} resent once after ECONNRESET on a reused connection`);
+      // The same idle-close race shows as UND_ERR_SOCKET ("other side closed") when the server
+      // closes the connection before the request is written (V1.4, round 79 runs).
+      if (!QUERIES.has(operation) || (code !== "ECONNRESET" && code !== "UND_ERR_SOCKET")) throw error;
+      console.warn(`harness: ${operation} resent once after ${code} on a reused connection`);
       response = await send();
     }
     return (await response.json()) as Envelope;

@@ -87,6 +87,119 @@ function within(a: number, b: number, r: Rule): boolean {
 
 /** Every difference between two run results (`run.get`'s `result`), or none. */
 export function resultDifferences(a: Json, b: Json, t: Tolerances): string[] {
+  return differences(a, b, (path, owner, top) => rule(path, owner, top, t));
+}
+
+// ------------------------------------------------------------------ fixed-geometry runs (V1.4)
+
+/** The frozen regression tolerances of a fixed-geometry run, as in
+ * datasets/dichlorobenzene-synthetic/expected/spec.json. */
+export type FixedTolerances = {
+  predictions_atol_Hz: number;
+  S_atol: number;
+  S_interval_endpoint_atol: number;
+  stderr_rtol: number;
+  objective_rtol: number;
+  ratio_rtol: number;
+  coefficient_atol: number;
+  covariance_rtol: number;
+  displacement_atol_A: number;
+};
+
+type Obj = { [key: string]: Json };
+const isObj = (x: Json | undefined): x is Obj => x !== null && x !== undefined && typeof x === "object" && !Array.isArray(x);
+
+/** The largest |diagonal entry| of a result's covariance: the scale of its off-diagonal entries. */
+function covarianceScale(result: Obj): number {
+  const cov = result.covariance_b;
+  const matrix = isObj(cov) && Array.isArray(cov.matrix) ? cov.matrix : [];
+  let scale = 0;
+  matrix.forEach((row, i) => {
+    const v = Array.isArray(row) ? row[i] : null;
+    if (typeof v === "number") scale = Math.max(scale, Math.abs(v));
+  });
+  return scale;
+}
+
+/** The rule for the number at `path` of a FixedRunOut, or null when there is none. */
+function fixedRule(path: string, owner: Obj, result: Obj, t: FixedTolerances): Rule | null {
+  switch (path) {
+    // Counts, ranks and revisions: exactly (round 79: every number has its own rule here).
+    case "science_revision":
+    case "n_obs":
+    case "rank.required":
+    case "rank.numerical":
+    case "adequacy.nu":
+    case "rows[].multiplicity":
+    // The numerical context's numbers: inputs, exactly.
+    case "provenance.numerical_context.admissibility_atol":
+    case "provenance.numerical_context.rank_rtol":
+      return { abs: 0 };
+    case "components[].coefficients_b[]":
+    case "covariance_b.basis_b[][]":
+    case "null_directions_b[][]":
+      return { abs: t.coefficient_atol };
+    case "components[].estimate":
+    case "admissibility.lambda_min":
+    case "admissibility.representative_b[]":
+      return { abs: t.S_atol };
+    case "components[].se":
+      return { rel: t.stderr_rtol };
+    case "components[].intervals[].lower":
+    case "components[].intervals[].upper":
+      return { abs: t.S_interval_endpoint_atol };
+    case "rank.ratios[]":
+      return { rel: t.ratio_rtol };
+    case "covariance_b.matrix[][]": // relative to the matrix's scale: off-diagonal entries can be ~0
+      return { abs: t.covariance_rtol * covarianceScale(result) };
+    case "adequacy.chi2":
+    case "adequacy.p_value":
+      return { rel: t.objective_rtol };
+    case "rows[].predicted.value":
+    case "rows[].residual.value":
+    case "rms_residual.value":
+      return { abs: t.predictions_atol_Hz };
+    case "rows[].normalized_residual": {
+      const sigma = owner.sigma;
+      return isObj(sigma) && typeof sigma.value === "number" && sigma.value > 0 ? { abs: t.predictions_atol_Hz / sigma.value } : null;
+    }
+    case "symmetry.max_displacement.value":
+      return { abs: t.displacement_atol_A };
+    // Inputs copied into the result: equal exactly.
+    case "rows[].observed.value":
+    case "rows[].sigma.value":
+    case "symmetry.axes[][]":
+    case "symmetry.tolerance.value":
+      return { abs: 0 };
+    default:
+      return null;
+  }
+}
+
+/** Every difference between two fixed-geometry run results (`run.get`'s `result`, a FixedRunOut),
+ * fail-closed as `resultDifferences`; a result that is not a fixed-geometry one is a difference. */
+export function fixedResultDifferences(a: Json, b: Json, t: FixedTolerances): string[] {
+  const kind = (x: Json) => (isObj(x) && isObj(x.model) ? x.model.kind : undefined);
+  if (kind(a) !== "fixed" || kind(b) !== "fixed") {
+    return [`result: not two fixed-geometry results (${JSON.stringify(kind(a))} and ${JSON.stringify(kind(b))})`];
+  }
+  return differences(a, b, (path, owner, top) => fixedRule(path, owner, top, t), false);
+}
+
+/** A key as a path segment: a plain name as is, any other quoted (round 80: a literal key
+ * "rank.required" took the rule of the nested rank.required). */
+function segment(key: string): string {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) ? key : JSON.stringify(key);
+}
+
+/** `integersWithoutRule`: whether an integer without a rule is compared exactly (the search-era
+ * result's counts and ranks) or is a difference (the fixed-geometry result names all of its own). */
+function differences(
+  a: Json,
+  b: Json,
+  ruleOf: (path: string, owner: Obj, top: Obj) => Rule | null,
+  integersWithoutRule = true,
+): string[] {
   const out: string[] = [];
   const top = (a !== null && typeof a === "object" && !Array.isArray(a) ? a : {}) as { [key: string]: Json };
   const walk = (x: Json, y: Json, path: string, shown: string, owner: { [key: string]: Json }) => {
@@ -105,16 +218,17 @@ export function resultDifferences(a: Json, b: Json, t: Tolerances): string[] {
       }
       const keys = new Set([...Object.keys(x), ...Object.keys(y)]);
       for (const k of keys) {
-        if (!(k in x) || !(k in y)) out.push(`${shown}.${k}: on one side only`);
-        else walk(x[k] as Json, y[k] as Json, path === "" ? k : `${path}.${k}`, `${shown}.${k}`, x);
+        // Own keys only (round 79: `in` saw an inherited `__proto__` or `constructor` on the other side).
+        if (!Object.hasOwn(x, k) || !Object.hasOwn(y, k)) out.push(`${shown}.${k}: on one side only`);
+        else walk(x[k] as Json, y[k] as Json, path === "" ? segment(k) : `${path}.${segment(k)}`, `${shown}.${k}`, x);
       }
       return;
     }
     if (typeof x === "number" && typeof y === "number") {
-      const r = rule(path, owner, top, t);
+      const r = ruleOf(path, owner, top);
       if (r !== null) {
         if (!within(x, y, r)) out.push(`${shown}: ${x} and ${y} (${JSON.stringify(r)})`);
-      } else if (!(Number.isInteger(x) && Number.isInteger(y))) {
+      } else if (!integersWithoutRule || !(Number.isInteger(x) && Number.isInteger(y))) {
         out.push(`${shown}: no tolerance rule for this quantity`);
       } else if (x !== y) {
         out.push(`${shown}: ${x} and ${y}`); // counts and ranks: exactly

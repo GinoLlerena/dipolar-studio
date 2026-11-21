@@ -5,6 +5,25 @@ version. Under SemVer 0.x, a breaking change moves the minor version. The regist
 (`packages/dipolar-app/registry.snapshot.json`, also served at `GET /api/v1/registry`) carries the
 entries from 0.11.0 on in its `changelog` field; this page also lists the earlier versions.
 
+## 0.12.0 (Phase 2 V1.4, 2026-11-20): breaking
+
+The browser and the robot for fixed-geometry projects (`docs/phase2/v1.4-browser.md`, E-1).
+
+- **Breaking:** `render.scene` and `render.describe_view` give `phi: null` and `phi_source: null`
+  for a fixed-geometry project: there is no torsion to show. `render.scene`'s `phi` is nullable.
+- **Added:** for a fixed-geometry project only, `render.scene` has `symmetry`: the point group, the
+  origin (the centroid) and axes of the symmetry frame, the drawn axes' length, the largest
+  displacement, the group action (`images`: per operation, each atom's image by index), and the
+  automatic camera's direction and up. Its automatic camera looks along the symmetry axis with the
+  least spread, so a ring is seen face-on. `render.view_svg` draws the axes and every member of
+  each row's pair orbit.
+- **Added:** the query `molecule.suggest_symmetry`: Cs, with the spins' plane as the mirror, when
+  every spin lies within the tolerance of one plane and no group beyond C1 is declared. It is a
+  suggestion, not validated: declaring it validates it.
+- **Unchanged for projects without a fixed model:** `render.scene` and `render.describe_view` keep
+  their 0.10.0 shapes (a gate test validates them, a torsion-less draft with a declaration
+  included).
+
 ## 0.11.0 (Phase 2 V1.3, 2026-11-19): breaking
 
 Fixed-geometry fits of imported molecules (`docs/phase2/v1.0-design.md`, D-3 to D-10).

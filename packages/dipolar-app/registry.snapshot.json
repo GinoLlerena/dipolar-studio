@@ -3,6 +3,16 @@
     {
       "breaking": true,
       "changes": [
+        "BREAKING: render.scene and render.describe_view give phi null and phi_source null for a fixed-geometry project (no torsion); render.scene's phi is nullable",
+        "added: render.scene has symmetry (point group, origin, axes, the group action as images, the automatic camera's direction and up) for a fixed-geometry project only; its automatic camera looks along the symmetry axis of least spread",
+        "added: the query molecule.suggest_symmetry (Cs for planar spins without a group beyond C1; a suggestion, not validated)",
+        "unchanged for projects without a fixed model: render.scene and render.describe_view keep the 0.10.0 shapes"
+      ],
+      "version": "0.12.0"
+    },
+    {
+      "breaking": true,
+      "changes": [
         "BREAKING: run.get can return a FixedRunOut (result.model.kind 'fixed') for a fixed-geometry run; a client that assumes the search-era FitRunOut fails on such a run",
         "BREAKING: project.describe and model.set return a model without phi_domain for a fixed-geometry project (kind 'fixed', order 'point-group', frame 'symmetry')",
         "added: molecule.set_symmetry, molecule.set_isotope and couplings.remove (proposable, undoable, with expected_science_revision), and the query molecule.declarations",
@@ -15,7 +25,7 @@
       "version": "0.11.0"
     }
   ],
-  "contract_version": "0.11.0",
+  "contract_version": "0.12.0",
   "envelopes": {
     "error": {
       "$defs": {
@@ -4083,6 +4093,281 @@
       "input_schema": {
         "additionalProperties": false,
         "properties": {},
+        "title": "SuggestSymmetryIn",
+        "type": "object"
+      },
+      "kind": "query",
+      "max_request_bytes": 1048576,
+      "name": "molecule.suggest_symmetry",
+      "output_schema": {
+        "$defs": {
+          "Angstrom": {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "Å",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "exclusiveMinimum": 0,
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Angstrom",
+            "type": "object"
+          },
+          "Length": {
+            "additionalProperties": false,
+            "description": "A distance that may be zero (for example the largest displacement of a symmetrization).",
+            "properties": {
+              "unit": {
+                "const": "Å",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "minimum": 0,
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Length",
+            "type": "object"
+          },
+          "SymmetryIn": {
+            "additionalProperties": false,
+            "properties": {
+              "axes": {
+                "default": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ],
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  }
+                ],
+                "title": "Axes",
+                "type": "array"
+              },
+              "medium": {
+                "default": "achiral-uniaxial",
+                "maxLength": 64,
+                "minLength": 1,
+                "title": "Medium",
+                "type": "string"
+              },
+              "point_group": {
+                "maxLength": 16,
+                "minLength": 1,
+                "title": "Point Group",
+                "type": "string"
+              },
+              "tolerance": {
+                "$ref": "#/$defs/Angstrom",
+                "default": {
+                  "unit": "Å",
+                  "value": 0.01
+                }
+              }
+            },
+            "required": [
+              "point_group"
+            ],
+            "title": "SymmetryIn",
+            "type": "object"
+          },
+          "SymmetryPlane": {
+            "additionalProperties": false,
+            "description": "The spins' least-squares plane through their centroid (input coordinates).",
+            "properties": {
+              "centroid": {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "title": "Centroid",
+                "type": "array"
+              },
+              "max_distance": {
+                "$ref": "#/$defs/Length"
+              },
+              "normal": {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "title": "Normal",
+                "type": "array"
+              },
+              "spins": {
+                "title": "Spins",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "normal",
+              "centroid",
+              "max_distance",
+              "spins"
+            ],
+            "title": "SymmetryPlane",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "description": "The Cs suggestion of docs/phase2/v1.4-browser.md E-5: only a suggestion, never certified.\nDeclaring it (``molecule.set_symmetry``) validates it, like any declaration.",
+        "properties": {
+          "plane": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SymmetryPlane"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "science_hash": {
+            "title": "Science Hash",
+            "type": "string"
+          },
+          "science_revision": {
+            "title": "Science Revision",
+            "type": "integer"
+          },
+          "suggestion": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SymmetryIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tolerance": {
+            "$ref": "#/$defs/Angstrom"
+          }
+        },
+        "required": [
+          "science_revision",
+          "science_hash",
+          "suggestion",
+          "plane",
+          "tolerance",
+          "reason"
+        ],
+        "title": "SuggestSymmetryOut",
+        "type": "object"
+      },
+      "proposable": false,
+      "revision_check": "none",
+      "summary": "A suggested declaration, Cs with the spins' plane as the mirror, when every spin lies within the tolerance of one plane and no group beyond C1 is declared. Only a suggestion: declaring it validates it."
+    },
+    {
+      "capability": "query",
+      "cost": "instant",
+      "effect": "none",
+      "examples": [
+        {}
+      ],
+      "idempotent": true,
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
         "title": "DescribeProjectIn",
         "type": "object"
       },
@@ -6688,6 +6973,28 @@
             "title": "Hertz",
             "type": "object"
           },
+          "Length": {
+            "additionalProperties": false,
+            "description": "A distance that may be zero (for example the largest displacement of a symmetrization).",
+            "properties": {
+              "unit": {
+                "const": "Å",
+                "title": "Unit",
+                "type": "string"
+              },
+              "value": {
+                "minimum": 0,
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ],
+            "title": "Length",
+            "type": "object"
+          },
           "SceneAtom": {
             "additionalProperties": false,
             "properties": {
@@ -6882,6 +7189,138 @@
             "title": "SceneRun",
             "type": "object"
           },
+          "SceneSymmetry": {
+            "additionalProperties": false,
+            "description": "The symmetry frame of a fixed-geometry project (V1.4, E-3): what the Structure view draws.",
+            "properties": {
+              "axes": {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  {
+                    "maxItems": 3,
+                    "minItems": 3,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  }
+                ],
+                "title": "Axes",
+                "type": "array"
+              },
+              "axis_length": {
+                "$ref": "#/$defs/Angstrom"
+              },
+              "camera_direction": {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "title": "Camera Direction",
+                "type": "array"
+              },
+              "camera_up": {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "title": "Camera Up",
+                "type": "array"
+              },
+              "images": {
+                "items": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "maxItems": 24,
+                "title": "Images",
+                "type": "array"
+              },
+              "max_displacement": {
+                "$ref": "#/$defs/Length"
+              },
+              "origin": {
+                "$ref": "#/$defs/Vector"
+              },
+              "point_group": {
+                "title": "Point Group",
+                "type": "string"
+              }
+            },
+            "required": [
+              "point_group",
+              "origin",
+              "axes",
+              "axis_length",
+              "max_displacement",
+              "images",
+              "camera_direction",
+              "camera_up"
+            ],
+            "title": "SceneSymmetry",
+            "type": "object"
+          },
           "SceneViewport": {
             "additionalProperties": false,
             "properties": {
@@ -7019,16 +7458,30 @@
             "$ref": "#/$defs/SceneLayers"
           },
           "phi": {
-            "$ref": "#/$defs/Degrees"
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Degrees"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "phi_source": {
-            "enum": [
-              "run",
-              "imported",
-              "default"
+            "anyOf": [
+              {
+                "enum": [
+                  "run",
+                  "imported",
+                  "default"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Phi Source",
-            "type": "string"
+            "title": "Phi Source"
           },
           "run": {
             "anyOf": [
@@ -7051,6 +7504,17 @@
             },
             "title": "Selection",
             "type": "array"
+          },
+          "symmetry": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SceneSymmetry"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "viewport": {
             "$ref": "#/$defs/SceneViewport"

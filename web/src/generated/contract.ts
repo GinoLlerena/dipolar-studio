@@ -1,12 +1,12 @@
 // GENERATED FILE: do not edit. Regenerate with `uv run python tools/codegen/ts_contract.py`.
-// Source: packages/dipolar-app/registry.snapshot.json (sha256 41ee410ef24c2b3417b83ea7339d8f07a341457247b5da383ed76df3f2a97e63).
+// Source: packages/dipolar-app/registry.snapshot.json (sha256 ae3d9a8e98bd8b780a464edf1b9a1d3f96bbca396ef81dbd39f1a7f8104bf883).
 // CI fails if this file is stale (tests/test_ts_contract.py).
 //
 // Value constraints that TypeScript cannot express (bounds, lengths, patterns) appear as doc
 // comments; the server enforces them.
 /* eslint-disable */
 
-export const CONTRACT_VERSION = "0.11.0";
+export const CONTRACT_VERSION = "0.12.0";
 
 /** Any JSON value. */
 export type JsonValue =
@@ -552,6 +552,21 @@ export type SceneRun = {
   stale: boolean;
 };
 
+export type SceneSymmetry = {
+  /** minItems 3, maxItems 3 */
+  axes: [[number, number, number], [number, number, number], [number, number, number]];
+  axis_length: Angstrom;
+  /** minItems 3, maxItems 3 */
+  camera_direction: [number, number, number];
+  /** minItems 3, maxItems 3 */
+  camera_up: [number, number, number];
+  /** maxItems 24 */
+  images: number[][];
+  max_displacement: Length;
+  origin: Vector;
+  point_group: string;
+};
+
 export type SceneViewport = {
   /** integer */
   height: number;
@@ -638,6 +653,16 @@ export type SymmetryOut = {
   medium: string;
   point_group: string;
   tolerance: Angstrom;
+};
+
+export type SymmetryPlane = {
+  /** minItems 3, maxItems 3 */
+  centroid: [number, number, number];
+  max_distance: Length;
+  /** minItems 3, maxItems 3 */
+  normal: [number, number, number];
+  /** integer */
+  spins: number;
 };
 
 export type TemplateOut = {
@@ -1046,6 +1071,20 @@ export type SetTorsionOut = {
   torsion: [number, number, number, number];
 };
 
+/** `molecule.suggest_symmetry` input. */
+export type SuggestSymmetryIn = { [key: string]: never };
+
+/** `molecule.suggest_symmetry` output. */
+export type SuggestSymmetryOut = {
+  plane: SymmetryPlane | null;
+  reason: string;
+  science_hash: string;
+  /** integer */
+  science_revision: number;
+  suggestion: SymmetryIn | null;
+  tolerance: Angstrom;
+};
+
 /** `project.describe` input. */
 export type DescribeProjectIn = { [key: string]: never };
 
@@ -1266,12 +1305,14 @@ export type SceneOut = {
   fit: FitSummary | null;
   highlights: string[];
   layers: SceneLayers;
-  phi: Degrees;
-  phi_source: "run" | "imported" | "default";
+  phi: Degrees | null;
+  phi_source: "run" | "imported" | "default" | null;
   run: SceneRun | null;
   /** integer */
   science_revision: number;
   selection: string[];
+  /** default null */
+  symmetry?: SceneSymmetry | null;
   viewport: SceneViewport;
   /** integer */
   workspace_revision: number;
@@ -1430,6 +1471,8 @@ export interface Operations {
   "molecule.set_symmetry": { input: SetSymmetryIn; output: SetSymmetryOut };
   /** Declare the fitted torsion of imported geometry: four atom indices (a, i, j, b), i–j a bond. */
   "molecule.set_torsion": { input: SetTorsionIn; output: SetTorsionOut };
+  /** A suggested declaration, Cs with the spins' plane as the mirror, when every spin lies within the tolerance of one plane and no group beyond C1 is declared. Only a suggestion: declaring it validates it. */
+  "molecule.suggest_symmetry": { input: SuggestSymmetryIn; output: SuggestSymmetryOut };
   /** Describe the project: geometry, spins, couplings, model, estimand and readiness to fit, with IDs. */
   "project.describe": { input: DescribeProjectIn; output: DescribeProjectOut };
   /** The project as *.dipolar.json text, with a suggested file name. */
@@ -1541,6 +1584,7 @@ export const OPERATIONS = {
   "molecule.set_isotope": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
   "molecule.set_symmetry": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
   "molecule.set_torsion": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },
+  "molecule.suggest_symmetry": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "project.describe": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "project.export": { kind: "query", effect: "none", capability: "query", cost: "instant", idempotent: true, revision_check: "none", max_request_bytes: 1048576, proposable: false },
   "project.import_xyz": { kind: "command", effect: "model", capability: "science_mutation", cost: "instant", idempotent: false, revision_check: "expected_science_revision (required)", max_request_bytes: 1048576, proposable: true },

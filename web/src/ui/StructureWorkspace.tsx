@@ -1,7 +1,8 @@
 import { type KeyboardEvent, type PointerEvent, type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { callOperation, type DescribeProjectOut, type SceneOut } from "../api";
-import { fixed, residualHz } from "../format";
+import { fixed, residualHz, scientific } from "../format";
 import { autoCamera, type Camera, drawOrder, project, type Vec3 } from "../scene/projection";
+import { orbitArcs } from "../scene/orbits";
 import {
   arcPath,
   arcWidth,
@@ -17,7 +18,7 @@ import {
   radiusAbout,
   ZOOM_STEP,
 } from "../scene/view";
-import { mostRelevant } from "../limits";
+import { MAX_DRAWN, mostRelevant } from "../limits";
 import { strings } from "../strings";
 import type { Studio, StudioState } from "../studio";
 import { Panel, selectableRow, Spacer, useRowWindow } from "./common";
@@ -37,7 +38,7 @@ export function StructureWorkspace({ studio, state }: Props) {
       <div className="column side">
         {open && <LayersPane studio={studio} scene={scene} busy={state.busy !== null} />}
         {open && <SelectionPane studio={studio} scene={scene} project={project} />}
-        {open && <Legend hasResiduals={scene.couplings.some((c) => c.residual !== null)} />}
+        {open && <Legend hasResiduals={scene.couplings.some((c) => c.residual !== null)} scene={scene} />}
       </div>
       <div className="column main">
         {open ? <ScenePane studio={studio} scene={scene} project={project} viewRevision={view?.workspace_revision ?? 0} /> : <p className="empty">{strings.noProjectYet}</p>}
@@ -103,9 +104,14 @@ function ScenePane({
   const suppressClick = useRef(false);
 
   const points = useMemo(() => scene.atoms.map((a) => a.position.xyz as Vec3), [scene]);
+  const frame = scene.symmetry ?? null;
+  // A fixed-geometry scene looks along its symmetry axis of least spread (V1.4, E-3).
   const shared = useMemo(
-    () => (scene.camera.automatic ? autoCamera(points, width, height) : cameraOf(scene.camera)),
-    [scene, points, width, height],
+    () =>
+      scene.camera.automatic
+        ? autoCamera(points, width, height, undefined, frame ? { direction: frame.camera_direction, up: frame.camera_up } : undefined)
+        : cameraOf(scene.camera),
+    [scene, points, width, height, frame],
   );
   const camera = local !== null && local.revision === scene.workspace_revision ? local.camera : shared;
   const latest = useRef({ camera, width, height, revision: scene.workspace_revision, points });
@@ -249,6 +255,27 @@ function ScenePane({
       ),
     [scene, normalized],
   );
+  // Every member of each drawn row's pair orbit (V1.4, E-3): the observed pair, then its symmetry
+  // copies while the drawing limit allows, selected and highlighted rows first.
+  const orbits = useMemo(() => {
+    const index = new Map(scene.atoms.map((a, k) => [a.id, k]));
+    const rowsOf = (list: typeof drawn) =>
+      list.map((c) => ({ id: c.id, a: index.get(c.spin_a) ?? -1, b: index.get(c.spin_b) ?? -1 })).filter((r) => r.a >= 0 && r.b >= 0);
+    if (!frame) return { arcs: rowsOf(drawn).map((r) => ({ ...r, copy: 0 })), omitted: 0 };
+    const first = (c: (typeof drawn)[number]) => (scene.selection.includes(c.id) || scene.highlights.includes(c.id) ? 0 : 1);
+    const ordered = [...drawn].sort((p, q) => first(p) - first(q) || Math.abs(normalized.get(q.id) ?? 0) - Math.abs(normalized.get(p.id) ?? 0));
+    return orbitArcs(rowsOf(ordered), frame.images, MAX_DRAWN, new Set([...scene.selection, ...scene.highlights]));
+  }, [scene, drawn, normalized, frame]);
+  const byId = useMemo(() => new Map(scene.couplings.map((c) => [c.id, c])), [scene]);
+  const axes = frame
+    ? (["x", "y", "z"] as const).map((name, k) => {
+        const o = frame.origin.xyz as Vec3;
+        const a = frame.axes[k] as Vec3;
+        const l = frame.axis_length.value;
+        const [p0, p1] = project(camera, width, height, [o, [o[0] + l * a[0], o[1] + l * a[1], o[2] + l * a[2]]]);
+        return { name, p0, p1 };
+      })
+    : [];
 
   return (
     <Panel
@@ -271,12 +298,16 @@ function ScenePane({
           role="group"
           aria-roledescription="3D structure view"
           data-workspace-revision={scene.workspace_revision}
-          aria-label={strings.structureLabel(
-            scene.atoms.length,
-            scene.couplings.length,
-            fixed(scene.phi.value, 1),
-            strings.phiSource[scene.phi_source],
-          )}
+          aria-label={
+            frame || scene.phi === null || scene.phi_source === null
+              ? strings.rigidStructureLabel(scene.atoms.length, scene.couplings.length, frame?.point_group ?? "—")
+              : strings.structureLabel(
+                  scene.atoms.length,
+                  scene.couplings.length,
+                  fixed(scene.phi.value, 1),
+                  strings.phiSource[scene.phi_source],
+                )
+          }
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -292,11 +323,22 @@ function ScenePane({
               if (!pa?.visible || !pb?.visible) return null;
               return <line key={`${b.a}-${b.b}`} className="scene-bond" x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y} />;
             })}
+          {axes.map(({ name, p0, p1 }) =>
+            p0?.visible && p1?.visible ? (
+              <g key={name} className="sym-axis" data-axis={name}>
+                <line className="sym-axis-line" x1={p0.x} y1={p0.y} x2={p1.x} y2={p1.y} />
+                <text className="sym-axis-label" x={p1.x + 3} y={p1.y - 3}>
+                  {name}′
+                </text>
+              </g>
+            ) : null,
+          )}
           {scene.layers.couplings &&
-            drawn.map((c) => {
-              const pa = at.get(c.spin_a);
-              const pb = at.get(c.spin_b);
-              if (!pa?.visible || !pb?.visible) return null;
+            orbits.arcs.map((arc) => {
+              const c = byId.get(arc.id);
+              const pa = projected[arc.a];
+              const pb = projected[arc.b];
+              if (!c || !pa?.visible || !pb?.visible) return null;
               const z = normalized.get(c.id);
               const step = z === undefined ? null : misfitStep(z);
               const cls = [
@@ -308,9 +350,10 @@ function ScenePane({
               const label = labelOf.get(c.id) ?? c.id;
               return (
                 <path
-                  key={c.id}
+                  key={`${c.id}-${arc.copy}`}
                   data-id={c.id}
-                  className={cls}
+                  data-copy={arc.copy === 0 ? undefined : arc.copy}
+                  className={arc.copy === 0 ? cls : `${cls} arc-copy`}
                   d={arcPath(pa, pb)}
                   strokeWidth={step === null ? 1 : arcWidth(step)}
                   onClick={(e) => pick(c.id, e.shiftKey)}
@@ -357,6 +400,8 @@ function ScenePane({
       {scene.layers.couplings && drawn.length < scene.couplings.length && (
         <p className="help">{strings.drawnSubset(drawn.length, scene.couplings.length)}</p>
       )}
+      {frame && <p className="help">{strings.orbitHelp}</p>}
+      {scene.layers.couplings && orbits.omitted > 0 && <p className="help">{strings.copiesOmitted(orbits.omitted)}</p>}
     </Panel>
   );
 }
@@ -424,9 +469,11 @@ function SelectionPane({ studio, scene, project: prj }: { studio: Studio; scene:
   );
 }
 
-function Legend({ hasResiduals }: { hasResiduals: boolean }) {
+function Legend({ hasResiduals, scene }: { hasResiduals: boolean; scene: SceneOut }) {
+  const frame = scene.symmetry;
   return (
     <Panel title={strings.misfitLegend} id="pane-legend">
+      {frame && <p className="help">{strings.symmetryLegend(frame.point_group, scientific(frame.max_displacement.value, 2))}</p>}
       <ul className="legend">
         {strings.misfitSteps.map((label, step) => (
           <li key={label}>

@@ -17,7 +17,7 @@ const close = (a, b, what) => {
 for (const c of fixtures.cases) {
   const [w, h] = c.viewport;
   if (c.auto) {
-    const cam = autoCamera(c.points, w, h, c.camera.fov_deg);
+    const cam = autoCamera(c.points, w, h, c.camera.fov_deg, c.view ?? undefined);
     for (const key of ["position", "target", "up"]) cam[key].forEach((v, i) => close(v, c.camera[key][i], `${c.name}: camera.${key}[${i}]`));
     for (const key of ["fov_deg", "near", "far"]) close(cam[key], c.camera[key], `${c.name}: camera.${key}`);
   }

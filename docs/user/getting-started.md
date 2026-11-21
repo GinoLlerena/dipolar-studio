@@ -108,6 +108,39 @@ i–j is the rotating bond and a, b are neighbours on each side. Then choose the
 Under the model, the Data tab says when the project is **ready to fit**, and what is missing if
 it is not.
 
+### A rigid molecule (fixed geometry; after 0.1)
+
+The development version also fits a **rigid molecule with no torsion**, such as benzene or a
+dichlorobenzene, from its XYZ file. Only the order tensor is fitted, so the fit is linear and its
+intervals are exact. The worked example is synthetic 1,4-dichlorobenzene
+(`datasets/dichlorobenzene-synthetic/`, with the expected answer in its README):
+
+1. **Import the geometry** ("Import XYZ geometry…").
+2. **Declare its symmetry** in the Data tab's Symmetry form: the point group (C1, Cs, C2v, D2h, D3h
+   or D6h), its axes x′, y′, z′ as rows in your file's coordinates, and the matching tolerance. The
+   declaration is checked against every atom; a refusal says what does not match. If every proton
+   lies in one plane and no group beyond C1 is declared, the form **suggests Cs** with that plane as
+   the mirror. It is only a suggestion. Declaring Cs makes the plane a mirror of the molecule
+   (the geometry is symmetrized onto it) and reduces the model to the in-plane block of the order
+   tensor; which combinations of that block your couplings determine is what the fit reports. (An
+   exactly planar molecule fitted as C1 cannot have its rank verified: its out-of-plane
+   components are not determined.)
+3. **Choose the model** "Fixed geometry (no torsion)" and apply it. It has no φ domain.
+4. **Import the couplings**, one row per observed pair orbit: a symmetry copy is not a new
+   observation (see [file formats](file-formats.md)).
+5. **Run the fit.** The Fit tab shows the **estimable combinations** of the order tensor (each with
+   its estimate, standard error and exact 68.3 % and 95 % intervals), the components fixed by
+   symmetry, the rank, the adequacy and the admissibility, and what the results assume. There is
+   no torsion, so no preview slider and no χ²(φ) landscape.
+6. The **Structure** tab looks along the declared symmetry axis on which the molecule is least
+   spread out, so a ring is seen face-on when one of the declared axes is normal to its plane. It
+   draws the axes x′, y′, z′ and the pairs of each observed orbit: at most 2000 arcs, plus up to
+   2000 more for the symmetry copies of the selected and highlighted couplings. The view says how
+   many copies it leaves out.
+
+Isotopes (¹³C, ¹⁵N, D) are declared with the operation `molecule.set_isotope` (Python or HTTP);
+the page shows them in the atom table.
+
 ## Using Python
 
 Every action in the app is an **operation** of one registry, and the same operations are

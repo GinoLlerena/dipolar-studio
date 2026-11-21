@@ -25,7 +25,7 @@ from dipolar_app.errors import ErrorCode, OperationError
 from dipolar_app.project import Project, short
 from dipolar_app.registry import Context
 from dipolar_app.scene import build_scene, check_camera, render_svg
-from dipolar_app.schemas import Angstrom, Degrees, Hertz, ObjectId, Revision, RunIdStr, Wire
+from dipolar_app.schemas import Angstrom, Degrees, Hertz, Length, ObjectId, Revision, RunIdStr, Wire
 from dipolar_app.session import WORKSPACE, Camera, Event, SessionState
 
 MAX_HIGHLIGHTS = 1000
@@ -251,11 +251,34 @@ class SceneIn(Wire):
     pass
 
 
+Axis3 = tuple[float, float, float]
+#: The largest point group's order (D6h): one image row per operation.
+MAX_OPERATIONS = 24
+
+
+class SceneSymmetry(Wire):
+    """The symmetry frame of a fixed-geometry project (V1.4, E-3): what the Structure view draws."""
+
+    point_group: str
+    origin: Vector  # the centroid of all atoms, in the scene's coordinates
+    axes: tuple[Axis3, Axis3, Axis3]  # rows x′, y′, z′ (Q's rows), in the scene's coordinates
+    axis_length: Angstrom  # the drawn axes' length
+    max_displacement: Length  # the largest move of the symmetrized geometry the fit uses
+    #: The group action: per operation, the index in ``atoms`` of each atom's image.
+    images: Annotated[tuple[tuple[int, ...], ...], Field(max_length=MAX_OPERATIONS)]
+    camera_direction: Axis3  # the automatic camera's side of the centroid (a unit vector)
+    camera_up: Axis3
+
+
+def _no_symmetry(value: object) -> bool:
+    return value is None
+
+
 class SceneOut(Wire):
     science_revision: int
     workspace_revision: int
-    phi: Degrees
-    phi_source: Literal["run", "imported", "default"]
+    phi: Degrees | None  # None for a fixed-geometry project: no torsion (V1.4)
+    phi_source: Literal["run", "imported", "default"] | None
     run: SceneRun | None
     fit: FitSummary | None  # the current, readable run's validity; None otherwise
     camera: SceneCamera
@@ -267,6 +290,8 @@ class SceneOut(Wire):
     draw_order: tuple[str, ...]  # the visible atoms, far to near
     selection: tuple[ObjectId, ...]
     highlights: tuple[ObjectId, ...]
+    #: Present only for a fixed-geometry project, so every other scene keeps its 0.10.0 shape.
+    symmetry: SceneSymmetry | None = Field(default=None, exclude_if=_no_symmetry)
 
 
 def _scene(ctx: Context, state: SessionState) -> SceneOut:
@@ -399,7 +424,7 @@ def describe_view(ctx: Context, _: DescribeViewIn) -> DescribeViewOut:
             warnings.append("the order parameters are not physically admissible (outside the order-matrix domain)")
         if fit.at_bound:
             warnings.append(f"the optimum lies on a bound ({', '.join(fit.at_bound)})")
-    if scene.phi_source != "run" and not fixed:
+    if scene.phi is not None and scene.phi_source != "run" and not fixed:
         warnings.append(f"the torsion shown ({scene.phi.value:.1f}°) is the {scene.phi_source} value, not a fit")
     hidden = sum(not a.screen.visible for a in scene.atoms)
     if hidden:

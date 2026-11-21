@@ -48,12 +48,21 @@ export interface StudioState {
   results: Readonly<Record<string, FitRunOut>>;
   /** Fixed-geometry results by run ID (contract 0.11.0; shown in full from V1.4). */
   fixedResults: Readonly<Record<string, FixedRunOut>>;
+  /** The molecule's declarations (molecule.declarations) and the symmetry suggestion
+   * (molecule.suggest_symmetry), read together after every science change (V1.4); null as `project`. */
+  declarations: Declarations | null;
   /** Runs whose result could not be read; retried on every (re)connection or on request. */
   failedResults: Readonly<Record<string, ErrorBody | null>>;
   error: ErrorBody | null;
   /** The operation a button started and that has not answered yet. */
   busy: OperationName | null;
 }
+
+/** What the symmetry form shows: the declarations and the server's suggestion (V1.4, E-4, E-5). */
+export type Declarations = {
+  declared: OperationOutput<"molecule.declarations">;
+  suggested: OperationOutput<"molecule.suggest_symmetry">;
+};
 
 /** A fixed-geometry run's result (run.get, contract 0.11.0): decided by its model kind. */
 function isFixed(result: FitRunOut | FixedRunOut): result is FixedRunOut {
@@ -66,11 +75,18 @@ const WATCHDOG_MS = 40_000;
 /** A read answered with an older revision is repeated at most this often in a row. */
 const MAX_LATE_RETRIES = 5;
 
+/** A failed read is tried again this many times, after 0.5 s, 1 s, 2 s, … (round 80). */
+const MAX_FAILED_RETRIES = 4;
+const FAILED_RETRY_MS = 500;
+
+/** One read: shown, dropped as late (read again), or failed (tried again later). */
+type Outcome = "ok" | "late" | "failed";
+
 /** What a command's effect makes worth reading again, before its commit arrives on the feed. */
 function readsAfter(name: OperationName): Resource[] {
   switch (OPERATIONS[name].effect) {
     case "model":
-      return ["project", "history", "view", "runs", "jobs", "scene", "proposals"];
+      return ["project", "history", "view", "runs", "jobs", "scene", "proposals", "declarations"];
     case "proposal":
       return ["proposals"];
     case "view":
@@ -94,6 +110,7 @@ export class Studio {
     proposals: [],
     results: {},
     fixedResults: {},
+    declarations: null,
     failedResults: {},
     error: null,
     busy: null,
@@ -101,6 +118,7 @@ export class Studio {
   private readonly listeners = new Set<() => void>();
   private readonly reads = new Map<Resource, { running: boolean; again: boolean }>();
   private readonly fetchingRuns = new Set<string>();
+  private readonly failedReads = new Map<Resource, number>();
   private feed: AbortController | null = null;
   /** Late responses are dropped and read again (feed.ts RevisionMark, round 39). */
   private readonly seen = new RevisionMark();
@@ -205,26 +223,35 @@ export class Studio {
       return;
     }
     slot.running = true;
+    let outcome: Outcome = "ok";
     try {
       let late = 0;
       do {
         slot.again = false;
-        if (!(await this.readOnce(resource)) && late++ < MAX_LATE_RETRIES) slot.again = true;
+        outcome = await this.readOnce(resource);
+        if (outcome === "late" && late++ < MAX_LATE_RETRIES) slot.again = true;
       } while (slot.again && this.state.connection !== "needs-launch");
     } finally {
       slot.running = false;
     }
+    // A failed read is tried again a few times (round 80: one failed project.describe left the page
+    // a revision behind, with Run fit disabled, until the next science change).
+    const failures = outcome === "failed" ? (this.failedReads.get(resource) ?? 0) + 1 : 0;
+    this.failedReads.set(resource, failures);
+    if (failures > 0 && failures <= MAX_FAILED_RETRIES && this.state.connection !== "needs-launch") {
+      setTimeout(() => void this.read(resource), FAILED_RETRY_MS * 2 ** (failures - 1));
+    }
   }
 
   /** One read. False when the response was late (older than state already seen) and dropped. */
-  private async readOnce(resource: Resource): Promise<boolean> {
+  private async readOnce(resource: Resource): Promise<Outcome> {
     switch (resource) {
       case "view": {
         const view = await this.run((t) => callOperation("render.describe_view", {}, t));
-        if (!view) return true;
-        if (!this.seen.accept(view.science_revision, view.workspace_revision)) return false;
+        if (!view) return "failed";
+        if (!this.seen.accept(view.science_revision, view.workspace_revision)) return "late";
         this.set({ view });
-        return true;
+        return "ok";
       }
       case "project": {
         let noProject = false;
@@ -233,9 +260,9 @@ export class Studio {
           noProject = !envelope.ok && envelope.error.code === "NO_PROJECT";
           return envelope;
         }, ["NO_PROJECT"]);
-        if (project && !this.seen.accept(project.science_revision)) return false;
+        if (project && !this.seen.accept(project.science_revision)) return "late";
         if (project || noProject) this.set({ project }); // any other failure keeps what is shown
-        return true;
+        return project || noProject ? "ok" : "failed";
       }
       case "scene": {
         let noProject = false;
@@ -244,37 +271,64 @@ export class Studio {
           noProject = !envelope.ok && envelope.error.code === "NO_PROJECT";
           return envelope;
         }, ["NO_PROJECT"]);
-        if (scene && !this.seen.accept(scene.science_revision, scene.workspace_revision)) return false;
+        if (scene && !this.seen.accept(scene.science_revision, scene.workspace_revision)) return "late";
         if (scene || noProject) this.set({ scene });
-        return true;
+        return scene || noProject ? "ok" : "failed";
       }
       case "history": {
         const history = await this.run((t) => callOperation("history.log", {}, t));
-        if (!history) return true;
-        if (!this.seen.accept(history.science_revision)) return false;
+        if (!history) return "failed";
+        if (!this.seen.accept(history.science_revision)) return "late";
         this.set({ history });
-        return true;
+        return "ok";
       }
       case "runs": {
         const listed = await this.run((t) => callOperation("run.list", {}, t));
-        if (!listed) return true;
-        if (!this.seen.accept(listed.science_revision)) return false;
+        if (!listed) return "failed";
+        if (!this.seen.accept(listed.science_revision)) return "late";
         this.set({ runs: listed.runs });
-        return true;
+        return "ok";
       }
       case "jobs": {
         const listed = await this.run((t) => callOperation("job.list", {}, t));
-        if (!listed) return true;
-        if (!this.seen.accept(listed.science_revision)) return false;
+        if (!listed) return "failed";
+        if (!this.seen.accept(listed.science_revision)) return "late";
         this.set({ jobs: listed.jobs });
-        return true;
+        return "ok";
       }
       case "proposals": {
         const listed = await this.run((t) => callOperation("proposal.list", {}, t));
-        if (!listed) return true;
-        if (!this.seen.accept(listed.science_revision)) return false;
+        if (!listed) return "failed";
+        if (!this.seen.accept(listed.science_revision)) return "late";
         this.set({ proposals: listed.proposals });
-        return true;
+        return "ok";
+      }
+      case "declarations": {
+        let noProject = false;
+        const [declared, suggested] = await Promise.all([
+          this.run(async (t) => {
+            const envelope = await callOperation("molecule.declarations", {}, t);
+            noProject ||= !envelope.ok && envelope.error.code === "NO_PROJECT";
+            return envelope;
+          }, ["NO_PROJECT"]),
+          this.run(async (t) => {
+            const envelope = await callOperation("molecule.suggest_symmetry", {}, t);
+            noProject ||= !envelope.ok && envelope.error.code === "NO_PROJECT";
+            return envelope;
+          }, ["NO_PROJECT"]),
+        ]);
+        if (declared && suggested) {
+          // Both describe one science state, not older than what was shown (else read again).
+          if (declared.science_revision !== suggested.science_revision) return "late";
+          if (!this.seen.accept(declared.science_revision)) return "late";
+          this.set({ declarations: { declared, suggested } });
+          return "ok";
+        }
+        if (noProject) {
+          this.set({ declarations: null });
+          return "ok";
+        }
+        return "failed";
       }
     }
   }

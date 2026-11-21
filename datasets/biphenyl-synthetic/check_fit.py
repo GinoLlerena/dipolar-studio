@@ -6,6 +6,7 @@ on the whitened design matrix B = L A(phi), b = L y. Outer problem: 1-D profile 
 
 This is a numpy-only prototype of the engine's contract, used to validate the fixture.
 """
+
 from __future__ import annotations
 
 import csv
@@ -52,7 +53,7 @@ def main() -> None:
     prof = np.array([chi2_at(p, pairs, y, sigma)[0] for p in grid])
     lo, hi = grid[max(prof.argmin() - 1, 0)], grid[min(prof.argmin() + 1, len(grid) - 1)]
     g = (math.sqrt(5) - 1) / 2
-    for _ in range(80):                                   # golden-section refinement
+    for _ in range(80):  # golden-section refinement
         c, d = hi - g * (hi - lo), lo + g * (hi - lo)
         if chi2_at(c, pairs, y, sigma)[0] < chi2_at(d, pairs, y, sigma)[0]:
             hi = d
@@ -61,7 +62,7 @@ def main() -> None:
     phi_hat = (lo + hi) / 2
     chi2_min, s_hat, rank = chi2_at(phi_hat, pairs, y, sigma)
 
-    def crossing(direction: int) -> float:                # profile interval, Delta-chi2 = 1
+    def crossing(direction: int) -> float:  # profile interval, Delta-chi2 = 1
         p = phi_hat
         while chi2_at(p, pairs, y, sigma)[0] - chi2_min < 1.0:
             p += direction * 0.001
@@ -74,13 +75,14 @@ def main() -> None:
         "phi_68pct_profile_interval_deg": [round(ci[0], 3), round(ci[1], 3)],
         "Szz_hat": round(float(s_hat[0]), 5),
         "Delta_hat": round(float(s_hat[1]), 5),
-        "chi2": round(chi2_min, 3), "nu": n - p_free,
+        "chi2": round(chi2_min, 3),
+        "nu": n - p_free,
         "chi2_reduced": round(chi2_min / (n - p_free), 3),
         "inner_rank": int(rank),
         "truth": {k: TRUTH[k] for k in ("phi_deg", "Szz", "Delta")},
         "equivalent_solutions_note": "At fixed labels, (phi, Delta) and (-phi, Delta) give identical couplings. "
-                                     "(180 +/- phi, -Delta) is equivalent ONLY together with the ring-B relabelling "
-                                     "H2'<->H6', H3'<->H5' (x moves to the other bisector). Domain folded to phi in [0, 90] deg.",
+        "(180 +/- phi, -Delta) is equivalent ONLY together with the ring-B relabelling "
+        "H2'<->H6', H3'<->H5' (x moves to the other bisector). Domain folded to phi in [0, 90] deg.",
     }
     print(json.dumps(report, indent=2))
     (HERE / "check_fit.out.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

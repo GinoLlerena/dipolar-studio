@@ -14,6 +14,7 @@ from the geometry and the missing vibrational corrections. That is model error, 
 0.03-0.17 Hz spectral errors, so this UNWEIGHTED fit reports RMS. Under the spectral-sigma likelihood the model is grossly
 inadequate, and that should be reported as such (a weighted fit at 0.980 gives about phi = 33.10, Delta = 0.15221).
 """
+
 from __future__ import annotations
 
 import csv
@@ -32,7 +33,9 @@ SWAP_B = {"H2'": "H6'", "H6'": "H2'", "H3'": "H5'", "H5'": "H3'", "H4'": "H4'"}
 
 
 def row(pos, a, b):
-    v = pos[b] - pos[a]; r = np.linalg.norm(v); cx, cy, cz = v / r
+    v = pos[b] - pos[a]
+    r = np.linalg.norm(v)
+    cx, cy, cz = v / r
     return np.array([K_HH / r**3 * (3 * cz**2 - 1) / 2, K_HH / r**3 * (cx**2 - cy**2) / 2])
 
 
@@ -45,7 +48,8 @@ def design(phi, pairs):
 def fit(pairs, y):
     best = None
     for phi in np.arange(0.5, 90.0, 0.05):
-        A = design(phi, pairs); s, *_ = np.linalg.lstsq(A, y, rcond=None)
+        A = design(phi, pairs)
+        s, *_ = np.linalg.lstsq(A, y, rcond=None)
         rms = float(np.sqrt(np.mean((A @ s - y) ** 2)))
         if best is None or rms < best[0]:
             best = (rms, phi, s)
@@ -56,14 +60,21 @@ def main():
     out = {}
     with open(HERE / "couplings.csv", encoding="utf-8") as f:
         data = list(csv.DictReader(f))
-    for t, ref in (("0.930", {"phi_max_deg": 35.37, "Saa": 0.425, "Sbb_minus_Scc": 0.182}),
-                   ("0.980", {"phi_max_deg": 35.51, "Saa": 0.321, "Sbb_minus_Scc": 0.152})):
+    for t, ref in (
+        ("0.930", {"phi_max_deg": 35.37, "Saa": 0.425, "Sbb_minus_Scc": 0.182}),
+        ("0.980", {"phi_max_deg": 35.51, "Saa": 0.321, "Sbb_minus_Scc": 0.152}),
+    ):
         rows = [d for d in data if d["T_red"] == t]
         pairs = [(d["spin_a"], d["spin_b"]) for d in rows]
         y = np.array([float(d["D_obs_Hz"]) for d in rows])
         rms, phi, s = fit(pairs, y)
-        out[t] = {"phi_deg": round(phi, 2), "Szz": round(float(s[0]), 4), "Delta": round(float(s[1]), 4),
-                  "rms_Hz": round(rms, 2), "thesis_AP_DPD": ref}
+        out[t] = {
+            "phi_deg": round(phi, 2),
+            "Szz": round(float(s[0]), 4),
+            "Delta": round(float(s[1]), 4),
+            "rms_Hz": round(rms, 2),
+            "thesis_AP_DPD": ref,
+        }
     print(json.dumps(out, indent=2))
     (HERE / "check_fit.out.json").write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
 
