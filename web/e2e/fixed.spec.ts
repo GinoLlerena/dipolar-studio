@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Page } from "@playwright/test";
 import { expect, openTab, type Server, test } from "./harness";
+import { expectComponentsShown, expectRowsShown } from "./rendered";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 const DATA = join(ROOT, "datasets", "dichlorobenzene-synthetic");
@@ -80,6 +81,12 @@ test("the Fit workspace shows a fixed run's estimable combinations, without φ",
   const table = pane(app, "pane-residuals").locator("table");
   await expect(table.locator("tbody tr")).toHaveCount(3);
   for (const row of await table.locator("tbody tr").all()) await expect(row).toContainText("×2");
+  // Round 79, finding 4: every shown number is the result's.
+  const result = (await server.ok("robot", "run.get", { run_id: runId })).result;
+  await expectComponentsShown(estimable, result.components);
+  const label = new Map((result.spins as { id: string; label: string }[]).map((s) => [s.id, s.label]));
+  const pairOf = new Map((result.rows as { coupling_id: string; pair: [string, string] }[]).map((r) => [r.coupling_id, r.pair]));
+  await expectRowsShown(table, result.rows, (id) => (pairOf.get(id) ?? []).map((s) => label.get(s)).join("–"));
 });
 
 test("a planar ring declared C1 is unverified, and the page suggests Cs", async ({ app, server }) => {
@@ -176,4 +183,74 @@ test("a science change while the symmetry form is edited keeps the edit", async 
   await expect(app.locator(".crumb .muted")).toContainText("rev 2 ");
   await expect(symmetry.locator("#symmetry-group")).toHaveValue("D6h");
   await expect(symmetry.locator("#symmetry-tolerance")).toHaveValue("0.02");
+});
+
+// ------------------------------------------------------------------ round 79
+
+test("round 79: Clear and Declare wait for the declaration the page shows to be current", async ({ app, server }) => {
+  // Finding 1: Clear sent the project's newer revision and removed a declaration the page never showed.
+  await server.ok("robot", "project.import_xyz", { xyz: benzeneXyz(), name: "benzene", expected_science_revision: 0 });
+  await server.ok("robot", "molecule.set_symmetry", { symmetry: { point_group: "D6h" }, expected_science_revision: 1 });
+  await openTab(app, "Data");
+  const symmetry = pane(app, "pane-symmetry");
+  await expect(symmetry).toContainText("Declared: D6h");
+  let release: () => void = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  await app.route("**/api/v1/ops/molecule.declarations", async (route) => {
+    await held;
+    await route.continue();
+  });
+  await server.ok("robot", "molecule.set_symmetry", { symmetry: { point_group: "C1" }, expected_science_revision: 2 });
+  await expect(app.locator(".crumb .muted")).toContainText("rev 3 ");
+  await expect(symmetry.getByRole("button", { name: "Clear" })).toBeDisabled();
+  await expect(symmetry.getByRole("button", { name: "Declare symmetry" })).toBeDisabled();
+  release();
+  await expect(symmetry).toContainText("Declared: C1");
+  await expect(symmetry.getByRole("button", { name: "Clear" })).toBeEnabled();
+  await symmetry.getByRole("button", { name: "Clear" }).click();
+  await expect.poll(async () => (await server.ok("robot", "molecule.declarations")).symmetry).toBeNull();
+});
+
+test("round 79: Run fit waits for the project the page shows to be current", async ({ app, server }) => {
+  // Finding 1: the fit used the view's newer revision before the project description showed it.
+  await dichlorobenzene(server);
+  await openTab(app, "Fit");
+  await expect(app.getByRole("button", { name: "Run fit" })).toBeEnabled();
+  let release: () => void = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  await app.route("**/api/v1/ops/project.describe", async (route) => {
+    await held;
+    await route.continue();
+  });
+  await server.ok("robot", "couplings.remove", { coupling_ids: ["cpl_000003"], expected_science_revision: 4 });
+  await expect(app.locator(".crumb .muted")).toContainText("rev 5 ");
+  await expect(app.getByRole("button", { name: "Run fit" })).toBeDisabled();
+  release();
+  await expect(app.getByRole("button", { name: "Run fit" })).toBeEnabled();
+});
+
+test("round 79: an edit after Apply is not erased by the arriving description", async ({ app, server }) => {
+  // Finding 2: the inspector stays closed until it shows the model it applied.
+  await server.ok("robot", "project.import_xyz", { xyz: benzeneXyz(), name: "benzene", expected_science_revision: 0 });
+  await server.ok("robot", "molecule.set_symmetry", { symmetry: { point_group: "D6h" }, expected_science_revision: 1 });
+  await openTab(app, "Data");
+  await expect(app.locator(".crumb .muted")).toContainText("rev 2 ");
+  let release: () => void = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  await app.route("**/api/v1/ops/project.describe", async (route) => {
+    await held;
+    await route.continue();
+  });
+  await app.locator("#model-kind").selectOption("fixed");
+  await app.getByRole("button", { name: "Apply" }).click();
+  await expect.poll(async () => (await server.ok("robot", "project.describe")).model.kind).toBe("fixed");
+  await expect(app.locator("#model-kind")).toBeDisabled(); // pending: the page does not show it yet
+  release();
+  await expect(app.locator("#model-kind")).toBeEnabled();
+  await app.locator("#model-kind").selectOption("rigid");
+  await app.getByLabel("φ domain (°) from").fill("-125");
+  await app.getByLabel("φ domain (°) to").fill("125");
+  await app.waitForTimeout(500); // any late description would arrive here
+  await expect(app.locator("#model-kind")).toHaveValue("rigid");
+  await expect(app.getByLabel("φ domain (°) from")).toHaveValue("-125");
 });

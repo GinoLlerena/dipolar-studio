@@ -59,3 +59,19 @@ test("without a group action each row is its own pair", () => {
   const out = orbitArcs([{ id: "cpl_1", a: 4, b: 2 }], null);
   assert.deepEqual(out, { arcs: [{ id: "cpl_1", copy: 0, a: 4, b: 2 }], omitted: 0 });
 });
+
+test("round 79: the copies of a selected or highlighted row are drawn whatever the budget", () => {
+  const rows = [
+    { id: "cpl_1", a: 0, b: 1 },
+    { id: "cpl_2", a: 0, b: 3 },
+    { id: "cpl_3", a: 0, b: 2 },
+  ];
+  const out = orbitArcs(rows, D2H, 3, new Set(["cpl_3"]));
+  assert.deepEqual(out.arcs.map((x) => [x.id, x.copy]), [
+    ["cpl_1", 0],
+    ["cpl_2", 0],
+    ["cpl_3", 0],
+    ["cpl_3", 1],
+  ]);
+  assert.equal(out.omitted, 2);
+});

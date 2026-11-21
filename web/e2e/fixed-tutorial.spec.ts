@@ -11,6 +11,7 @@ import { join, resolve } from "node:path";
 import type { Page } from "@playwright/test";
 import { type FixedTolerances, fixedResultDifferences } from "./compare";
 import { expect, openTab, type Server, startServer, test } from "./harness";
+import { expectComponentsShown, expectRowsShown } from "./rendered";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 const DATA = join(ROOT, "datasets", "dichlorobenzene-synthetic");
@@ -122,6 +123,14 @@ test("the fixed-geometry tutorial through the page equals the robot's", async ({
     const robotView = await robotServer.ok("robot", "render.describe_view");
     const robotRun = await robotServer.ok("robot", "run.get", { run_id: robotView.run.run_id });
     expect(fixedResultDifferences(run.result, robotRun.result, TOLERANCES)).toEqual([]);
+    // Round 79, finding 4: and the page shows the robot's numbers.
+    await openTab(app, "Fit");
+    await expectComponentsShown(pane(app, "pane-estimable"), robotRun.result.components);
+    const label = new Map((robotRun.result.spins as { id: string; label: string }[]).map((s) => [s.id, s.label]));
+    const pairOf = new Map((robotRun.result.rows as { coupling_id: string; pair: [string, string] }[]).map((r) => [r.coupling_id, r.pair]));
+    await expectRowsShown(pane(app, "pane-residuals").locator("table"), robotRun.result.rows, (id) =>
+      (pairOf.get(id) ?? []).map((s) => label.get(s)).join("–"),
+    );
     for (const key of ["kind", "input_hash", "science_hash", "science_revision", "stale"]) {
       expect(run.run[key], `run.${key}`).toEqual(robotRun.run[key]);
     }

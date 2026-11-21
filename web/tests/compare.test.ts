@@ -177,3 +177,33 @@ test("a search-era result is not compared under the fixed rules, nor the reverse
   assert.notDeepEqual(fixedResultDifferences(result(), result(), FIXED_TOL), []);
   assert.notDeepEqual(resultDifferences(fixedRun(), fixedRun(), TOL), []);
 });
+
+// ------------------------------------------------------------------ round 79
+test("round 79: a number without a rule in a fixed result is a difference, integer or not", () => {
+  for (const [name, value] of [
+    ["an unknown integer", 1],
+    ["an unknown float", 0.5],
+  ] as const) {
+    const a = fixedRun();
+    const b = fixedRun();
+    a.rank.new_measure = value;
+    b.rank.new_measure = value;
+    assert.match(fixedResultDifferences(a, b, FIXED_TOL).join("\n"), /no tolerance rule/, name);
+  }
+  const a = fixedRun();
+  const b = fixedRun();
+  a.provenance.numerical_context.new_atol = 1e-9;
+  b.provenance.numerical_context.new_atol = 1e-9;
+  assert.match(fixedResultDifferences(a, b, FIXED_TOL).join("\n"), /no tolerance rule/, "an unknown numerical-context number");
+});
+
+test("round 79: a one-sided key named like an inherited property is a difference", () => {
+  const withProto = (text: string, key: string) => JSON.parse(text.replace(`"${key}":{`, `"${key}":{"__proto__":{},`));
+  const fixedText = JSON.stringify(fixedRun());
+  assert.notDeepEqual(fixedResultDifferences(fixedRun(), withProto(fixedText, "adequacy"), FIXED_TOL), []);
+  assert.notDeepEqual(fixedResultDifferences(withProto(fixedText, "adequacy"), fixedRun(), FIXED_TOL), []);
+  const searchText = JSON.stringify(result());
+  assert.notDeepEqual(resultDifferences(result(), withProto(searchText, "validity"), TOL), []);
+  const constructor = JSON.parse(searchText.replace('"validity":{', '"validity":{"constructor":1,'));
+  assert.notDeepEqual(resultDifferences(constructor, result(), TOL), []);
+});

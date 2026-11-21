@@ -552,3 +552,98 @@ def test_leaving_and_entering_fixed_from_the_draft_model() -> None:
     ok(import_csv(c, csv_of(benzene_rows(ring()[1]))))
     labels = by_label(c)
     assert labels["H7"].startswith("spn_")
+
+
+# --------------------------------------------------------------------------- round 79
+def test_r79_the_suggestion_does_not_promise_estimability() -> None:
+    """Round 79, finding 5: Cs reduces the model to the in-plane block; which combinations the
+    couplings determine is the fit's to say (one coupling of three planar protons has rank 1 of 3)."""
+    c = client(new_session())
+    benzene_draft(c)
+    reason = suggest(c)["reason"]
+    assert "is estimable" not in reason and "estimable" not in reason.replace("which combinations", "")
+    assert "in-plane" in reason and "the fit" in reason and "not validated" in reason
+
+
+def _robot_module() -> Any:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("robot_under_test", ROBOT_SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        "C1 C2 C3 C4 C5 C6 Cl1 Cl4 H3 H2 H5 H6 H2 H3",  # round 79: duplicated, and more names than atoms
+        "C1 C2 C3 C4 C5 C6 Cl1 Cl4 H2 H2 H5 H6",  # a duplicate, as many names as atoms
+        "C1 C2 C3 C4 C5 C6 Cl1 Cl4 H2 H3 H5",  # one name short
+    ],
+)
+def test_r79_the_robot_refuses_ambiguous_atom_names_before_any_change(
+    server: Server, clean_env: dict[str, str], tmp_path: Path, names: str
+) -> None:
+    """Round 79, finding 6: one unique name per atom, checked before the project is replaced."""
+    xyz = (DCB / "dichlorobenzene.xyz").read_text(encoding="utf-8").splitlines()
+    xyz[1] = f"synthetic 1,4-dichlorobenzene (D2h); atoms: {names}"
+    path = tmp_path / "ambiguous.xyz"
+    path.write_text("\n".join(xyz) + "\n", encoding="utf-8")
+    proc = _robot(server, clean_env, "--scenario", "fixed-tutorial", "--xyz", str(path), "--csv", str(DCB / "couplings.csv"))
+    assert proc.returncode == 1, proc.stdout
+    assert "atom names" in json.loads(proc.stdout)["error"]
+    assert server.call("render.describe_view")["result"]["science_revision"] == 0  # nothing was changed
+
+
+def test_r79_the_robot_checks_that_everything_it_reports_is_one_science_state() -> None:
+    """Round 79, finding 7: a run, view, SVG and export from different science states (another client
+    changed a coupling meanwhile) is a failure, not a success."""
+    robot = _robot_module()
+    good: dict[str, Any] = {
+        "project": {"science_revision": 4, "science_hash": "sha256:a"},
+        "run": {"run": {"id": "run_000001", "stale": False, "science_hash": "sha256:a", "science_revision": 4}},
+        "view": {"science_revision": 4, "run": {"run_id": "run_000001", "stale": False, "available": True}},
+        "svg": {"science_revision": 4},
+        "exported": {"science_revision": 4, "science_hash": "sha256:a"},
+    }
+    robot._consistent(**good)  # no error
+    bad: list[tuple[str, str, Any]] = [
+        ("run", "run", {"id": "run_000001", "stale": True, "science_hash": "sha256:a", "science_revision": 4}),
+        ("run", "run", {"id": "run_000001", "stale": False, "science_hash": "sha256:b", "science_revision": 4}),
+        ("view", "science_revision", 5),
+        ("view", "run", {"run_id": "run_000002", "stale": False, "available": True}),
+        ("view", "run", {"run_id": "run_000001", "stale": True, "available": True}),
+        ("svg", "science_revision", 5),
+        ("exported", "science_hash", "sha256:b"),
+        ("exported", "science_revision", 5),
+    ]
+    for part, key, value in bad:
+        altered = json.loads(json.dumps(good))
+        altered[part][key] = value
+        with pytest.raises(robot.RobotError):
+            robot._consistent(**altered)
+
+
+def test_r79_the_robot_sets_the_view_it_verifies(server: Server, clean_env: dict[str, str]) -> None:
+    """Round 79, B: with the couplings layer hidden beforehand, the tutorial still verifies its arcs."""
+    view = server.call("render.describe_view")["result"]
+    hidden = server.call("view.set_layers", {"labels": True, "bonds": True, "couplings": False})
+    assert hidden["ok"], hidden
+    assert view["project_open"] is False
+    files = ["--xyz", str(DCB / "dichlorobenzene.xyz"), "--csv", str(DCB / "couplings.csv")]
+    proc = _robot(server, clean_env, "--scenario", "fixed-tutorial", *files)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["selected_arcs"] == 2
+
+
+@pytest.mark.parametrize(("offset", "suggested"), [(0.0135, False), (0.0165, True)])
+def test_r79_the_collinearity_rule_is_the_largest_distance_from_the_line(offset: float, suggested: bool) -> None:
+    """Round 79, B: spins are collinear when every one lies within the tolerance of their
+    least-squares line (here at most 2·offset/3 from it); then no plane is unique."""
+    atoms = [("H", 0.0, offset, 0.0), ("H", 1.0, 0.0, 0.0), ("H", 2.0, offset, 0.0), ("C", 1.0, 1.0, 0.0)]
+    c = client(new_session())
+    import_ring(c, [a[0] for a in atoms], np.array([a[1:] for a in atoms]))
+    out = suggest(c)
+    assert (out["suggestion"] is not None) is suggested, out
