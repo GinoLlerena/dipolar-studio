@@ -137,7 +137,7 @@ def main() -> None:
     for name in NAMES:
         x, y, z = (float(v) for v in pos[name])
         lines.append(f"{''.join(ch for ch in name if ch.isalpha())} {x:.6f} {y:.6f} {z:.6f}")
-    (HERE / "dichlorobenzene.xyz").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (HERE / "dichlorobenzene.xyz").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
     with (HERE / "couplings.csv").open("w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh, lineterminator="\n")
@@ -153,7 +153,7 @@ def main() -> None:
         "reference_fit_noisy": reference_fit(pos, observed, t["sigma_Hz"]),
         "reference_fit_noiseless": reference_fit(pos, noiseless, t["sigma_Hz"]),
     }
-    (HERE / "truth.json").write_text(json.dumps(truth, indent=2) + "\n", encoding="utf-8")
+    (HERE / "truth.json").write_text(json.dumps(truth, indent=2) + "\n", encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":

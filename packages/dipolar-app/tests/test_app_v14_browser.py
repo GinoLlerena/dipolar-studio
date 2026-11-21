@@ -399,8 +399,30 @@ def test_the_dataset_is_what_its_generator_writes(tmp_path: Path) -> None:
     for name in ("dichlorobenzene.xyz", "couplings.csv", "truth.json"):
         (work / name).unlink()
     subprocess.run([sys.executable, "-I", "generate.py"], cwd=work, check=True, timeout=60)
-    for name in ("dichlorobenzene.xyz", "couplings.csv", "truth.json"):
+    for name in ("dichlorobenzene.xyz", "couplings.csv"):  # the user's files: byte for byte
         assert (work / name).read_bytes() == (DCB / name).read_bytes(), name
+    # truth.json carries a least-squares fit, whose last bits depend on the platform's linear
+    # algebra (CI, Linux): its numbers are compared to 1e-12 relative, everything else exactly.
+    _same_json(json.loads((work / "truth.json").read_text(encoding="utf-8")), _truth())
+
+
+def _truth() -> Any:
+    return json.loads((DCB / "truth.json").read_text(encoding="utf-8"))
+
+
+def _same_json(a: Any, b: Any, path: str = "truth") -> None:
+    if isinstance(a, dict):
+        assert isinstance(b, dict) and a.keys() == b.keys(), path
+        for k in a:
+            _same_json(a[k], b[k], f"{path}.{k}")
+    elif isinstance(a, list):
+        assert isinstance(b, list) and len(a) == len(b), path
+        for k, (x, y) in enumerate(zip(a, b, strict=True)):
+            _same_json(x, y, f"{path}[{k}]")
+    elif isinstance(a, float) and isinstance(b, float):
+        assert math.isclose(a, b, rel_tol=1e-12, abs_tol=1e-300), (path, a, b)
+    else:
+        assert a == b and type(a) is type(b), (path, a, b)
 
 
 def _spec() -> dict[str, Any]:

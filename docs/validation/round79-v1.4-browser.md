@@ -149,5 +149,11 @@ Gates frozen first in `e4b13e6`; fixes in the next commit.
 while held requests were still being continued (`Route is already handled`); a released hold lets
 later requests through at once, so the unroute was dropped.
 
+**Found by CI on the PR:** `test_the_dataset_is_what_its_generator_writes` compared `truth.json`
+byte for byte, but its reference fit's last bits depend on the platform's linear algebra (Linux CI
+differed), and the generator wrote CRLF on Windows. The generator now writes LF everywhere; the XYZ
+and CSV files (the user's inputs) are still compared byte for byte, and `truth.json` is compared
+key for key with its numbers to 1e-12 relative.
+
 **Outcome:** both rounds under the cap were NOT READY. Every finding of both is fixed with a gate
 frozen first; the owner decides whether to merge.
