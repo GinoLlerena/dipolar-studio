@@ -72,6 +72,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -398,20 +399,6 @@ def run_tutorial(
     }
 
 
-def _map_by_atom_names(robot: Client, xyz: str, csv: str) -> dict[str, str]:
-    """The mapping the user confirms: each label of the couplings file to the imported proton whose
-    atom the XYZ comment line names so."""
-    proposed = robot.call("couplings.reconcile", {"csv": csv})
-    atoms = _atom_names(xyz)
-    spin_of_atom = {s["atom"]: s["id"] for s in robot.call("project.describe")["spins"]}
-    mapping = {}
-    for label in sorted(set(proposed["unmatched_labels"]) | set(proposed["proposed_mapping"])):
-        if label not in atoms or atoms.index(label) not in spin_of_atom:
-            raise RobotError(f"no imported proton for the file's label {label!r}")
-        mapping[label] = spin_of_atom[atoms.index(label)]
-    return mapping
-
-
 def _wait_for_run(robot: Client, revision: int, args: dict[str, Any] | None = None) -> dict[str, Any]:
     job = robot.call("fit.run", {**(args or {}), "expected_science_revision": revision})["job"]
     for _ in range(40):  # at most 20 minutes; each wait is bounded by the server (≤ 30 s)
@@ -456,9 +443,26 @@ def run_fixed_tutorial(ready_file: Path, xyz_path: Path, csv_path: Path, point_g
     robot = Client(ready["base_url"], ready["tokens"]["robot"])
     if robot.instance().get("instance_id") != ready["instance_id"]:
         raise RobotError("the ready file does not describe the server on its port")
+    return fixed_tutorial(robot, ready, xyz_path, csv_path, point_group)
+
+
+def _at(revision: int, out: dict[str, Any], what: str) -> dict[str, Any]:
+    """`out`, read at exactly `revision` (round 80: another client's change between two steps)."""
+    if out["science_revision"] != revision:
+        raise RobotError(
+            f"{what} is of science revision {out['science_revision']}, not {revision}: the project changed"
+        )
+    return out
+
+
+def fixed_tutorial(
+    robot: Client, ready: dict[str, Any], xyz_path: Path, csv_path: Path, point_group: str
+) -> dict[str, Any]:
+    """The fixed-geometry tutorial's steps (see the module docstring), each at the science revision
+    the robot's own last change left: any other client's change in between is a failure."""
     xyz = xyz_path.read_text(encoding="utf-8")
     csv = csv_path.read_text(encoding="utf-8")
-    _atom_names(xyz)  # before any change: the mapping is confirmed from these names
+    atoms = _atom_names(xyz)  # before any change: the mapping is confirmed from these names
 
     # 1–3. The project from the geometry, its symmetry, the fixed-geometry fit.
     revision = robot.call("render.describe_view")["science_revision"]
@@ -471,18 +475,24 @@ def run_fixed_tutorial(ready_file: Path, xyz_path: Path, csv_path: Path, point_g
     )["science_revision"]
     revision = robot.call("model.set", {**FIXED_MODEL, "expected_science_revision": revision})["science_revision"]
 
-    # 4. The couplings: confirm the mapping, check its diff, import exactly that.
-    mapping = _map_by_atom_names(robot, xyz, csv)
-    diff = robot.call("couplings.reconcile", {"csv": csv, "mapping": mapping})
+    # 4. The couplings: confirm the mapping from the names, check its diff, import exactly that, all
+    #    at the revision model.set left.
+    proposed = _at(revision, robot.call("couplings.reconcile", {"csv": csv}), "the reconciliation")
+    spin_of_atom = {s["atom"]: s["id"] for s in _at(revision, robot.call("project.describe"), "the project")["spins"]}
+    mapping = {}
+    for label in sorted(set(proposed["unmatched_labels"]) | set(proposed["proposed_mapping"])):
+        if label not in atoms or atoms.index(label) not in spin_of_atom:
+            raise RobotError(f"no imported proton for the file's label {label!r}")
+        mapping[label] = spin_of_atom[atoms.index(label)]
+    diff = _at(revision, robot.call("couplings.reconcile", {"csv": csv, "mapping": mapping}), "the diff")
     if not diff["complete"] or diff["removed"]:
         raise RobotError(
             f"the mapping does not reconcile completely: {diff['unmatched_labels']} {diff['unresolved_pairs']}"
         )
     revision = robot.call(
-        "couplings.import",
-        {"csv": csv, "confirmed_mapping": mapping, "expected_science_revision": diff["science_revision"]},
+        "couplings.import", {"csv": csv, "confirmed_mapping": mapping, "expected_science_revision": revision}
     )["science_revision"]
-    project = robot.call("project.describe")
+    project = _at(revision, robot.call("project.describe"), "the project")
     if not project["ready_to_fit"]:
         raise RobotError(f"not ready to fit: {project['not_ready_reason']}")
 
@@ -493,9 +503,19 @@ def run_fixed_tutorial(ready_file: Path, xyz_path: Path, csv_path: Path, point_g
         raise RobotError(f"{run['run']['id']} is not a fixed-geometry run")
 
     # 6. Select the worst row; the view draws its whole orbit selected; export. The view the robot
-    #    verifies is set first: the couplings layer may have been hidden (round 79).
+    #    verifies is set first: the couplings layer may have been hidden (round 79) and a saved
+    #    camera may look away from the molecule (round 80).
     worst = max(fit["rows"], key=lambda r: abs(r["normalized_residual"]))
     robot.call("view.set_layers", {"labels": True, "bonds": True, "couplings": True})
+    view = robot.call("render.describe_view")
+    robot.call(
+        "view.set_camera",
+        {
+            "camera": None,
+            "viewport": {"width": 800, "height": 600},
+            "expected_workspace_revision": view["workspace_revision"],
+        },
+    )
     robot.call("view.select", {"ids": [worst["coupling_id"]]})
     view = robot.call("render.describe_view")
     if [s["id"] for s in view["selection"]] != [worst["coupling_id"]]:
@@ -503,11 +523,14 @@ def run_fixed_tutorial(ready_file: Path, xyz_path: Path, csv_path: Path, point_g
     if view["phi"] is not None:
         raise RobotError("the view describes a torsion for a fixed-geometry project")
     rendered = robot.call("render.view_svg")
+    if rendered["workspace_revision"] != view["workspace_revision"]:
+        raise RobotError("the rendered view is not the view the robot described (the workspace changed)")
     svg = rendered["svg"]
-    arcs = svg.count(f'data-id="{worst["coupling_id"]}"')
+    # Round 80: count the arcs drawn *selected* (width 3), not every arc with the row's ID.
+    arcs = len(re.findall(rf'<line data-id="{re.escape(worst["coupling_id"])}"[^>]*stroke-width="3"', svg))
     if arcs != worst["multiplicity"]:
         raise RobotError(
-            f"the view draws {arcs} arcs of {worst['coupling_id']}, not its orbit's {worst['multiplicity']}"
+            f"the view draws {arcs} selected arcs of {worst['coupling_id']}, not its orbit's {worst['multiplicity']}"
         )
     exported = robot.call("project.export")
     _consistent(project, robot.call("run.get", {"run_id": run["run"]["id"]}), view, rendered, exported)

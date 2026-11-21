@@ -588,11 +588,17 @@ function FixedRunDetail({ studio, state, run, result }: Props & { run: RunOut; r
             </div>
             <dl className="facts num-facts">
               <dt>{strings.rankRequired}</dt>
-              <dd className="num">{rank.required}</dd>
+              <dd className="num" data-fact="rank.required">
+                {rank.required}
+              </dd>
               <dt>{strings.rankNumerical}</dt>
-              <dd className="num">{rank.numerical}</dd>
+              <dd className="num" data-fact="rank.numerical">
+                {rank.numerical}
+              </dd>
               <dt>{strings.rankRatios}</dt>
-              <dd className="num">{rank.ratios.map((r) => scientific(r, 3)).join(", ") || "—"}</dd>
+              <dd className="num" data-fact="rank.ratios">
+                {rank.ratios.map((r) => scientific(r, 3)).join(", ") || "—"}
+              </dd>
             </dl>
             <p className="help">{rank.reason}</p>
           </section>
@@ -600,17 +606,23 @@ function FixedRunDetail({ studio, state, run, result }: Props & { run: RunOut; r
             <h3>{strings.quality}</h3>
             <dl className="facts num-facts">
               <dt>{strings.chi2}</dt>
-              <dd className="num">{fixed(adequacy.chi2, 2)}</dd>
+              <dd className="num" data-fact="adequacy.chi2">
+                {fixed(adequacy.chi2, 2)}
+              </dd>
               <dt>{strings.dof}</dt>
-              <dd className="num">
+              <dd className="num" data-fact="dof">
                 {result.n_obs} / {rank.required} / {adequacy.nu}
               </dd>
               <dt>{strings.pValue}</dt>
-              <dd className="num">{pValue(adequacy.p_value)}</dd>
+              <dd className="num" data-fact="adequacy.p_value">
+                {pValue(adequacy.p_value)}
+              </dd>
               <dt>{strings.rms}</dt>
-              <dd className="num">{fixed(result.rms_residual.value, 2)} Hz</dd>
+              <dd className="num" data-fact="rms">
+                {fixed(result.rms_residual.value, 2)} Hz
+              </dd>
             </dl>
-            <div className="chips">
+            <div className="chips" data-fact="adequacy.status">
               {adequacy.status === "given" || adequacy.status === "inadequate" ? (
                 <Chip tone={adequacy.status === "given" ? "good" : "warn"}>
                   {adequacyLabel(adequacy.status === "given", adequacy.p_value)}
@@ -629,24 +641,30 @@ function FixedRunDetail({ studio, state, run, result }: Props & { run: RunOut; r
             </div>
             <dl className="facts num-facts">
               <dt>{strings.colStatus}</dt>
-              <dd>{admissibility.status}</dd>
+              <dd data-fact="admissibility.status">{admissibility.status}</dd>
               <dt>{strings.lambdaMin}</dt>
-              <dd className="num">{admissibility.lambda_min === null ? "—" : fixed(admissibility.lambda_min, 4)}</dd>
+              <dd className="num" data-fact="admissibility.lambda_min">
+                {admissibility.lambda_min === null ? "—" : fixed(admissibility.lambda_min, 4)}
+              </dd>
               <dt>{strings.certificate}</dt>
-              <dd>{admissibility.certificate}</dd>
+              <dd data-fact="admissibility.certificate">{admissibility.certificate}</dd>
             </dl>
           </section>
           <section>
             <h3>{strings.symmetryFacts}</h3>
             <dl className="facts num-facts">
               <dt>{strings.pointGroup}</dt>
-              <dd>{symmetry.point_group}</dd>
+              <dd data-fact="symmetry.point_group">{symmetry.point_group}</dd>
               <dt>{strings.symmetryTolerance}</dt>
-              <dd className="num">{fixed(symmetry.tolerance.value, 3)}</dd>
+              <dd className="num" data-fact="symmetry.tolerance">
+                {fixed(symmetry.tolerance.value, 3)}
+              </dd>
               <dt>{strings.maxDisplacement}</dt>
-              <dd className="num">{scientific(symmetry.max_displacement.value, 2)} Å</dd>
+              <dd className="num" data-fact="symmetry.max_displacement">
+                {scientific(symmetry.max_displacement.value, 2)} Å
+              </dd>
               <dt>{strings.medium}</dt>
-              <dd>{symmetry.medium}</dd>
+              <dd data-fact="symmetry.medium">{symmetry.medium}</dd>
             </dl>
           </section>
         </div>

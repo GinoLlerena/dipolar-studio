@@ -304,8 +304,7 @@ test("round 80: the symmetry form is locked from Declare until the page shows th
     await symmetry.getByRole("button", { name: "Declare symmetry" }).click();
     await expect(symmetry.locator("#symmetry-tolerance")).toBeDisabled();
     await expect(symmetry.locator("#symmetry-group")).toBeDisabled();
-    release();
-    await app.unroute(`**/api/v1/ops/${operation}`);
+    release(); // later requests pass the released hold at once
     await expect(symmetry.locator("#symmetry-tolerance")).toBeEnabled();
   }
   await symmetry.locator("#symmetry-tolerance").fill("0.02");

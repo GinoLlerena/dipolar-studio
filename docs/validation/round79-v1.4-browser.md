@@ -124,4 +124,30 @@ holding the reads.
 
 ## Round 80
 
-*(pending)*
+Commit `486f9c0`. **Verdict: NOT READY** (7 A, 2 B), the final round under the cap. The reviewer
+confirmed every round-79 fix and its gate (each new gate failed against the old code), and that
+refusal, undo and project replacement release the forms, the harness retry propagates repeated
+failures, and the robot's timeout exceeds the `job.wait` bound. It ran the Python suite (1164
+passed, 3 skipped), the web tests (75), parity (8), the type checks and the fixed browser specs
+(27 on three browsers), with targeted probes.
+
+Gates frozen first in `e4b13e6`; fixes in the next commit.
+
+| # | Class | Finding | Fix |
+|---|---|---|---|
+| 1 | A | With `model.set` (or `molecule.declarations` after Declare) delayed, an edit made while the command was in flight was erased by its answer. | The model inspector and the whole symmetry form (every input, the suggestion button) are locked from the click until the page shows the outcome. Gates: both delays. |
+| 2 | A | One failed `project.describe` left the page a revision behind and Run fit disabled until the next science change. | A failed read is tried again four times (0.5, 1, 2, 4 s). Gate: one aborted read. |
+| 3 | A | Another client's project load between `model.set` and the reconciliation made the robot fit another geometry and succeed. | Every read after the robot's own last change must be at that revision (reconciliations, the spin lookup, the description), and the import names it. Gate: a workflow test that loads a scaled copy mid-run. |
+| 4 | A | The robot counted any arc with the row's ID (a cleared selection passed), and the consistency gate passed with the guard disconnected. | The robot counts arcs drawn selected, checks the SVG is of the view it described (workspace revision), and the guard is exercised by workflow tests (a coupling removed between the fit and the export; the selection cleared before the SVG). |
+| 5 | A | The suggestion said a C1 fit of the molecule would have an unverified rank; five protons within 0.001 Å of a plane fitted C1 with a verified rank. | The suggestion states the measured distance and what Cs constrains, and nothing about C1. The guide keeps the statement for exactly planar molecules. |
+| 6 | A | A wrong rendered verdict (a required rank of 52) passed both browser gates. | The verdict's facts carry `data-fact` and `e2e/rendered.ts` checks each against the result (rank, N/d/ν, χ², p, RMS, adequacy, admissibility, symmetry), in the Fit spec and the tutorial. |
+| 7 | A | A literal top-level key `"rank.required"` took the nested field's rule. | Path segments that are not plain names are quoted, in both comparators. Gate: four path-like keys. |
+| B1 | B | 2000 kept rows × 24 members emitted 48 000 arcs. | Kept rows' copies have their own budget of 2000 (at most 4000 arcs); the guide and E-3 say so. Gate in `orbits.test.ts`. |
+| B2 | B | A saved camera pointed away from the molecule failed the robot's tutorial. | The robot sets the automatic camera before it verifies the drawing. Gate: such a camera beforehand. |
+
+**A correction to a round-80 gate (before review):** the symmetry-form test unrouted its hold
+while held requests were still being continued (`Route is already handled`); a released hold lets
+later requests through at once, so the unroute was dropped.
+
+**Outcome:** both rounds under the cap were NOT READY. Every finding of both is fixed with a gate
+frozen first; the owner decides whether to merge.

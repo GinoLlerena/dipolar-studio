@@ -186,6 +186,12 @@ export function fixedResultDifferences(a: Json, b: Json, t: FixedTolerances): st
   return differences(a, b, (path, owner, top) => fixedRule(path, owner, top, t), false);
 }
 
+/** A key as a path segment: a plain name as is, any other quoted (round 80: a literal key
+ * "rank.required" took the rule of the nested rank.required). */
+function segment(key: string): string {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) ? key : JSON.stringify(key);
+}
+
 /** `integersWithoutRule`: whether an integer without a rule is compared exactly (the search-era
  * result's counts and ranks) or is a difference (the fixed-geometry result names all of its own). */
 function differences(
@@ -214,7 +220,7 @@ function differences(
       for (const k of keys) {
         // Own keys only (round 79: `in` saw an inherited `__proto__` or `constructor` on the other side).
         if (!Object.hasOwn(x, k) || !Object.hasOwn(y, k)) out.push(`${shown}.${k}: on one side only`);
-        else walk(x[k] as Json, y[k] as Json, path === "" ? k : `${path}.${k}`, `${shown}.${k}`, x);
+        else walk(x[k] as Json, y[k] as Json, path === "" ? segment(k) : `${path}.${segment(k)}`, `${shown}.${k}`, x);
       }
       return;
     }

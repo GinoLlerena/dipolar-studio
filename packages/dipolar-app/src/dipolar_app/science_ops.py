@@ -1997,10 +1997,10 @@ def molecule_suggest_symmetry(ctx: Context, _: SuggestSymmetryIn) -> SuggestSymm
         suggestion=suggestion,
         plane=plane,
         reason=(
-            f"the {len(atoms)} spins lie in one plane (within {tolerance:g} Å; the farthest is {distance:.3g} Å "
-            "from it). Fitted as C1, a planar molecule's rank cannot be verified and its adequacy is withheld. "
-            "Declared Cs with z′ normal to that plane, the model is reduced to the in-plane block of the order "
-            "tensor; which combinations of it the couplings determine is for the fit to say. This is a "
-            "suggestion, not validated: declaring it validates it against every atom."
+            f"the {len(atoms)} spins lie in one plane within {tolerance:g} Å (the farthest is {distance:.3g} Å "
+            "from it). Declared Cs with z′ normal to that plane, the molecule is taken to be symmetric under "
+            "that mirror (its geometry symmetrized onto it) and the model is reduced to the in-plane block of "
+            "the order tensor; which combinations of it the couplings determine is for the fit to say. This "
+            "is a suggestion, not validated: declaring it validates it against every atom."
         ),
     )

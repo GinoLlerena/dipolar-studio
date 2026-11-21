@@ -277,7 +277,10 @@ function ModelPane({ studio, state, project, model }: Props & { project: Describ
   // It also waits while the project shown is older than the newest revision the page shows (the
   // view's): Apply acts at the project's revision (round 79).
   const behind = state.view !== null && project.science_revision !== state.view.science_revision;
-  const waiting = (pending !== null && project.science_revision < pending) || behind;
+  // From the click until the answer, too (round 80: with model.set delayed, an edit made while it
+  // was in flight was erased by its answer).
+  const [submitting, setSubmitting] = useState(false);
+  const waiting = submitting || (pending !== null && project.science_revision < pending) || behind;
   const apply = async () => {
     const args: ModelSetIn = fixedFit
       ? { kind: "fixed", order: "point-group", frame: "symmetry", expected_science_revision: project.science_revision }
@@ -291,8 +294,13 @@ function ModelPane({ studio, state, project, model }: Props & { project: Describ
           ],
           expected_science_revision: project.science_revision,
         };
-    const out = await studio.command("model.set", (t) => callOperation("model.set", args, t));
-    if (out) setPending(out.science_revision);
+    setSubmitting(true);
+    try {
+      const out = await studio.command("model.set", (t) => callOperation("model.set", args, t));
+      if (out) setPending(out.science_revision);
+    } finally {
+      setSubmitting(false);
+    }
   };
   const orders = fixedFit ? (["point-group"] as const) : ORDERS;
   const frames = fixedFit ? (["symmetry"] as const) : FRAMES;
@@ -425,14 +433,21 @@ function SymmetryPane({ studio, state, project }: Props & { project: DescribePro
   // older than the project (round 79: Clear removed a declaration the page had not shown yet), and,
   // after a declaration, until the page shows it.
   const [pending, setPending] = useState<number | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const shownRevision = declarations?.declared.science_revision ?? -1;
-  const waiting = current === null || (pending !== null && shownRevision < pending);
+  // The whole form is locked from Declare or Clear until the page shows the outcome (round 80).
+  const waiting = submitting || current === null || (pending !== null && shownRevision < pending);
   const declare = async (symmetry: SymmetryIn | null) => {
     if (!current) return;
-    const out = await studio.command("molecule.set_symmetry", (t) =>
-      callOperation("molecule.set_symmetry", { symmetry, expected_science_revision: current.declared.science_revision }, t),
-    );
-    if (out) setPending(out.science_revision);
+    setSubmitting(true);
+    try {
+      const out = await studio.command("molecule.set_symmetry", (t) =>
+        callOperation("molecule.set_symmetry", { symmetry, expected_science_revision: current.declared.science_revision }, t),
+      );
+      if (out) setPending(out.science_revision);
+    } finally {
+      setSubmitting(false);
+    }
   };
   const row = (k: number) => {
     const [x = 0, y = 0, z = 0] = (draft.axes[k] ?? []).map(Number);
@@ -448,7 +463,7 @@ function SymmetryPane({ studio, state, project }: Props & { project: DescribePro
       {suggestion && current && (
         <div className="suggestion">
           <p role="note">{current.suggested.reason}</p>
-          <button type="button" className="quiet" onClick={() => setDraft(symmetryDraft(suggestion))}>
+          <button type="button" className="quiet" disabled={waiting} onClick={() => setDraft(symmetryDraft(suggestion))}>
             {strings.useSuggestion}
           </button>
           <p className="help">{strings.suggestionHelp}</p>
@@ -456,7 +471,7 @@ function SymmetryPane({ studio, state, project }: Props & { project: DescribePro
       )}
       <div className="form">
         <label htmlFor="symmetry-group">{strings.pointGroup}</label>
-        <select id="symmetry-group" value={draft.group} onChange={(e) => setDraft({ ...draft, group: e.target.value })}>
+        <select id="symmetry-group" value={draft.group} disabled={waiting} onChange={(e) => setDraft({ ...draft, group: e.target.value })}>
           {GROUPS.map((g) => (
             <option key={g} value={g}>
               {g}
@@ -475,6 +490,7 @@ function SymmetryPane({ studio, state, project }: Props & { project: DescribePro
                   aria-label={strings.axisInput(axis, component)}
                   inputMode="decimal"
                   className="index"
+                  disabled={waiting}
                   value={draft.axes[k]?.[j] ?? ""}
                   onChange={(e) => setDraft({ ...draft, axes: draft.axes.map((r, i) => (i === k ? r.map((v, c) => (c === j ? e.target.value : v)) : r)) })}
                 />
@@ -487,6 +503,7 @@ function SymmetryPane({ studio, state, project }: Props & { project: DescribePro
           id="symmetry-tolerance"
           inputMode="decimal"
           className="short"
+          disabled={waiting}
           value={draft.tolerance}
           onChange={(e) => setDraft({ ...draft, tolerance: e.target.value })}
         />
