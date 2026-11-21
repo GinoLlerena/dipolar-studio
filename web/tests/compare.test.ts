@@ -207,3 +207,27 @@ test("round 79: a one-sided key named like an inherited property is a difference
   const constructor = JSON.parse(searchText.replace('"validity":{', '"validity":{"constructor":1,'));
   assert.notDeepEqual(resultDifferences(constructor, result(), TOL), []);
 });
+
+// ------------------------------------------------------------------ round 80
+test("round 80: a key whose name looks like a path takes no rule of that path", () => {
+  const a = fixedRun();
+  const b = fixedRun();
+  a["rank.required"] = 2;
+  b["rank.required"] = 2;
+  assert.notDeepEqual(fixedResultDifferences(a, b, FIXED_TOL), [], "a literal 'rank.required' key");
+  const c = fixedRun();
+  const d = fixedRun();
+  c.rows[0]["predicted.value"] = 1.5;
+  d.rows[0]["predicted.value"] = 1.5;
+  assert.notDeepEqual(fixedResultDifferences(c, d, FIXED_TOL), [], "a literal 'predicted.value' key");
+  const e = result();
+  const f = result();
+  e["validity.inner_condition_number"] = 3.5;
+  f["validity.inner_condition_number"] = 3.5;
+  assert.notDeepEqual(resultDifferences(e, f, TOL), [], "a literal key in a search result");
+  const g = fixedRun();
+  const h = fixedRun();
+  g.components[0]["intervals[]"] = 0.5;
+  h.components[0]["intervals[]"] = 0.5;
+  assert.notDeepEqual(fixedResultDifferences(g, h, FIXED_TOL), [], "a key with brackets");
+});

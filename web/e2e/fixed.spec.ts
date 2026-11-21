@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Page } from "@playwright/test";
 import { expect, openTab, type Server, test } from "./harness";
-import { expectComponentsShown, expectRowsShown } from "./rendered";
+import { expectComponentsShown, expectRowsShown, expectVerdictShown } from "./rendered";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 const DATA = join(ROOT, "datasets", "dichlorobenzene-synthetic");
@@ -84,6 +84,7 @@ test("the Fit workspace shows a fixed run's estimable combinations, without φ",
   // Round 79, finding 4: every shown number is the result's.
   const result = (await server.ok("robot", "run.get", { run_id: runId })).result;
   await expectComponentsShown(estimable, result.components);
+  await expectVerdictShown(detail, result); // round 80, finding 6
   const label = new Map((result.spins as { id: string; label: string }[]).map((s) => [s.id, s.label]));
   const pairOf = new Map((result.rows as { coupling_id: string; pair: [string, string] }[]).map((r) => [r.coupling_id, r.pair]));
   await expectRowsShown(table, result.rows, (id) => (pairOf.get(id) ?? []).map((s) => label.get(s)).join("–"));
@@ -256,4 +257,75 @@ test("round 79: an edit after Apply is not erased by the arriving description", 
   await app.waitForTimeout(500); // any late description would arrive here
   await expect(app.locator("#model-kind")).toHaveValue("rigid");
   await expect(app.getByLabel("φ domain (°) from")).toHaveValue("-125");
+});
+
+// ------------------------------------------------------------------ round 80
+
+/** Holds the next responses of `operation` until released. */
+async function hold(app: Page, operation: string): Promise<() => void> {
+  let release: () => void = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  await app.route(`**/api/v1/ops/${operation}`, async (route) => {
+    await held;
+    await route.continue();
+  });
+  return release;
+}
+
+test("round 80: the model inspector is locked from Apply until the page shows the model", async ({ app, server }) => {
+  // Finding 1: with model.set itself delayed, a bound typed after Apply was erased by its answer.
+  await server.ok("robot", "project.import_xyz", { xyz: benzeneXyz(), name: "benzene", expected_science_revision: 0 });
+  await openTab(app, "Data");
+  await expect(app.locator(".crumb .muted")).toContainText("rev 1 ");
+  await expect(app.getByLabel("φ domain (°) from")).toBeEnabled();
+  const release = await hold(app, "model.set");
+  await app.getByLabel("φ domain (°) to").fill("170");
+  await app.getByRole("button", { name: "Apply" }).click();
+  await expect(app.getByLabel("φ domain (°) from")).toBeDisabled(); // submitted, not yet answered
+  await expect(app.locator("#model-kind")).toBeDisabled();
+  release();
+  await expect(app.locator(".crumb .muted")).toContainText("rev 2 ");
+  await expect(app.getByLabel("φ domain (°) from")).toBeEnabled();
+  await app.getByLabel("φ domain (°) from").fill("-160");
+  await app.waitForTimeout(500);
+  await expect(app.getByLabel("φ domain (°) from")).toHaveValue("-160");
+  await expect(app.getByLabel("φ domain (°) to")).toHaveValue("170");
+});
+
+test("round 80: the symmetry form is locked from Declare until the page shows the declaration", async ({ app, server }) => {
+  // Finding 1: with molecule.declarations delayed after Declare, a tolerance typed meanwhile was erased.
+  await server.ok("robot", "project.import_xyz", { xyz: benzeneXyz(), name: "benzene", expected_science_revision: 0 });
+  await openTab(app, "Data");
+  const symmetry = pane(app, "pane-symmetry");
+  await expect(symmetry.getByRole("button", { name: "Declare symmetry" })).toBeEnabled();
+  for (const operation of ["molecule.set_symmetry", "molecule.declarations"]) {
+    const release = await hold(app, operation);
+    await symmetry.locator("#symmetry-group").selectOption(operation === "molecule.set_symmetry" ? "D6h" : "C1");
+    await symmetry.getByRole("button", { name: "Declare symmetry" }).click();
+    await expect(symmetry.locator("#symmetry-tolerance")).toBeDisabled();
+    await expect(symmetry.locator("#symmetry-group")).toBeDisabled();
+    release();
+    await app.unroute(`**/api/v1/ops/${operation}`);
+    await expect(symmetry.locator("#symmetry-tolerance")).toBeEnabled();
+  }
+  await symmetry.locator("#symmetry-tolerance").fill("0.02");
+  await app.waitForTimeout(500);
+  await expect(symmetry.locator("#symmetry-tolerance")).toHaveValue("0.02");
+  await expect(symmetry).toContainText("Declared: C1");
+});
+
+test("round 80: a failed read does not leave Run fit disabled", async ({ app, server }) => {
+  // Finding 2: one aborted project.describe after another client's change kept the page behind.
+  await dichlorobenzene(server);
+  await openTab(app, "Fit");
+  await expect(app.getByRole("button", { name: "Run fit" })).toBeEnabled();
+  let aborted = 0;
+  await app.route("**/api/v1/ops/project.describe", async (route) => {
+    if (aborted++ === 0) await route.abort();
+    else await route.continue();
+  });
+  await server.ok("robot", "couplings.remove", { coupling_ids: ["cpl_000003"], expected_science_revision: 4 });
+  await expect(app.locator(".crumb .muted")).toContainText("rev 5 ");
+  await expect(app.getByRole("button", { name: "Run fit" })).toBeEnabled({ timeout: 15_000 });
+  expect(aborted).toBeGreaterThanOrEqual(2);
 });

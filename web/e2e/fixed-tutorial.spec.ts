@@ -11,7 +11,7 @@ import { join, resolve } from "node:path";
 import type { Page } from "@playwright/test";
 import { type FixedTolerances, fixedResultDifferences } from "./compare";
 import { expect, openTab, type Server, startServer, test } from "./harness";
-import { expectComponentsShown, expectRowsShown } from "./rendered";
+import { expectComponentsShown, expectRowsShown, expectVerdictShown } from "./rendered";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 const DATA = join(ROOT, "datasets", "dichlorobenzene-synthetic");
@@ -126,6 +126,7 @@ test("the fixed-geometry tutorial through the page equals the robot's", async ({
     // Round 79, finding 4: and the page shows the robot's numbers.
     await openTab(app, "Fit");
     await expectComponentsShown(pane(app, "pane-estimable"), robotRun.result.components);
+    await expectVerdictShown(pane(app, "pane-run-detail"), robotRun.result); // round 80, finding 6
     const label = new Map((robotRun.result.spins as { id: string; label: string }[]).map((s) => [s.id, s.label]));
     const pairOf = new Map((robotRun.result.rows as { coupling_id: string; pair: [string, string] }[]).map((r) => [r.coupling_id, r.pair]));
     await expectRowsShown(pane(app, "pane-residuals").locator("table"), robotRun.result.rows, (id) =>

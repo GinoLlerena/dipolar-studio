@@ -649,3 +649,106 @@ def test_r79_the_collinearity_rule_is_the_largest_distance_from_the_line(offset:
     import_ring(c, [a[0] for a in atoms], np.array([a[1:] for a in atoms]))
     out = suggest(c)
     assert (out["suggestion"] is not None) is suggested, out
+
+
+# --------------------------------------------------------------------------- round 80
+def test_r80_the_suggestion_claims_nothing_about_a_c1_fit() -> None:
+    """Round 80, finding 5: five protons within 0.001 Å of a plane fit C1 with a verified rank; the
+    suggestion states the measured distance and what Cs constrains, nothing about C1's rank."""
+    c = client(new_session())
+    benzene_draft(c)
+    reason = suggest(c)["reason"]
+    for claim in ("cannot be verified", "withheld", "unverified"):
+        assert claim not in reason, reason
+    assert "farthest is" in reason and "in-plane block" in reason and "not validated" in reason
+
+
+class _Injecting:
+    """A robot client that runs `action` (once) just before the first call of `before`."""
+
+    def __init__(self, robot: Any, ready: dict[str, Any], before: str, action: Any) -> None:
+        self.inner = robot.Client(ready["base_url"], ready["tokens"]["robot"])
+        self.before, self.action, self.done = before, action, False
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.inner, name)
+
+    def call(self, name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+        if name == self.before and not self.done:
+            self.done = True
+            self.action()
+        result: dict[str, Any] = self.inner.call(name, args)
+        return result
+
+
+def _fixed_tutorial_with(server: Server, before: str, action: Any) -> Any:
+    robot = _robot_module()
+    ready = json.loads(server.ready_file.read_text(encoding="utf-8"))
+    client = _Injecting(robot, ready, before, action)
+    return robot, lambda: robot.fixed_tutorial(client, ready, DCB / "dichlorobenzene.xyz", DCB / "couplings.csv", "D2h")
+
+
+def test_r80_the_robot_fits_the_geometry_it_imported(server: Server) -> None:
+    """Round 80, finding 3: another client loads a scaled copy of the project between model.set and
+    the reconciliation; the robot must fail, not fit the other geometry."""
+
+    def load_scaled() -> None:
+        exported = server.call("project.export")["result"]
+        document = json.loads(exported["text"])
+        for atom in document["project"]["molecule"]["geometry"]["atoms"]:
+            for axis in ("x", "y", "z"):
+                atom[axis] *= 1.25
+        revision = server.call("render.describe_view")["result"]["science_revision"]
+        loaded = server.call("project.load", {"text": json.dumps(document), "expected_science_revision": revision})
+        assert loaded["ok"], loaded
+
+    robot, run = _fixed_tutorial_with(server, "couplings.reconcile", load_scaled)
+    with pytest.raises(robot.RobotError):
+        run()
+
+
+def test_r80_the_robot_fails_when_a_coupling_changes_between_the_fit_and_the_export(server: Server) -> None:
+    """Round 80, finding 4: the consistency guard is exercised by the workflow, not only by itself."""
+
+    def change_a_coupling() -> None:
+        revision = server.call("render.describe_view")["result"]["science_revision"]
+        removed = server.call(
+            "couplings.remove", {"coupling_ids": ["cpl_000001"], "expected_science_revision": revision}
+        )
+        assert removed["ok"], removed
+
+    robot, run = _fixed_tutorial_with(server, "project.export", change_a_coupling)
+    with pytest.raises(robot.RobotError):
+        run()
+
+
+def test_r80_the_robot_verifies_the_selected_drawing_it_reports(server: Server) -> None:
+    """Round 80, finding 4: the selection cleared between describe_view and view_svg is a failure."""
+
+    def clear() -> None:
+        assert server.call("view.select", {"ids": []})["ok"]
+
+    robot, run = _fixed_tutorial_with(server, "render.view_svg", clear)
+    with pytest.raises(robot.RobotError):
+        run()
+
+
+def test_r80_the_robot_resets_a_camera_that_hides_the_molecule(server: Server, clean_env: dict[str, str]) -> None:
+    """Round 80, B: a valid saved camera pointed away from the molecule survives project
+    replacement; the tutorial sets the automatic camera before it verifies the drawing."""
+    away = {
+        "camera": {
+            "position": {"xyz": [0.0, 0.0, 500.0], "unit": "Å"},
+            "target": {"xyz": [0.0, 0.0, 1000.0], "unit": "Å"},
+            "up": {"xyz": [0.0, 1.0, 0.0]},
+            "fov": {"value": 45.0, "unit": "deg"},
+            "near": {"value": 1.0, "unit": "Å"},
+            "far": {"value": 100.0, "unit": "Å"},
+        },
+        "viewport": {"width": 640, "height": 480},
+        "expected_workspace_revision": server.call("render.describe_view")["result"]["workspace_revision"],
+    }
+    assert server.call("view.set_camera", away)["ok"]
+    files = ["--xyz", str(DCB / "dichlorobenzene.xyz"), "--csv", str(DCB / "couplings.csv")]
+    proc = _robot(server, clean_env, "--scenario", "fixed-tutorial", *files)
+    assert proc.returncode == 0, proc.stdout + proc.stderr

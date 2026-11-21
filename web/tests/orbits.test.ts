@@ -75,3 +75,16 @@ test("round 79: the copies of a selected or highlighted row are drawn whatever t
   ]);
   assert.equal(out.omitted, 2);
 });
+
+test("round 80: the copies of selected and highlighted rows have their own bound", () => {
+  // 2000 kept rows with 24 members each would be 48 000 arcs: at most 2 × max are drawn.
+  const images = Array.from({ length: 24 }, (_, g) => Array.from({ length: 48 }, (_, i) => (i + 2 * g) % 48));
+  const rows = Array.from({ length: 2000 }, (_, k) => ({ id: `cpl_${k}`, a: 0, b: 1 + (k % 40) }));
+  const keep = new Set(rows.map((r) => r.id));
+  const out = orbitArcs(rows, images, 2000, keep);
+  assert.ok(out.arcs.length <= 4000, `${out.arcs.length} arcs`);
+  assert.ok(out.omitted > 0);
+  // The first kept row's orbit is drawn whole.
+  const first = out.arcs.filter((x) => x.id === "cpl_0").length;
+  assert.equal(first, orbitArcs([rows[0]!], images).arcs.length);
+});
