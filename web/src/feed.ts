@@ -38,13 +38,13 @@ export function parseFeedLine(line: string): FeedItem | null {
 }
 
 /** What the page shows, each read by one registry query. */
-export type Resource = "view" | "project" | "history" | "runs" | "jobs" | "scene" | "proposals";
-export const RESOURCES: readonly Resource[] = ["view", "project", "history", "runs", "jobs", "scene", "proposals"];
+export type Resource = "view" | "project" | "history" | "runs" | "jobs" | "scene" | "proposals" | "declarations";
+export const RESOURCES: readonly Resource[] = ["view", "project", "history", "runs", "jobs", "scene", "proposals", "declarations"];
 
 const BY_DOMAIN: Record<"science" | "workspace" | "proposal" | "job", readonly Resource[]> = {
-  // A science change alters the project and its history, and makes runs, jobs and pending
-  // proposals stale.
-  science: ["project", "history", "view", "runs", "jobs", "scene", "proposals"],
+  // A science change alters the project and its history (and the molecule's declarations and the
+  // symmetry suggestion, V1.4), and makes runs, jobs and pending proposals stale.
+  science: ["project", "history", "view", "runs", "jobs", "scene", "proposals", "declarations"],
   // The camera, layers, selection and highlights: the view and the Structure view's scene.
   workspace: ["view", "scene"],
   // A finished job adds a run, which the view describes and whose residuals the scene shows.

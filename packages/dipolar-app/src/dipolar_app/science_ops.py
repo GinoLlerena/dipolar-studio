@@ -1886,3 +1886,120 @@ def decode_result(model_kind: str, text: str) -> FitRunOut | FixedRunOut:
     if model_kind == "fixed":
         return FixedRunOut.model_validate_json(text)
     return FitRunOut.model_validate_json(text)
+
+
+# --------------------------------------------------------------------------- molecule.suggest_symmetry (V1.4)
+class SuggestSymmetryIn(Wire):
+    pass
+
+
+class SymmetryPlane(Wire):
+    """The spins' least-squares plane through their centroid (input coordinates)."""
+
+    normal: tuple[float, float, float]
+    centroid: tuple[float, float, float]
+    max_distance: Length  # the farthest spin from the plane
+    spins: int
+
+
+class SuggestSymmetryOut(Science):
+    """The Cs suggestion of docs/phase2/v1.4-browser.md E-5: only a suggestion, never certified.
+    Declaring it (``molecule.set_symmetry``) validates it, like any declaration."""
+
+    suggestion: SymmetryIn | None
+    plane: SymmetryPlane | None
+    tolerance: Angstrom  # the declared tolerance, else the default
+    reason: str
+
+
+def _plane_axes(normal: np.ndarray) -> tuple[tuple[float, float, float], ...]:
+    """Rows x′, y′, z′: z′ the normal with its largest-magnitude component positive (ties to the
+    first), x′ the input axis least aligned with it (ties to the first) made orthogonal to it, and
+    y′ = z′ × x′."""
+    z = normal / np.linalg.norm(normal)
+    if z[int(np.argmax(np.abs(z)))] < 0:
+        z = -z
+    e = np.eye(3)[int(np.argmin(np.abs(z)))]
+    x = e - (e @ z) * z
+    x /= np.linalg.norm(x)
+    y = np.cross(z, x)
+    return tuple((float(r[0]), float(r[1]), float(r[2])) for r in (x, y, z))
+
+
+def molecule_suggest_symmetry(ctx: Context, _: SuggestSymmetryIn) -> SuggestSymmetryOut:
+    from dipolar_core.symmetry import MEDIUM, TOLERANCE_DEFAULT_A
+
+    state = ctx.read()
+    project = require_project(state)
+    declared = project.molecule.symmetry
+    tolerance = declared.tolerance.value if declared is not None else TOLERANCE_DEFAULT_A
+    base = {
+        "science_revision": state.science_revision,
+        "science_hash": state.science_hash,
+        "tolerance": Angstrom(value=tolerance, unit="Å"),
+    }
+    g = project.molecule.geometry
+    if not isinstance(g, ImportedGeometry):
+        return SuggestSymmetryOut(
+            **base, suggestion=None, plane=None, reason="the biphenyl template takes no symmetry declaration"
+        )
+    atoms = [s.atom for s in project.molecule.spins if s.atom is not None]
+    if len(atoms) < 3:
+        return SuggestSymmetryOut(
+            **base, suggestion=None, plane=None, reason=f"{len(atoms)} spins: no plane to test (three are needed)"
+        )
+    xyz = np.array([[g.atoms[k].x, g.atoms[k].y, g.atoms[k].z] for k in atoms], dtype=np.float64)
+    centroid = xyz.mean(axis=0)
+    centred = xyz - centroid
+    vectors = np.linalg.eigh(centred.T @ centred).eigenvectors  # ascending eigenvalues
+    along = vectors[:, 2]
+    off_line = float(np.linalg.norm(centred - np.outer(centred @ along, along), axis=1).max())
+    if off_line <= tolerance:
+        return SuggestSymmetryOut(
+            **base,
+            suggestion=None,
+            plane=None,
+            reason=f"the spins lie on one line (within {tolerance:g} Å): no unique plane",
+        )
+    axes = _plane_axes(vectors[:, 0])
+    normal = np.array(axes[2])
+    distance = float(np.abs(centred @ normal).max())
+    plane = SymmetryPlane(
+        normal=axes[2],
+        centroid=(float(centroid[0]), float(centroid[1]), float(centroid[2])),
+        max_distance=Length(value=distance, unit="Å"),
+        spins=len(atoms),
+    )
+    if distance > tolerance:
+        return SuggestSymmetryOut(
+            **base,
+            suggestion=None,
+            plane=plane,
+            reason=(
+                f"the spins are not planar within {tolerance:g} Å (the farthest is {distance:.3g} Å from their plane)"
+            ),
+        )
+    if declared is not None and declared.point_group != "C1":
+        return SuggestSymmetryOut(
+            **base,
+            suggestion=None,
+            plane=plane,
+            reason=f"{declared.point_group} is declared: the suggestion is for an undeclared or C1 molecule only",
+        )
+    suggestion = SymmetryIn(
+        point_group="Cs",
+        axes=(axes[0], axes[1], axes[2]),
+        tolerance=Angstrom(value=tolerance, unit="Å"),
+        medium=declared.medium if declared is not None else MEDIUM,
+    )
+    return SuggestSymmetryOut(
+        **base,
+        suggestion=suggestion,
+        plane=plane,
+        reason=(
+            f"the {len(atoms)} spins lie in one plane (within {tolerance:g} Å; the farthest is {distance:.3g} Å "
+            "from it). Fitted as C1, a planar molecule has an unverified rank and no adequacy test; declared Cs "
+            "with z′ normal to that plane, its in-plane block is estimable. This is a suggestion, not validated: "
+            "declaring it validates it against every atom."
+        ),
+    )

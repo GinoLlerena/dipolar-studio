@@ -30,11 +30,26 @@ from dipolar_app.session import Plan, Session, SessionState, StoredOutcome
 T = TypeVar("T")
 
 #: Semantic version of the tool contract (D20), independent of the package version.
-CONTRACT_VERSION = "0.11.0"
+CONTRACT_VERSION = "0.12.0"
 
 #: The contract's changelog, published in the snapshot (ADR-0020; docs/contract-changelog.md has the
 #: earlier versions). SemVer 0.x: a breaking change moves the minor version.
 CONTRACT_CHANGES: tuple[dict[str, Any], ...] = (
+    {
+        "version": "0.12.0",
+        "breaking": True,
+        "changes": [
+            "BREAKING: render.scene and render.describe_view give phi null and phi_source null for a "
+            "fixed-geometry project (no torsion); render.scene's phi is nullable",
+            "added: render.scene has symmetry (point group, origin, axes, the group action as images, the "
+            "automatic camera's direction and up) for a fixed-geometry project only; its automatic camera "
+            "looks along the symmetry axis of least spread",
+            "added: the query molecule.suggest_symmetry (Cs for planar spins without a group beyond C1; a "
+            "suggestion, not validated)",
+            "unchanged for projects without a fixed model: render.scene and render.describe_view keep the "
+            "0.10.0 shapes",
+        ],
+    },
     {
         "version": "0.11.0",
         "breaking": True,

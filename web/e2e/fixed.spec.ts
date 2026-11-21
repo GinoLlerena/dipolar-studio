@@ -141,6 +141,9 @@ test("the model inspector enters and leaves the fixed-geometry fit", async ({ ap
   await app.locator("#model-kind").selectOption("fixed");
   await app.getByRole("button", { name: "Apply" }).click();
   await expect.poll(async () => (await server.ok("robot", "project.describe")).model.kind).toBe("fixed");
+  // The page acts on the state it shows: wait until it shows the change (rev 3, nothing to apply).
+  await expect(app.locator(".crumb .muted")).toContainText("rev 3 ");
+  await expect(app.getByRole("button", { name: "Apply" })).toBeDisabled();
   await expect(app.getByLabel("φ domain (°) from")).toHaveCount(0);
   // Leaving it asks for a torsion domain again.
   await app.locator("#model-kind").selectOption("rigid");
@@ -151,7 +154,26 @@ test("the model inspector enters and leaves the fixed-geometry fit", async ({ ap
   await app.getByLabel("φ domain (°) to").fill("180");
   await app.getByRole("button", { name: "Apply" }).click();
   await expect.poll(async () => (await server.ok("robot", "project.describe")).model.kind).toBe("rigid");
+  await expect(app.locator(".crumb .muted")).toContainText("rev 4 ");
+  await expect(app.getByRole("button", { name: "Apply" })).toBeDisabled();
   // A declared symmetry cannot be cleared under the fixed fit; here it can.
   await symmetry.getByRole("button", { name: "Clear" }).click();
   await expect.poll(async () => (await server.ok("robot", "molecule.declarations")).symmetry).toBeNull();
+});
+
+test("a science change while the symmetry form is edited keeps the edit", async ({ app, server }) => {
+  // As for the torsion and the model (CI, M3 step 4b and beta step B4): a couplings import by
+  // another client must not reset what is being typed in the symmetry form.
+  await server.ok("robot", "project.import_xyz", { xyz: benzeneXyz(), name: "benzene", expected_science_revision: 0 });
+  await openTab(app, "Data");
+  const symmetry = pane(app, "pane-symmetry");
+  await expect(symmetry).toContainText("No symmetry declared");
+  await symmetry.locator("#symmetry-group").selectOption("D6h");
+  await symmetry.locator("#symmetry-tolerance").fill("0.02");
+  const csv = "spin_a,spin_b,D_obs_Hz,sigma_Hz\nH7,H8,-1200.5,0.5\n";
+  const { proposed_mapping } = await server.ok("robot", "couplings.reconcile", { csv });
+  await server.ok("robot", "couplings.import", { csv, confirmed_mapping: proposed_mapping, expected_science_revision: 1 });
+  await expect(app.locator(".crumb .muted")).toContainText("rev 2 ");
+  await expect(symmetry.locator("#symmetry-group")).toHaveValue("D6h");
+  await expect(symmetry.locator("#symmetry-tolerance")).toHaveValue("0.02");
 });

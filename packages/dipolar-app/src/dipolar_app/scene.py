@@ -143,8 +143,18 @@ def draw_order(ids: Sequence[str], projected: Sequence[tuple[float, float, float
     return [i for _, i in sorted(keyed)]
 
 
-def auto_camera(points: Sequence[Vec3], width: int, height: int, fov_deg: float = DEFAULT_FOV_DEG) -> Camera:
-    """A camera on +z of the points' centroid that fits their bounding sphere in the view."""
+def auto_camera(
+    points: Sequence[Vec3],
+    width: int,
+    height: int,
+    fov_deg: float = DEFAULT_FOV_DEG,
+    *,
+    direction: Vec3 = (0.0, 0.0, 1.0),
+    up: Vec3 = (0.0, 1.0, 0.0),
+) -> Camera:
+    """A camera that fits the points' bounding sphere in the view, on ``direction`` (a unit
+    vector) from their centroid, with ``up``: by default on +z, up +y. A fixed-geometry project
+    looks along its symmetry frame's axis of least spread (V1.4, E-3)."""
     n = len(points)
     if n == 0:
         return Camera((0.0, 0.0, 10.0), (0.0, 0.0, 0.0), (0.0, 1.0, 0.0), fov_deg, 0.1, 100.0)
@@ -154,9 +164,9 @@ def auto_camera(points: Sequence[Vec3], width: int, height: int, fov_deg: float 
     half_h = math.atan(math.tan(half) * min(1.0, width / height))  # the narrower half-angle
     distance = FIT_MARGIN * radius / math.sin(half_h)
     return Camera(
-        (c[0], c[1], c[2] + distance),
+        (c[0] + distance * direction[0], c[1] + distance * direction[1], c[2] + distance * direction[2]),
         c,
-        (0.0, 1.0, 0.0),
+        up,
         fov_deg,
         max(distance - 2.0 * radius, 0.01),
         distance + 2.0 * radius,
@@ -211,10 +221,15 @@ def geometry(project: Project, phi_deg: float) -> tuple[list[str], list[str], li
     return ids, elements, [(float(x), float(y), float(z)) for x, y, z in positions], bonds
 
 
-def displayed_phi(state: SessionState, result: dict[str, Any] | None, current: bool) -> tuple[float, PhiSource]:
-    """φ from the run only when the run is current *and* its result is readable."""
+def displayed_phi(
+    state: SessionState, result: dict[str, Any] | None, current: bool
+) -> tuple[float | None, PhiSource | None]:
+    """φ from the run only when the run is current *and* its result is readable. A fixed-geometry
+    project has none (V1.4, E-1): its geometry has no torsion."""
     project = state.project
     assert project is not None
+    if project.model.kind == "fixed":
+        return None, None
     if result is not None and current and "theta" in result:  # a fixed-geometry run has no torsion
         return float(result["theta"][0]["value"]), "run"
     g = project.molecule.geometry
@@ -275,9 +290,16 @@ def build_scene(state: SessionState, blobs: Any) -> dict[str, Any]:
     # fit (round 35).
     usable = current and result is not None
     phi, source = displayed_phi(state, result, usable)
-    ids, elements, coords, bonds = geometry(prj, phi)
+    ids, elements, coords, bonds = geometry(prj, DEFAULT_PHI_DEG if phi is None else phi)
     width, height = state.view.viewport
-    camera = state.view.camera or auto_camera(coords, width, height)
+    frame = symmetry_frame(prj)
+    if frame is None:
+        auto = auto_camera(coords, width, height) if state.view.camera is None else None
+    else:
+        direction, up = _vec3(frame["camera_direction"]), _vec3(frame["camera_up"])
+        auto = None if state.view.camera else auto_camera(coords, width, height, direction=direction, up=up)
+    camera = state.view.camera or auto
+    assert camera is not None
     problem = check_camera(camera)
     if problem is not None:  # an auto-fitted camera is checked like any other (round 36)
         raise ValueError(problem)
@@ -286,10 +308,10 @@ def build_scene(state: SessionState, blobs: Any) -> dict[str, Any]:
     residuals = {c.get("coupling_id", c.get("id")): c["residual"]["value"] for c in rows}
     labels = {s.id: short(s.label) for s in prj.molecule.spins}
     position = dict(zip(ids, coords, strict=True))
-    return {
+    out: dict[str, Any] = {
         "science_revision": state.science_revision,
         "workspace_revision": state.workspace_revision,
-        "phi": {"value": phi, "unit": "deg"},
+        "phi": None if phi is None else {"value": phi, "unit": "deg"},
         "phi_source": source,
         "run": None if run is None else {"run_id": run.id, "stale": not current, "available": result is not None},
         "fit": _fit_summary(result) if usable and result else None,
@@ -334,6 +356,78 @@ def build_scene(state: SessionState, blobs: Any) -> dict[str, Any]:
         "selection": list(state.view.selection),
         "highlights": list(state.view.highlights),
     }
+    if frame is not None:
+        out["symmetry"] = frame
+    return out
+
+
+#: Ties in the spread of the averaged geometry along a symmetry axis (Å): z′, then x′, then y′.
+SPREAD_TIE_A = 1e-6
+#: The drawn symmetry axes reach this far beyond the farthest atom, and at least AXIS_MIN_A.
+AXIS_REACH, AXIS_MIN_A = 1.15, 1.0
+_VIEW_PREFERENCE = (2, 0, 1)
+
+
+def _vec3(values: Sequence[float]) -> Vec3:
+    x, y, z = (float(v) for v in values)
+    return (x, y, z)
+
+
+def axis_ends(frame: dict[str, Any]) -> list[tuple[str, Vec3, Vec3]]:
+    """The drawn symmetry axes: (name, origin, end) for x′, y′, z′."""
+    o = _vec3(frame["origin"]["xyz"])
+    length = float(frame["axis_length"]["value"])
+    return [
+        (name, o, (o[0] + length * a[0], o[1] + length * a[1], o[2] + length * a[2]))
+        for name, a in zip("xyz", frame["axes"], strict=True)
+    ]
+
+
+def orbit_members(images: Sequence[Sequence[int]] | None, a: int, b: int) -> list[tuple[int, int]]:
+    """A row's pair orbit as sorted index pairs, the observed pair first (web/src/scene/orbits.ts)."""
+    if not images:
+        return [(a, b)]
+    first = (min(a, b), max(a, b))
+    members = {(min(p[a], p[b]), max(p[a], p[b])) for p in images}
+    return [first, *sorted(members - {first})]
+
+
+def symmetry_frame(project: Project) -> dict[str, Any] | None:
+    """The scene's symmetry frame of a fixed-geometry project (V1.4, E-3), or None: another model,
+    or a declaration that does not validate.
+
+    - ``origin`` and ``axes``: the centroid and the rows of Q (x′ = Q(x − c)), in the scene's
+      coordinates (the input coordinates);
+    - ``images``: the group action, per operation the index in ``atoms`` of each atom's image;
+    - ``camera_direction`` and ``camera_up``: the automatic camera looks along the axis with the
+      least spread of the averaged geometry (ties within ``SPREAD_TIE_A`` to z′, x′, y′), from its
+      positive side, with up y′ along z′ and z′ otherwise."""
+    if project.model.kind != "fixed" or project.molecule.symmetry is None:
+        return None
+    from dipolar_app.science import validated_symmetry
+
+    try:
+        v = validated_symmetry(project)
+    except ValueError:
+        return None
+    spread = [float(abs(v.averaged[:, k]).max()) if len(v.averaged) else 0.0 for k in range(3)]
+    least = min(spread)
+    look = next(k for k in _VIEW_PREFERENCE if spread[k] <= least + SPREAD_TIE_A)
+    up = 1 if look == 2 else 2
+    axes = [[float(x) for x in v.rotation[k]] for k in range(3)]
+    g = project.molecule.geometry
+    assert isinstance(g, ImportedGeometry)
+    reach = max((math.dist((a.x, a.y, a.z), tuple(v.centroid)) for a in g.atoms), default=0.0)
+    return {
+        "point_group": v.point_group,
+        "origin": {"xyz": [float(x) for x in v.centroid], "unit": "Å"},
+        "axes": axes,
+        "axis_length": {"value": max(AXIS_MIN_A, AXIS_REACH * reach), "unit": "Å"},
+        "max_displacement": {"value": float(v.max_displacement_a), "unit": "Å"},
+        "images": [[int(i) for i in row] for row in v.permutations],
+        "camera_direction": list(axes[look]),
+        "camera_up": list(axes[up]),
+    }
 
 
 # --------------------------------------------------------------------------- SVG
@@ -368,22 +462,51 @@ def render_svg(scene: dict[str, Any]) -> str:
                     f'<line x1="{_f(pa["x"])}" y1="{_f(pa["y"])}" x2="{_f(pb["x"])}" y2="{_f(pb["y"])}" '
                     'stroke="#888888" stroke-width="2"/>'
                 )
+    frame = scene.get("symmetry")
+    if frame is not None:  # the symmetry frame of a fixed-geometry project (V1.4, E-3)
+        c = scene["camera"]
+        camera = Camera(
+            _vec3(c["position"]["xyz"]),
+            _vec3(c["target"]["xyz"]),
+            _vec3(c["up"]),
+            float(c["fov"]["value"]),
+            float(c["near"]["value"]),
+            float(c["far"]["value"]),
+        )
+        for name, start, end in axis_ends(frame):
+            (x0, y0, _, v0), (x1, y1, _, v1) = project(camera, width, height, [start, end])
+            if v0 and v1:
+                parts.append(
+                    f'<line data-axis="{name}" x1="{_f(x0)}" y1="{_f(y0)}" x2="{_f(x1)}" y2="{_f(y1)}" '
+                    'stroke="#7d3c98" stroke-width="1.5"/>'
+                )
+                parts.append(
+                    f'<text x="{_f(x1 + 3)}" y="{_f(y1 - 3)}" font-family="sans-serif" font-size="11" '
+                    f'fill="#7d3c98">{name}′</text>'
+                )
     if scene["layers"]["couplings"]:
+        order = [a["id"] for a in scene["atoms"]]
+        index = {i: k for k, i in enumerate(order)}
+        images = None if frame is None else frame["images"]
         for c in scene["couplings"]:
-            if not (visible(c["spin_a"]) and visible(c["spin_b"])):
-                continue
-            pa, pb = atoms[c["spin_a"]]["screen"], atoms[c["spin_b"]]["screen"]
             colour = "#b0b0b0"
             if c["residual"] is not None:
                 colour = "#c0392b" if c["residual"]["value"] > 0 else "#2471a3"
             if c["id"] in highlighted:
                 colour = "#f39c12"
             width_px = 3 if c["id"] in selected or c["id"] in highlighted else 1
-            parts.append(
-                f'<line data-id={quoteattr(c["id"])} x1="{_f(pa["x"])}" y1="{_f(pa["y"])}" '
-                f'x2="{_f(pb["x"])}" y2="{_f(pb["y"])}" stroke="{colour}" stroke-width="{width_px}" '
-                'stroke-dasharray="4 3"/>'
-            )
+            members = orbit_members(images, index[c["spin_a"]], index[c["spin_b"]])
+            for copy, (ka, kb) in enumerate(members):
+                a, b = order[ka], order[kb]
+                if not (visible(a) and visible(b)):
+                    continue
+                pa, pb = atoms[a]["screen"], atoms[b]["screen"]
+                mark = "" if copy == 0 else f' data-copy="{copy}"'
+                parts.append(
+                    f'<line data-id={quoteattr(c["id"])}{mark} x1="{_f(pa["x"])}" y1="{_f(pa["y"])}" '
+                    f'x2="{_f(pb["x"])}" y2="{_f(pb["y"])}" stroke="{colour}" stroke-width="{width_px}" '
+                    'stroke-dasharray="4 3"/>'
+                )
     for i in scene["draw_order"]:
         a = atoms[i]
         s = a["screen"]
@@ -415,20 +538,30 @@ def parity_fixtures() -> dict[str, Any]:
     off_ids = [*ids, "atm_000011", "atm_000012", "atm_000013"]
     cases: list[dict[str, Any]] = []
 
-    def case(name: str, camera: Camera, w: int, h: int, pts: list[Vec3], names: list[str], auto: bool) -> None:
+    def case(
+        name: str,
+        camera: Camera,
+        w: int,
+        h: int,
+        pts: list[Vec3],
+        names: list[str],
+        auto: bool,
+        view: tuple[Vec3, Vec3] | None = None,
+    ) -> None:
         projected = project(camera, w, h, pts)
-        cases.append(
-            {
-                "name": name,
-                "camera": camera.to_json(),
-                "auto": auto,
-                "viewport": [w, h],
-                "points": [list(p) for p in pts],
-                "ids": names,
-                "expected": [{"x": x, "y": y, "depth": d, "visible": v} for x, y, d, v in projected],
-                "draw_order": draw_order(names, projected),
-            }
-        )
+        entry: dict[str, Any] = {
+            "name": name,
+            "camera": camera.to_json(),
+            "auto": auto,
+            "viewport": [w, h],
+            "points": [list(p) for p in pts],
+            "ids": names,
+            "expected": [{"x": x, "y": y, "depth": d, "visible": v} for x, y, d, v in projected],
+            "draw_order": draw_order(names, projected),
+        }
+        if view is not None:  # the automatic camera of a fixed-geometry project (V1.4, E-3)
+            entry["view"] = {"direction": list(view[0]), "up": list(view[1])}
+        cases.append(entry)
 
     case("auto 800x600", auto_camera(protons, 800, 600), 800, 600, protons, ids, True)
     case("auto portrait 400x700", auto_camera(protons, 400, 700), 400, 700, protons, ids, True)
@@ -445,6 +578,18 @@ def parity_fixtures() -> dict[str, Any]:
     planes = Camera((0.0, 0.0, 10.0), (0.0, 0.0, 0.0), (0.0, 1.0, 0.0), 45.0, 5.0, 12.0)
     axis: list[Vec3] = [(0.0, 0.0, 0.0), (0.0, 0.0, 8.0), (0.0, 0.0, 10.0 - 1e-300), (0.0, 0.0, -5.0), (0.2, 0.1, -1.9)]
     case("near and far planes on the axis", planes, 320, 240, axis, ["a", "b", "c", "d", "e"], False)
+    # Directed automatic cameras (V1.4): a ring in the yz plane seen along +x, and one in the xy
+    # plane seen along +z with x up; the ring is off the origin.
+    hexagon = [(math.cos(math.pi * k / 3), math.sin(math.pi * k / 3)) for k in range(6)]
+    yz: list[Vec3] = [(0.5, 1.0 + 2.4 * u, -0.3 + 2.4 * v) for u, v in hexagon]
+    along_x: tuple[Vec3, Vec3] = ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0))
+    six = [f"spn_{k:06d}" for k in range(1, 7)]
+    camera = auto_camera(yz, 640, 480, direction=along_x[0], up=along_x[1])
+    case("auto along +x, z up", camera, 640, 480, yz, six, True, along_x)
+    xy: list[Vec3] = [(2.4 * u, 2.4 * v, 0.7) for u, v in hexagon]
+    x_up: tuple[Vec3, Vec3] = ((0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+    camera = auto_camera(xy, 400, 700, direction=x_up[0], up=x_up[1])
+    case("auto along +z, x up, portrait", camera, 400, 700, xy, six, True, x_up)
     return {
         "description": "Projection parity fixtures (04 §8.4), generated by dipolar_app.scene.parity_fixtures",
         "tolerance_px": 1e-9,

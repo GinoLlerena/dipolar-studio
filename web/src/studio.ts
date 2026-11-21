@@ -48,12 +48,21 @@ export interface StudioState {
   results: Readonly<Record<string, FitRunOut>>;
   /** Fixed-geometry results by run ID (contract 0.11.0; shown in full from V1.4). */
   fixedResults: Readonly<Record<string, FixedRunOut>>;
+  /** The molecule's declarations (molecule.declarations) and the symmetry suggestion
+   * (molecule.suggest_symmetry), read together after every science change (V1.4); null as `project`. */
+  declarations: Declarations | null;
   /** Runs whose result could not be read; retried on every (re)connection or on request. */
   failedResults: Readonly<Record<string, ErrorBody | null>>;
   error: ErrorBody | null;
   /** The operation a button started and that has not answered yet. */
   busy: OperationName | null;
 }
+
+/** What the symmetry form shows: the declarations and the server's suggestion (V1.4, E-4, E-5). */
+export type Declarations = {
+  declared: OperationOutput<"molecule.declarations">;
+  suggested: OperationOutput<"molecule.suggest_symmetry">;
+};
 
 /** A fixed-geometry run's result (run.get, contract 0.11.0): decided by its model kind. */
 function isFixed(result: FitRunOut | FixedRunOut): result is FixedRunOut {
@@ -70,7 +79,7 @@ const MAX_LATE_RETRIES = 5;
 function readsAfter(name: OperationName): Resource[] {
   switch (OPERATIONS[name].effect) {
     case "model":
-      return ["project", "history", "view", "runs", "jobs", "scene", "proposals"];
+      return ["project", "history", "view", "runs", "jobs", "scene", "proposals", "declarations"];
     case "proposal":
       return ["proposals"];
     case "view":
@@ -94,6 +103,7 @@ export class Studio {
     proposals: [],
     results: {},
     fixedResults: {},
+    declarations: null,
     failedResults: {},
     error: null,
     busy: null,
@@ -274,6 +284,28 @@ export class Studio {
         if (!listed) return true;
         if (!this.seen.accept(listed.science_revision)) return false;
         this.set({ proposals: listed.proposals });
+        return true;
+      }
+      case "declarations": {
+        let noProject = false;
+        const [declared, suggested] = await Promise.all([
+          this.run(async (t) => {
+            const envelope = await callOperation("molecule.declarations", {}, t);
+            noProject ||= !envelope.ok && envelope.error.code === "NO_PROJECT";
+            return envelope;
+          }, ["NO_PROJECT"]),
+          this.run(async (t) => {
+            const envelope = await callOperation("molecule.suggest_symmetry", {}, t);
+            noProject ||= !envelope.ok && envelope.error.code === "NO_PROJECT";
+            return envelope;
+          }, ["NO_PROJECT"]),
+        ]);
+        if (declared && suggested) {
+          // Both describe one science state, not older than what was shown (else read again).
+          if (declared.science_revision !== suggested.science_revision) return false;
+          if (!this.seen.accept(declared.science_revision)) return false;
+          this.set({ declarations: { declared, suggested } });
+        } else if (noProject) this.set({ declarations: null });
         return true;
       }
     }

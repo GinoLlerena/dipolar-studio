@@ -951,6 +951,44 @@ pre.args {
   stroke-dasharray: 1 3;
 }
 
+/* A symmetry copy of an observed pair (V1.4): the same row and misfit, drawn lighter. */
+.arc.arc-copy {
+  stroke-opacity: 0.6;
+}
+.arc.arc-copy.is-selected {
+  stroke-opacity: 1;
+}
+
+/* The symmetry frame's axes x′, y′, z′ from the centroid (V1.4). */
+.sym-axis-line {
+  stroke: var(--ink-3);
+  stroke-width: 1;
+  stroke-dasharray: 6 3;
+}
+.sym-axis-label {
+  fill: var(--ink-2);
+  font-family: var(--font-sym);
+  font-style: italic;
+  font-size: var(--t-md);
+}
+
+/* The symmetry form (V1.4). */
+.axes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.suggestion {
+  border-left: 3px solid var(--line-2);
+  padding-left: var(--s2);
+  margin-bottom: var(--s2);
+}
+ul.inline-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+}
+
 .atom {
   stroke: var(--ink-2);
   stroke-width: 1;

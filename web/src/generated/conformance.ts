@@ -27,6 +27,7 @@ void ({"atom": 0, "expected_science_revision": 2, "mass_number": 13} satisfies O
 void ({"expected_science_revision": 1, "symmetry": {"axes": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], "medium": "achiral-uniaxial", "point_group": "D6h", "tolerance": {"unit": "Å", "value": 0.01}}} satisfies OperationInput<"molecule.set_symmetry">); // example 0
 void ({"expected_science_revision": 2, "symmetry": null} satisfies OperationInput<"molecule.set_symmetry">); // example 1
 void ({"expected_science_revision": 1, "torsion": [3, 0, 1, 6]} satisfies OperationInput<"molecule.set_torsion">); // example 0
+void ({} satisfies OperationInput<"molecule.suggest_symmetry">); // example 0
 void ({} satisfies OperationInput<"project.describe">); // example 0
 void ({} satisfies OperationInput<"project.export">); // example 0
 void ({"expected_science_revision": 0, "name": "ethane", "torsion": [2, 0, 1, 5], "xyz": "8\nethane, staggered\nC 0 0 0\nC 1.54 0 0\nH -0.36 1.03 0\nH -0.36 -0.515 0.892\nH -0.36 -0.515 -0.892\nH 1.9 -1.03 0\nH 1.9 0.515 0.892\nH 1.9 0.515 -0.892\n"} satisfies OperationInput<"project.import_xyz">); // example 0

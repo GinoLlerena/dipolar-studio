@@ -251,6 +251,20 @@ def _register_science(registry: Registry) -> None:
             examples=({},),
         ),
         Operation(
+            name="molecule.suggest_symmetry",
+            kind="query",
+            effect="none",
+            capability=Capability.QUERY,
+            summary="A suggested declaration, Cs with the spins' plane as the mirror, when every spin lies "
+            "within the tolerance of one plane and no group beyond C1 is declared. Only a suggestion: "
+            "declaring it validates it.",
+            input_model=S.SuggestSymmetryIn,
+            output_model=S.SuggestSymmetryOut,
+            handler=S.molecule_suggest_symmetry,
+            idempotent=True,
+            examples=({},),
+        ),
+        Operation(
             name="molecule.set_isotope",
             kind="command",
             effect="model",

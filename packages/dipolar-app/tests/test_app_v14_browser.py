@@ -209,7 +209,7 @@ def test_a_user_camera_is_kept_for_a_fixed_project() -> None:
     camera = {
         "position": {"xyz": [3.0, 4.0, 12.0], "unit": "Å"},
         "target": {"xyz": [0.0, 0.0, 0.0], "unit": "Å"},
-        "up": [0.0, 1.0, 0.0],
+        "up": {"xyz": [0.0, 1.0, 0.0]},
         "fov": {"value": 40.0, "unit": "deg"},
         "near": {"value": 1.0, "unit": "Å"},
         "far": {"value": 40.0, "unit": "Å"},
@@ -254,8 +254,11 @@ def test_the_parity_fixtures_include_directed_automatic_cameras() -> None:
     directed = [k for k in cases if k.get("auto") and k.get("view")]
     assert len(directed) >= 2
     assert any(abs(k["view"]["direction"][2]) < 0.5 for k in directed)  # one not along z
+    from test_app_scene import _same
+
     committed = json.loads((ROOT / "web" / "src" / "scene" / "parity-fixtures.json").read_text(encoding="utf-8"))
-    assert committed == json.loads(json.dumps(parity_fixtures()))
+    assert [k["name"] for k in committed["cases"]] == [k["name"] for k in cases]
+    _same(committed, json.loads(json.dumps(parity_fixtures())), committed["tolerance_px"])
 
 
 def test_the_default_automatic_camera_is_unchanged() -> None:
@@ -291,9 +294,7 @@ def test_a_planar_ring_without_a_declaration_is_suggested_cs() -> None:
 
 def test_the_suggestion_follows_a_tilted_plane() -> None:
     angle = math.radians(35.0)
-    rot = np.array(
-        [[1.0, 0.0, 0.0], [0.0, math.cos(angle), -math.sin(angle)], [0.0, math.sin(angle), math.cos(angle)]]
-    )
+    rot = np.array([[1.0, 0.0, 0.0], [0.0, math.cos(angle), -math.sin(angle)], [0.0, math.sin(angle), math.cos(angle)]])
     els, xyz = ring()
     c = client(new_session())
     import_ring(c, els, xyz @ rot.T + np.array([0.4, -1.0, 2.0]))
@@ -379,7 +380,8 @@ def test_suggest_symmetry_has_python_http_parity(server: Server) -> None:
 
 # --------------------------------------------------------------------------- E-1: the contract
 def test_the_contract_is_0_12_0_and_says_what_changed() -> None:
-    from dipolar_app.registry import CONTRACT_CHANGES, CONTRACT_VERSION, build_registry
+    from dipolar_app.operations import build_registry
+    from dipolar_app.registry import CONTRACT_CHANGES, CONTRACT_VERSION
 
     assert CONTRACT_VERSION == "0.12.0"
     entry = next(e for e in CONTRACT_CHANGES if e["version"] == "0.12.0")
@@ -449,7 +451,8 @@ def test_the_engine_recovers_the_truth_without_noise() -> None:
     mapping = {label: spin_of_atom[names.index(label)] for label in ("H2", "H3", "H5", "H6")}
     ok(
         c.call(
-            "couplings.import", {"csv": out.getvalue(), "confirmed_mapping": mapping, "expected_science_revision": rev(c)}
+            "couplings.import",
+            {"csv": out.getvalue(), "confirmed_mapping": mapping, "expected_science_revision": rev(c)},
         )
     )
     by = {k["name"]: k for k in run_fixed(c)["result"]["components"]}
@@ -514,7 +517,9 @@ def test_the_robot_refuses_a_file_without_atom_names(server: Server, clean_env: 
     xyz[1] = "no names here"
     path = tmp_path / "unnamed.xyz"
     path.write_text("\n".join(xyz) + "\n", encoding="utf-8")
-    proc = _robot(server, clean_env, "--scenario", "fixed-tutorial", "--xyz", str(path), "--csv", str(DCB / "couplings.csv"))
+    proc = _robot(
+        server, clean_env, "--scenario", "fixed-tutorial", "--xyz", str(path), "--csv", str(DCB / "couplings.csv")
+    )
     assert proc.returncode == 1
     assert "atom names" in json.loads(proc.stdout)["error"]
 

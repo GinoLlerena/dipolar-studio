@@ -47,6 +47,21 @@ fit, the selected coupling and the exported project.
     python -I tools/robot/robot.py --ready-file DIR/serve.ready.json --scenario tutorial \
         --xyz datasets/biphenyl-synthetic/biphenyl.xyz --csv datasets/biphenyl-synthetic/tutorial-couplings.csv
 
+Fixed-geometry tutorial (``--scenario fixed-tutorial``, Phase 2 V1.4; docs/phase2/v1.4-browser.md
+E-6: synthetic 1,4-dichlorobenzene, a rigid molecule with no torsion):
+
+1. ``project.import_xyz`` the user's geometry, named after the file as the page does;
+2. ``molecule.set_symmetry`` its point group (``--point-group``, default D2h) in the input frame;
+3. ``model.set`` the fixed-geometry fit (no torsion domain);
+4. ``couplings.reconcile`` the user's couplings: the robot **confirms the mapping** from the XYZ
+   comment line's atom names, checks the diff and ``couplings.import``s exactly that mapping;
+5. ``fit.run`` as a job, ``job.wait``, ``run.get``;
+6. **selects the worst row** (largest |residual/σ|), renders the view (``render.view_svg``: every
+   member of the row's pair orbit is drawn selected) and ``project.export``s the project.
+
+    python -I tools/robot/robot.py --ready-file DIR/serve.ready.json --scenario fixed-tutorial \
+    --xyz datasets/dichlorobenzene-synthetic/dichlorobenzene.xyz --csv datasets/dichlorobenzene-synthetic/couplings.csv
+
 Prints one JSON report on stdout and exits 0 on success, 1 on any failed step.
 
     python -I tools/robot/robot.py --ready-file DIR/serve.ready.json --phi 36.98502906633521
@@ -367,20 +382,136 @@ def run_tutorial(
     }
 
 
+def _map_by_atom_names(robot: Client, xyz: str, csv: str) -> dict[str, str]:
+    """The mapping the user confirms: each label of the couplings file to the imported proton whose
+    atom the XYZ comment line names so."""
+    proposed = robot.call("couplings.reconcile", {"csv": csv})
+    atoms = _atom_names(xyz)
+    spin_of_atom = {s["atom"]: s["id"] for s in robot.call("project.describe")["spins"]}
+    mapping = {}
+    for label in sorted(set(proposed["unmatched_labels"]) | set(proposed["proposed_mapping"])):
+        if label not in atoms or atoms.index(label) not in spin_of_atom:
+            raise RobotError(f"no imported proton for the file's label {label!r}")
+        mapping[label] = spin_of_atom[atoms.index(label)]
+    return mapping
+
+
+def _wait_for_run(robot: Client, revision: int, args: dict[str, Any] | None = None) -> dict[str, Any]:
+    job = robot.call("fit.run", {**(args or {}), "expected_science_revision": revision})["job"]
+    for _ in range(40):  # at most 20 minutes; each wait is bounded by the server (≤ 30 s)
+        waited = robot.call("job.wait", {"job_id": job["id"], "timeout_s": 30})
+        if waited["finished"]:
+            break
+    else:
+        raise RobotError(f"{job['id']} did not finish")
+    if waited["job"]["status"] != "succeeded":
+        raise RobotError(f"{job['id']} {waited['job']['status']}: {waited['job']['error']}")
+    run: dict[str, Any] = robot.call("run.get", {"run_id": waited["job"]["run_id"]})
+    return run
+
+
+#: The fixed-geometry fit (V1.3): the order tensor alone, in the declared symmetry's frame.
+FIXED_MODEL = {"kind": "fixed", "order": "point-group", "frame": "symmetry"}
+
+
+def run_fixed_tutorial(ready_file: Path, xyz_path: Path, csv_path: Path, point_group: str) -> dict[str, Any]:
+    ready = json.loads(ready_file.read_text(encoding="utf-8"))
+    robot = Client(ready["base_url"], ready["tokens"]["robot"])
+    if robot.instance().get("instance_id") != ready["instance_id"]:
+        raise RobotError("the ready file does not describe the server on its port")
+    xyz = xyz_path.read_text(encoding="utf-8")
+    csv = csv_path.read_text(encoding="utf-8")
+    _atom_names(xyz)  # before any change: the mapping is confirmed from these names
+
+    # 1–3. The project from the geometry, its symmetry, the fixed-geometry fit.
+    revision = robot.call("render.describe_view")["science_revision"]
+    name = xyz_path.name[:-4] if xyz_path.name.lower().endswith(".xyz") else xyz_path.name
+    revision = robot.call(
+        "project.import_xyz", {"xyz": xyz, "name": name or "Imported geometry", "expected_science_revision": revision}
+    )["science_revision"]
+    revision = robot.call(
+        "molecule.set_symmetry", {"symmetry": {"point_group": point_group}, "expected_science_revision": revision}
+    )["science_revision"]
+    revision = robot.call("model.set", {**FIXED_MODEL, "expected_science_revision": revision})["science_revision"]
+
+    # 4. The couplings: confirm the mapping, check its diff, import exactly that.
+    mapping = _map_by_atom_names(robot, xyz, csv)
+    diff = robot.call("couplings.reconcile", {"csv": csv, "mapping": mapping})
+    if not diff["complete"] or diff["removed"]:
+        raise RobotError(
+            f"the mapping does not reconcile completely: {diff['unmatched_labels']} {diff['unresolved_pairs']}"
+        )
+    revision = robot.call(
+        "couplings.import",
+        {"csv": csv, "confirmed_mapping": mapping, "expected_science_revision": diff["science_revision"]},
+    )["science_revision"]
+    project = robot.call("project.describe")
+    if not project["ready_to_fit"]:
+        raise RobotError(f"not ready to fit: {project['not_ready_reason']}")
+
+    # 5. The fit (exact intervals are always given: no option).
+    run = _wait_for_run(robot, revision)
+    fit = run["result"]
+    if fit["model"]["kind"] != "fixed":
+        raise RobotError(f"{run['run']['id']} is not a fixed-geometry run")
+
+    # 6. Select the worst row; the view draws its whole orbit selected; export.
+    worst = max(fit["rows"], key=lambda r: abs(r["normalized_residual"]))
+    robot.call("view.select", {"ids": [worst["coupling_id"]]})
+    view = robot.call("render.describe_view")
+    if [s["id"] for s in view["selection"]] != [worst["coupling_id"]]:
+        raise RobotError("the selection is not visible in render.describe_view")
+    if view["phi"] is not None:
+        raise RobotError("the view describes a torsion for a fixed-geometry project")
+    svg = robot.call("render.view_svg")["svg"]
+    arcs = svg.count(f'data-id="{worst["coupling_id"]}"')
+    if arcs != worst["multiplicity"]:
+        raise RobotError(
+            f"the view draws {arcs} arcs of {worst['coupling_id']}, not its orbit's {worst['multiplicity']}"
+        )
+    exported = robot.call("project.export")
+    coupling = next(c for c in project["couplings"] if c["id"] == worst["coupling_id"])
+    return {
+        "ok": True,
+        "scenario": "fixed-tutorial",
+        "contract_version": ready["contract_version"],
+        "mapping": mapping,
+        "science_hash": project["science_hash"],
+        "science_revision": revision,
+        "estimand": project["estimand"],
+        "run": run["run"],
+        "fit": {k: fit[k] for k in ("components", "rank", "adequacy", "admissibility", "n_obs", "symmetry")},
+        "worst_coupling": {
+            "id": worst["coupling_id"],
+            "label": coupling["label"],
+            "source_labels": coupling.get("source_labels"),
+            "normalized_residual": worst["normalized_residual"],
+        },
+        "selected_arcs": arcs,
+        "svg_bytes": len(svg.encode()),
+        "exported": exported,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--ready-file", type=Path, required=True)
     parser.add_argument(
         "--phi", type=float, help="torsion for fit.preview, degrees (default 37; the tutorial: the domain's midpoint)"
     )
-    parser.add_argument("--scenario", choices=("m0", "m2", "tutorial"), default="m0")
-    parser.add_argument("--xyz", type=Path, help="tutorial: the user's geometry")
-    parser.add_argument("--csv", type=Path, help="tutorial: the user's couplings")
+    parser.add_argument("--scenario", choices=("m0", "m2", "tutorial", "fixed-tutorial"), default="m0")
+    parser.add_argument("--point-group", default="D2h", help="fixed-tutorial: the declared point group")
+    parser.add_argument("--xyz", type=Path, help="tutorials: the user's geometry")
+    parser.add_argument("--csv", type=Path, help="tutorials: the user's couplings")
     parser.add_argument("--torsion", type=int, nargs=4, default=[1, 0, 6, 7], help="tutorial: atoms a i j b")
     parser.add_argument("--domain", type=float, nargs=2, default=[-90.0, 0.0], help="tutorial: φ domain, degrees")
     ns = parser.parse_args()
     try:
-        if ns.scenario == "tutorial":
+        if ns.scenario == "fixed-tutorial":
+            if ns.xyz is None or ns.csv is None:
+                raise RobotError("the fixed-geometry tutorial needs --xyz and --csv")
+            report = run_fixed_tutorial(ns.ready_file, ns.xyz, ns.csv, ns.point_group)
+        elif ns.scenario == "tutorial":
             if ns.xyz is None or ns.csv is None:
                 raise RobotError("the tutorial needs --xyz and --csv")
             lo, hi = sorted(ns.domain)
@@ -392,7 +523,7 @@ def main() -> int:
             report = run_m2(ns.ready_file, 37.0 if ns.phi is None else ns.phi)
         else:
             report = run(ns.ready_file, 37.0 if ns.phi is None else ns.phi)
-    except (RobotError, OSError, KeyError, ValueError) as exc:
+    except (RobotError, OSError, KeyError, ValueError, StopIteration) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}))
         return 1
     print(json.dumps(report))

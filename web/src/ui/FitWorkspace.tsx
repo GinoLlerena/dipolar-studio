@@ -4,6 +4,8 @@ import {
   type ErrorBody,
   type FitRunOut,
   type FittedCoupling,
+  type FixedComponent,
+  type FixedRunOut,
   type LandscapeOut,
   type NamedValue,
   type PreviewOut,
@@ -63,6 +65,8 @@ function RunControls({ studio, state, onSubmitted }: Props & { onSubmitted: () =
   const [intervals, setIntervals] = useState(false);
   const active = jobs.filter((j) => j.status === "queued" || j.status === "running");
   const ready = Boolean(view?.project_open && project?.ready_to_fit);
+  // A fixed-geometry fit has exact intervals and no option (D-8): fit.run(intervals) has no effect.
+  const fixedFit = project?.model.kind === "fixed";
   return (
     <Panel title={strings.workspace.fit} id="pane-run">
       <div className="stack">
@@ -74,19 +78,23 @@ function RunControls({ studio, state, onSubmitted }: Props & { onSubmitted: () =
             title={ready ? undefined : (project?.not_ready_reason ?? strings.notReadyToFit)}
             onClick={async () => {
               if (!view) return;
-              const submitted = await studio.command("fit.run", (t) =>
-                callOperation("fit.run", { expected_science_revision: view.science_revision, intervals }, t),
-              );
+              const args = fixedFit
+                ? { expected_science_revision: view.science_revision }
+                : { expected_science_revision: view.science_revision, intervals };
+              const submitted = await studio.command("fit.run", (t) => callOperation("fit.run", args, t));
               if (submitted) onSubmitted();
             }}
           >
             {strings.runFit}
           </button>
-          <label className="check">
-            <input type="checkbox" checked={intervals} onChange={(e) => setIntervals(e.target.checked)} />
-            {strings.intervals}
-          </label>
+          {!fixedFit && (
+            <label className="check">
+              <input type="checkbox" checked={intervals} onChange={(e) => setIntervals(e.target.checked)} />
+              {strings.intervals}
+            </label>
+          )}
         </div>
+        {fixedFit && <p className="help">{strings.fixedIntervals}</p>}
         {!ready && view?.project_open && <p className="help">{project?.not_ready_reason ?? strings.notReadyToFit}</p>}
         {active.map((job) => (
           <div key={job.id} className="row job-active">
@@ -226,7 +234,8 @@ function RunDetail({ studio, state, run, result }: Props & { run: RunOut; result
       </div>
     );
   }
-  if (!result && state.fixedResults[run.id]) return <p className="muted">{strings.fixedRunNote}</p>;
+  const fixedResult = state.fixedResults[run.id];
+  if (!result && fixedResult) return <FixedRunDetail studio={studio} state={state} run={run} result={fixedResult} />;
   if (!result) return <p className="muted">{strings.loadingRun}</p>;
   const selected = new Set(state.view?.selection.map((s) => s.id) ?? []);
   const flags = result.validity;
@@ -422,6 +431,302 @@ function RunDetail({ studio, state, run, result }: Props & { run: RunOut; result
   );
 }
 
+/** A component's name as the report writes it: Szz → S_zz, "Sxx-Syy" → S_xx − S_yy. */
+function ComponentName({ name }: { name: string }) {
+  const tensor = (ab: string) => (
+    <>
+      S<sub>{ab}</sub>
+    </>
+  );
+  const one = /^S([xyz]{2})$/.exec(name);
+  if (one) return <span className="sym">{tensor(one[1] as string)}</span>;
+  const two = /^S([xyz]{2})-S([xyz]{2})$/.exec(name);
+  if (two)
+    return (
+      <span className="sym">
+        {tensor(two[1] as string)} − {tensor(two[2] as string)}
+      </span>
+    );
+  return <span>{name}</span>;
+}
+
+function intervalText(c: FixedComponent, level: "68.3" | "95"): string {
+  const iv = c.intervals?.find((i) => i.level === level);
+  if (!iv) return "—";
+  const places = (decimalsFor(c.se ?? Number.NaN) ?? 4) + 1;
+  return `[${atPlace(iv.lower, places)}, ${atPlace(iv.upper, places)}]`;
+}
+
+const vector = (v: readonly number[]) => `(${v.map((x) => fixed(x, 4)).join(", ")})`;
+
+/** The estimable combinations (V1.4, E-2): what the couplings determine, as the result states it. */
+function EstimablePane({ result }: { result: FixedRunOut }) {
+  const reported = result.components.filter((c) => c.status !== "fixed-by-symmetry");
+  const bySymmetry = result.components.filter((c) => c.status === "fixed-by-symmetry");
+  return (
+    <Panel title={strings.estimable} id="pane-estimable">
+      <p className="help">{strings.estimableHelp}</p>
+      <table className="grid">
+        <thead>
+          <tr>
+            <th>{strings.colComponent}</th>
+            <th>{strings.colStatus}</th>
+            <th className="num">{strings.colEstimate}</th>
+            <th className="num">{strings.col68}</th>
+            <th className="num">{strings.col95}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {reported.map((c) => (
+            <tr key={c.name} data-component={c.name} data-status={c.status}>
+              <td>
+                <ComponentName name={c.name} />
+                <details>
+                  <summary className="muted">{strings.coefficients}</summary>
+                  <code>{vector(c.coefficients_b)}</code>
+                </details>
+              </td>
+              <td title={c.label}>{strings.componentStatus[c.status]}</td>
+              <td className="num">{c.estimate === null ? "—" : withUncertainty(c.estimate, c.se, 4)}</td>
+              {c.status === "estimated" ? (
+                <>
+                  <td className="num interval">{intervalText(c, "68.3")}</td>
+                  <td className="num interval">{intervalText(c, "95")}</td>
+                </>
+              ) : (
+                <td colSpan={2} className="muted">
+                  {c.interval_support}
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {bySymmetry.length > 0 && (
+        <>
+          <h3>{strings.fixedBySymmetry}</h3>
+          <ul className="plain inline-list">
+            {bySymmetry.map((c) => (
+              <li key={c.name} data-component={c.name} data-status={c.status} title={c.label}>
+                <ComponentName name={c.name} /> = 0
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {result.null_directions_b.length > 0 && (
+        <>
+          <h3>{strings.nullDirections}</h3>
+          <ul className="plain">
+            {result.null_directions_b.map((v, k) => (
+              <li key={k}>
+                <code>{vector(v)}</code>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </Panel>
+  );
+}
+
+const ADMISSIBLE: Record<FixedRunOut["admissibility"]["status"], boolean | null> = {
+  admissible: true,
+  feasible: true,
+  "feasible-within-tolerance": true,
+  inadmissible: false,
+  infeasible: false,
+  undetermined: null,
+};
+
+/** A fixed-geometry run (V1.4, E-2): no torsion, no search; every verdict as the result states it. */
+function FixedRunDetail({ studio, state, run, result }: Props & { run: RunOut; result: FixedRunOut }) {
+  const selected = new Set(state.view?.selection.map((s) => s.id) ?? []);
+  const label = new Map(result.spins.map((s) => [s.id, s.label]));
+  const couplings: FittedCoupling[] = result.rows.map((r) => ({
+    id: r.coupling_id,
+    label: `${label.get(r.pair[0]) ?? r.pair[0]}–${label.get(r.pair[1]) ?? r.pair[1]}`,
+    observed: r.observed,
+    sigma: r.sigma,
+    calculated: r.predicted,
+    residual: r.residual,
+    normalized_residual: r.normalized_residual,
+  }));
+  const multiplicity = new Map(result.rows.map((r) => [r.coupling_id, r.multiplicity]));
+  const { adequacy, admissibility, rank, symmetry } = result;
+  const admissible = ADMISSIBLE[admissibility.status];
+  return (
+    <>
+      <Panel
+        title={`${run.id}`}
+        id="pane-run-detail"
+        actions={
+          <>
+            {run.stale && (
+              <span className="badge badge-stale" title={strings.staleHelp}>
+                {strings.staleBadge}
+              </span>
+            )}
+            <ReportButtons studio={studio} runId={run.id} />
+          </>
+        }
+      >
+        <p className="statement">{result.statement}</p>
+        <div className="cards">
+          <section>
+            <h3>{strings.rankTitle}</h3>
+            <div className="chips">
+              <span data-rank-verified={String(rank.verified)}>
+                <Chip tone={rank.verified ? "good" : "warn"} title={rank.reason}>
+                  {strings.rankVerified(rank.verified)}
+                </Chip>
+              </span>
+            </div>
+            <dl className="facts num-facts">
+              <dt>{strings.rankRequired}</dt>
+              <dd className="num">{rank.required}</dd>
+              <dt>{strings.rankNumerical}</dt>
+              <dd className="num">{rank.numerical}</dd>
+              <dt>{strings.rankRatios}</dt>
+              <dd className="num">{rank.ratios.map((r) => scientific(r, 3)).join(", ") || "—"}</dd>
+            </dl>
+            <p className="help">{rank.reason}</p>
+          </section>
+          <section>
+            <h3>{strings.quality}</h3>
+            <dl className="facts num-facts">
+              <dt>{strings.chi2}</dt>
+              <dd className="num">{fixed(adequacy.chi2, 2)}</dd>
+              <dt>{strings.dof}</dt>
+              <dd className="num">
+                {result.n_obs} / {rank.required} / {adequacy.nu}
+              </dd>
+              <dt>{strings.pValue}</dt>
+              <dd className="num">{pValue(adequacy.p_value)}</dd>
+              <dt>{strings.rms}</dt>
+              <dd className="num">{fixed(result.rms_residual.value, 2)} Hz</dd>
+            </dl>
+            <div className="chips">
+              {adequacy.status === "given" || adequacy.status === "inadequate" ? (
+                <Chip tone={adequacy.status === "given" ? "good" : "warn"}>
+                  {adequacyLabel(adequacy.status === "given", adequacy.p_value)}
+                </Chip>
+              ) : (
+                <Chip tone="neutral">{strings.adequacyWithheld(adequacy.code ?? adequacy.status)}</Chip>
+              )}
+            </div>
+          </section>
+          <section>
+            <h3>{strings.admissibility}</h3>
+            <div className="chips">
+              <Chip tone={admissible === null ? "neutral" : admissible ? "good" : "crit"} title={admissibility.status}>
+                {strings.admissible(admissible)}
+              </Chip>
+            </div>
+            <dl className="facts num-facts">
+              <dt>{strings.colStatus}</dt>
+              <dd>{admissibility.status}</dd>
+              <dt>{strings.lambdaMin}</dt>
+              <dd className="num">{admissibility.lambda_min === null ? "—" : fixed(admissibility.lambda_min, 4)}</dd>
+              <dt>{strings.certificate}</dt>
+              <dd>{admissibility.certificate}</dd>
+            </dl>
+          </section>
+          <section>
+            <h3>{strings.symmetryFacts}</h3>
+            <dl className="facts num-facts">
+              <dt>{strings.pointGroup}</dt>
+              <dd>{symmetry.point_group}</dd>
+              <dt>{strings.symmetryTolerance}</dt>
+              <dd className="num">{fixed(symmetry.tolerance.value, 3)}</dd>
+              <dt>{strings.maxDisplacement}</dt>
+              <dd className="num">{scientific(symmetry.max_displacement.value, 2)} Å</dd>
+              <dt>{strings.medium}</dt>
+              <dd>{symmetry.medium}</dd>
+            </dl>
+          </section>
+        </div>
+        {result.warnings.length > 0 && (
+          <>
+            <h3>{strings.warnings}</h3>
+            <ul className="plain notes">
+              {result.warnings.map((w) => (
+                <li key={w.code + w.message} title={w.code}>
+                  {w.message}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        <h3>{strings.assumptions}</h3>
+        <ul className="plain notes">
+          {result.assumptions.map((a) => (
+            <li key={a}>{a}</li>
+          ))}
+        </ul>
+        <details>
+          <summary>{strings.details}</summary>
+          <dl className="facts">
+            <dt>{strings.estimand}</dt>
+            <dd>{result.estimand}</dd>
+            <dt>{strings.modelFrame}</dt>
+            <dd>{result.frame}</dd>
+            <dt>{strings.fitVersion}</dt>
+            <dd>
+              <code>{result.provenance.fit_version}</code>
+            </dd>
+            {Object.entries(result.provenance.numerical_context).map(([k, v]) => (
+              <div key={k} className="contents">
+                <dt>{k}</dt>
+                <dd>
+                  <code>{String(v)}</code>
+                </dd>
+              </div>
+            ))}
+          </dl>
+          {result.covariance_b && (
+            <>
+              <h4>{strings.covariance}</h4>
+              <table className="grid compact">
+                <thead>
+                  <tr>
+                    <th />
+                    {result.covariance_b.coordinates.map((c) => (
+                      <th key={c} className="num">
+                        {c}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.covariance_b.matrix.map((row, i) => (
+                    <tr key={i}>
+                      <th>{result.covariance_b?.coordinates[i]}</th>
+                      {row.map((v, j) => (
+                        <td key={j} className="num">
+                          {scientific(v, 3)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+        </details>
+      </Panel>
+      <EstimablePane result={result} />
+      <ResidualsPane
+        studio={studio}
+        couplings={couplings}
+        selected={selected}
+        rms={result.rms_residual.value}
+        multiplicity={multiplicity}
+      />
+    </>
+  );
+}
+
 /** Memoized: the live preview re-renders its pane at every slider step, and this table only
  * changes when a preview answers (M3 step 3). */
 const ResidualsPane = memo(function ResidualsPane({
@@ -432,6 +737,7 @@ const ResidualsPane = memo(function ResidualsPane({
   title = strings.residuals,
   stale = false,
   phi,
+  multiplicity,
 }: {
   studio: Studio;
   couplings: readonly FittedCoupling[];
@@ -441,7 +747,10 @@ const ResidualsPane = memo(function ResidualsPane({
   stale?: boolean;
   /** The preview's φ, recorded on the table (`data-phi`) so a test can tell it is fresh. */
   phi?: number;
+  /** A fixed-geometry run: each row's pair-orbit size, shown after its label (V1.4). */
+  multiplicity?: ReadonlyMap<string, number>;
 }) {
+  const columns = multiplicity ? 8 : 7;
   const pick = (id: string) => selectableRow(studio, id, selected).onClick();
   const rows = useRowWindow(couplings.length);
   return (
@@ -455,6 +764,7 @@ const ResidualsPane = memo(function ResidualsPane({
             <thead>
               <tr>
                 <th>{strings.colCoupling}</th>
+                {multiplicity && <th className="num">{strings.colMultiplicity}</th>}
                 <th className="num">{strings.colObserved}</th>
                 <th className="num">{strings.colSigma}</th>
                 <th className="num">{strings.colCalculated}</th>
@@ -465,10 +775,11 @@ const ResidualsPane = memo(function ResidualsPane({
               </tr>
             </thead>
             <tbody>
-              <Spacer height={rows.before} columns={7} />
+              <Spacer height={rows.before} columns={columns} />
               {couplings.slice(rows.start, rows.end).map((c) => (
                 <tr key={c.id} {...selectableRow(studio, c.id, selected)}>
                   <td>{c.label}</td>
+                  {multiplicity && <td className="num">×{multiplicity.get(c.id) ?? 1}</td>}
                   <td className="num">{hz(c.observed.value)}</td>
                   <td className="num">{hz(c.sigma.value)}</td>
                   <td className="num">{hz(c.calculated.value)}</td>
@@ -479,7 +790,7 @@ const ResidualsPane = memo(function ResidualsPane({
                   </td>
                 </tr>
               ))}
-              <Spacer height={rows.after} columns={7} />
+              <Spacer height={rows.after} columns={columns} />
             </tbody>
           </table>
         </div>

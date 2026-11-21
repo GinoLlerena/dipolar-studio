@@ -91,7 +91,8 @@ test("the fixed-geometry tutorial through the page equals the robot's", async ({
   await expect(table.locator("tbody tr")).toHaveCount(3);
   const worst = await table.evaluate((t) => {
     const head = [...t.querySelectorAll("thead th")].map((h) => h.textContent ?? "");
-    const at = head.findIndex((h) => h.includes("/σ"));
+    const at = head.findIndex((h) => h.startsWith("Residual /"));
+    if (at < 0) throw new Error(`no residual/σ column in ${head.join(" | ")}`);
     const rows = [...t.querySelectorAll("tbody tr")];
     const z = (r: Element) => Math.abs(Number((r.querySelectorAll("td")[at]?.textContent ?? "").replace("−", "-")));
     return rows.reduce((a, r) => (z(r) > z(a) ? r : a)).querySelector("td")?.textContent ?? "";

@@ -75,7 +75,17 @@ export function drawOrder(ids: readonly string[], projected: readonly Projected[
 }
 
 /** A camera on +z of the points' centroid that fits their bounding sphere in the view. */
-export function autoCamera(points: readonly Vec3[], width: number, height: number, fovDeg = DEFAULT_FOV_DEG): Camera {
+/** The automatic camera's side of the centroid and its up vector (a fixed-geometry scene's
+ * `symmetry.camera_direction` and `camera_up`, V1.4); by default +z with +y up. */
+export type View = { direction: Vec3; up: Vec3 };
+
+export function autoCamera(
+  points: readonly Vec3[],
+  width: number,
+  height: number,
+  fovDeg = DEFAULT_FOV_DEG,
+  view: View = { direction: [0, 0, 1], up: [0, 1, 0] },
+): Camera {
   const n = points.length;
   if (n === 0) return { position: [0, 0, 10], target: [0, 0, 0], up: [0, 1, 0], fov_deg: fovDeg, near: 0.1, far: 100 };
   let sx = 0;
@@ -93,10 +103,11 @@ export function autoCamera(points: readonly Vec3[], width: number, height: numbe
   const half = radians(fovDeg) / 2;
   const halfH = Math.atan(Math.tan(half) * Math.min(1, width / height));
   const distance = (FIT_MARGIN * radius) / Math.sin(halfH);
+  const d = view.direction;
   return {
-    position: [c[0], c[1], c[2] + distance],
+    position: [c[0] + distance * d[0], c[1] + distance * d[1], c[2] + distance * d[2]],
     target: c,
-    up: [0, 1, 0],
+    up: [view.up[0], view.up[1], view.up[2]],
     fov_deg: fovDeg,
     near: Math.max(distance - 2 * radius, 0.01),
     far: distance + 2 * radius,

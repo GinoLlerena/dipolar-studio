@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { callOperation, type DescribeProjectOut, type ModelOut, type ModelSetIn } from "../api";
-import { angstrom, hz } from "../format";
+import { callOperation, type DescribeProjectOut, type ModelSetIn, type SymmetryIn } from "../api";
+import { angstrom, hz, scientific } from "../format";
 import { strings } from "../strings";
 import type { Studio, StudioState } from "../studio";
 import { download, FileButton, Panel, selectableRow, Spacer, useRowWindow } from "./common";
@@ -18,13 +18,8 @@ export function DataWorkspace({ studio, state }: Props) {
         {project && view?.project_open && (
           <>
             <GeometryPane studio={studio} state={state} project={project} />
-            {project.model.kind === "fixed" ? (
-              <Panel title={strings.model}>
-                <p className="muted">{strings.fixedModelNote}</p>
-              </Panel>
-            ) : (
-              <ModelPane studio={studio} state={state} project={project} model={project.model} />
-            )}
+            {project.geometry.kind === "imported" && <SymmetryPane studio={studio} state={state} project={project} />}
+            <ModelPane studio={studio} state={state} project={project} model={project.model} />
           </>
         )}
       </div>
@@ -163,6 +158,8 @@ function ImportedGeometry({ studio, state, project }: Props & { project: Describ
   const declaredKey = `${declared ? declared.join(",") : ""}|${atomsKey}`;
   useEffect(() => setDraft((declared ?? ["", "", "", ""]).map(String)), [declaredKey]);
   if (geometry.kind !== "imported") return null;
+  // Non-default isotopes (molecule.declarations): shown, not edited here (V1.4, E-4).
+  const mass = new Map((state.declarations?.declared.isotopes ?? []).map((i) => [i.atom, i.mass_number]));
   const indices = draft.map((d) => Number(d));
   const valid = draft.every((d) => /^\d+$/.test(d.trim())) && indices.every((i) => i < atoms.length);
   return (
@@ -213,6 +210,7 @@ function ImportedGeometry({ studio, state, project }: Props & { project: Describ
               <th className="num">x (Å)</th>
               <th className="num">y (Å)</th>
               <th className="num">z (Å)</th>
+              <th className="num">{strings.colMass}</th>
             </tr>
           </thead>
           <tbody>
@@ -223,6 +221,7 @@ function ImportedGeometry({ studio, state, project }: Props & { project: Describ
                 <td className="num">{angstrom(a.x)}</td>
                 <td className="num">{angstrom(a.y)}</td>
                 <td className="num">{angstrom(a.z)}</td>
+                <td className="num">{mass.get(a.index) ?? "—"}</td>
               </tr>
             ))}
           </tbody>
@@ -232,9 +231,10 @@ function ImportedGeometry({ studio, state, project }: Props & { project: Describ
   );
 }
 
-type ModelDraft = { kind: ModelOut["kind"]; order: ModelOut["order"]; frame: ModelOut["frame"]; from: string; to: string };
+type ModelDraft = { kind: ModelSetIn["kind"]; order: ModelSetIn["order"]; frame: ModelSetIn["frame"]; from: string; to: string };
 
-function toDraft(model: ModelOut): ModelDraft {
+function toDraft(model: DescribeProjectOut["model"]): ModelDraft {
+  if (model.kind === "fixed") return { kind: "fixed", order: "point-group", frame: "symmetry", from: "", to: "" };
   return {
     kind: model.kind,
     order: model.order,
@@ -244,13 +244,21 @@ function toDraft(model: ModelOut): ModelDraft {
   };
 }
 
-const KINDS: readonly ModelOut["kind"][] = ["rigid", "jump4"];
-const ORDERS: readonly ModelOut["order"][] = ["bisector-diagonal", "c2z", "c1"];
-const FRAMES: readonly ModelOut["frame"][] = ["bisector", "ring-a", "input"];
+const KINDS: readonly ModelDraft["kind"][] = ["rigid", "jump4", "fixed"];
+const ORDERS: readonly ModelDraft["order"][] = ["bisector-diagonal", "c2z", "c1"];
+const FRAMES: readonly ModelDraft["frame"][] = ["bisector", "ring-a", "input"];
+
+/** A new kind in the draft: the fixed-geometry fit has one order and one frame and no φ domain;
+ * leaving it starts from the imported-geometry defaults (C₁, input frame) and an empty domain. */
+function withKind(draft: ModelDraft, kind: ModelDraft["kind"]): ModelDraft {
+  if (kind === "fixed") return { ...draft, kind, order: "point-group", frame: "symmetry" };
+  if (draft.kind === "fixed") return { kind, order: "c1", frame: "input", from: "", to: "" };
+  return { ...draft, kind };
+}
 
 /** The model inspector (an inspector, not a dialog: ui-design §3). The server validates every
  * combination; an invalid one comes back as an error naming the field. */
-function ModelPane({ studio, state, project, model }: Props & { project: DescribeProjectOut; model: ModelOut }) {
+function ModelPane({ studio, state, project, model }: Props & { project: DescribeProjectOut; model: DescribeProjectOut["model"] }) {
   const [draft, setDraft] = useState(() => toDraft(model));
   // The draft follows the model when it changes (here or by another client), not every science
   // change: one that arrives while the user edits (the couplings import's new description, another
@@ -259,27 +267,32 @@ function ModelPane({ studio, state, project, model }: Props & { project: Describ
   useEffect(() => setDraft(toDraft(model)), [modelKey]);
   const saved = toDraft(model);
   const changed = (Object.keys(draft) as (keyof ModelDraft)[]).some((k) => draft[k] !== saved[k]);
+  const fixedFit = draft.kind === "fixed";
   const from = Number(draft.from);
   const to = Number(draft.to);
-  const numbers = draft.from.trim() !== "" && draft.to.trim() !== "" && Number.isFinite(from) && Number.isFinite(to);
+  const numbers = fixedFit || (draft.from.trim() !== "" && draft.to.trim() !== "" && Number.isFinite(from) && Number.isFinite(to));
   const apply = () => {
-    const args: ModelSetIn = {
-      kind: draft.kind,
-      order: draft.order,
-      frame: draft.frame,
-      phi_domain: [
-        { value: from, unit: "deg" },
-        { value: to, unit: "deg" },
-      ],
-      expected_science_revision: project.science_revision,
-    };
+    const args: ModelSetIn = fixedFit
+      ? { kind: "fixed", order: "point-group", frame: "symmetry", expected_science_revision: project.science_revision }
+      : {
+          kind: draft.kind,
+          order: draft.order,
+          frame: draft.frame,
+          phi_domain: [
+            { value: from, unit: "deg" },
+            { value: to, unit: "deg" },
+          ],
+          expected_science_revision: project.science_revision,
+        };
     void studio.command("model.set", (t) => callOperation("model.set", args, t));
   };
+  const orders = fixedFit ? (["point-group"] as const) : ORDERS;
+  const frames = fixedFit ? (["symmetry"] as const) : FRAMES;
   return (
     <Panel title={strings.model} id="pane-model">
       <div className="form">
         <label htmlFor="model-kind">{strings.modelKind}</label>
-        <select id="model-kind" value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value as ModelDraft["kind"] })}>
+        <select id="model-kind" value={draft.kind} onChange={(e) => setDraft(withKind(draft, e.target.value as ModelDraft["kind"]))}>
           {KINDS.map((k) => (
             <option key={k} value={k}>
               {strings.kindName[k]}
@@ -287,39 +300,53 @@ function ModelPane({ studio, state, project, model }: Props & { project: Describ
           ))}
         </select>
         <label htmlFor="model-order">{strings.modelOrder}</label>
-        <select id="model-order" value={draft.order} onChange={(e) => setDraft({ ...draft, order: e.target.value as ModelDraft["order"] })}>
-          {ORDERS.map((k) => (
+        <select
+          id="model-order"
+          value={draft.order}
+          disabled={fixedFit}
+          onChange={(e) => setDraft({ ...draft, order: e.target.value as ModelDraft["order"] })}
+        >
+          {orders.map((k) => (
             <option key={k} value={k}>
               {strings.orderModelName[k]}
             </option>
           ))}
         </select>
         <label htmlFor="model-frame">{strings.modelFrame}</label>
-        <select id="model-frame" value={draft.frame} onChange={(e) => setDraft({ ...draft, frame: e.target.value as ModelDraft["frame"] })}>
-          {FRAMES.map((k) => (
+        <select
+          id="model-frame"
+          value={draft.frame}
+          disabled={fixedFit}
+          onChange={(e) => setDraft({ ...draft, frame: e.target.value as ModelDraft["frame"] })}
+        >
+          {frames.map((k) => (
             <option key={k} value={k}>
               {strings.frameName[k]}
             </option>
           ))}
         </select>
-        <span className="label">{strings.phiDomain}</span>
-        <span className="row">
-          <input
-            aria-label={`${strings.phiDomain} ${strings.phiFrom}`}
-            inputMode="decimal"
-            className="short"
-            value={draft.from}
-            onChange={(e) => setDraft({ ...draft, from: e.target.value })}
-          />
-          <span className="muted">–</span>
-          <input
-            aria-label={`${strings.phiDomain} ${strings.phiTo}`}
-            inputMode="decimal"
-            className="short"
-            value={draft.to}
-            onChange={(e) => setDraft({ ...draft, to: e.target.value })}
-          />
-        </span>
+        {!fixedFit && (
+          <>
+            <span className="label">{strings.phiDomain}</span>
+            <span className="row">
+              <input
+                aria-label={`${strings.phiDomain} ${strings.phiFrom}`}
+                inputMode="decimal"
+                className="short"
+                value={draft.from}
+                onChange={(e) => setDraft({ ...draft, from: e.target.value })}
+              />
+              <span className="muted">–</span>
+              <input
+                aria-label={`${strings.phiDomain} ${strings.phiTo}`}
+                inputMode="decimal"
+                className="short"
+                value={draft.to}
+                onChange={(e) => setDraft({ ...draft, to: e.target.value })}
+              />
+            </span>
+          </>
+        )}
       </div>
       <div className="row end">
         <button type="button" disabled={!changed} onClick={() => setDraft(saved)}>
@@ -329,7 +356,129 @@ function ModelPane({ studio, state, project, model }: Props & { project: Describ
           {strings.applyModel}
         </button>
       </div>
-      <p className="help">{project.frame}</p>
+      <p className="help">{fixedFit ? strings.fixedModelHelp : project.frame}</p>
+    </Panel>
+  );
+}
+
+const GROUPS = ["C1", "Cs", "C2v", "D2h", "D3h", "D6h"] as const;
+const IDENTITY: string[][] = [
+  ["1", "0", "0"],
+  ["0", "1", "0"],
+  ["0", "0", "1"],
+];
+type SymmetryDraft = { group: string; axes: string[][]; tolerance: string };
+
+function symmetryDraft(
+  declared: { point_group: string; axes?: readonly (readonly number[])[]; tolerance?: { value: number } } | null | undefined,
+): SymmetryDraft {
+  if (!declared) return { group: "C1", axes: IDENTITY.map((r) => [...r]), tolerance: "0.01" };
+  return {
+    group: declared.point_group,
+    axes: declared.axes ? declared.axes.map((r) => r.map(String)) : IDENTITY.map((r) => [...r]),
+    tolerance: String(declared.tolerance?.value ?? 0.01),
+  };
+}
+
+/** The symmetry form (V1.4, E-4): the declared point group, its axes and tolerance, with the
+ * server's Cs suggestion for planar spins (E-5). Every check is the server's. */
+function SymmetryPane({ studio, state, project }: Props & { project: DescribeProjectOut }) {
+  const declarations = state.declarations;
+  // The suggestion is shown only for the science state on screen; the declaration is the latest
+  // read, so a science change that leaves it alone (a couplings import) never resets the form.
+  const current = declarations && declarations.declared.science_revision === project.science_revision ? declarations : null;
+  const declared = declarations?.declared.symmetry ?? null;
+  const [draft, setDraft] = useState<SymmetryDraft>(() => symmetryDraft(declared));
+  // The form follows the declaration (and the geometry) when they change, not every science change.
+  const atomsKey = project.geometry.kind === "imported" ? JSON.stringify(project.geometry.atoms) : "";
+  const declaredKey = `${JSON.stringify(declared)}|${atomsKey}`;
+  useEffect(() => setDraft(symmetryDraft(declared)), [declaredKey]);
+  const numbers = [...draft.axes.flat(), draft.tolerance].every((v) => v.trim() !== "" && Number.isFinite(Number(v)));
+  const suggestion = current?.suggested.suggestion ?? null;
+  const declare = (symmetry: SymmetryIn | null) =>
+    void studio.command("molecule.set_symmetry", (t) =>
+      callOperation("molecule.set_symmetry", { symmetry, expected_science_revision: project.science_revision }, t),
+    );
+  const row = (k: number) => {
+    const [x = 0, y = 0, z = 0] = (draft.axes[k] ?? []).map(Number);
+    return [x, y, z] as [number, number, number];
+  };
+  return (
+    <Panel title={strings.symmetry} id="pane-symmetry">
+      <p className={declared ? undefined : "muted"}>
+        {declared
+          ? strings.declared(declared.point_group, String(declared.tolerance.value), scientific(declared.max_displacement.value, 2))
+          : strings.notDeclared}
+      </p>
+      {suggestion && current && (
+        <div className="suggestion">
+          <p role="note">{current.suggested.reason}</p>
+          <button type="button" className="quiet" onClick={() => setDraft(symmetryDraft(suggestion))}>
+            {strings.useSuggestion}
+          </button>
+          <p className="help">{strings.suggestionHelp}</p>
+        </div>
+      )}
+      <div className="form">
+        <label htmlFor="symmetry-group">{strings.pointGroup}</label>
+        <select id="symmetry-group" value={draft.group} onChange={(e) => setDraft({ ...draft, group: e.target.value })}>
+          {GROUPS.map((g) => (
+            <option key={g} value={g}>
+              {g}
+            </option>
+          ))}
+        </select>
+        <span className="label">{strings.symmetryAxes}</span>
+        <span className="axes">
+          {(["x", "y", "z"] as const).map((axis, k) => (
+            <span key={axis} className="row">
+              <span className="muted">{strings.axisRow(axis)}</span>
+              {(["x", "y", "z"] as const).map((component, j) => (
+                <input
+                  key={component}
+                  id={`axis-${k}-${j}`}
+                  aria-label={strings.axisInput(axis, component)}
+                  inputMode="decimal"
+                  className="index"
+                  value={draft.axes[k]?.[j] ?? ""}
+                  onChange={(e) => setDraft({ ...draft, axes: draft.axes.map((r, i) => (i === k ? r.map((v, c) => (c === j ? e.target.value : v)) : r)) })}
+                />
+              ))}
+            </span>
+          ))}
+        </span>
+        <label htmlFor="symmetry-tolerance">{strings.symmetryTolerance}</label>
+        <input
+          id="symmetry-tolerance"
+          inputMode="decimal"
+          className="short"
+          value={draft.tolerance}
+          onChange={(e) => setDraft({ ...draft, tolerance: e.target.value })}
+        />
+        <span className="label">{strings.medium}</span>
+        <span className="muted">{strings.mediumName}</span>
+      </div>
+      <div className="row end">
+        <button type="button" disabled={!declared || state.busy !== null} onClick={() => declare(null)}>
+          {strings.clearSymmetry}
+        </button>
+        <button
+          type="button"
+          className="primary"
+          disabled={!numbers || state.busy !== null}
+          onClick={() =>
+            declare({
+              point_group: draft.group,
+              axes: [row(0), row(1), row(2)],
+              tolerance: { value: Number(draft.tolerance), unit: "Å" },
+              medium: "achiral-uniaxial",
+            })
+          }
+        >
+          {strings.declareSymmetry}
+        </button>
+      </div>
+      <p className="help">{strings.symmetryHelp}</p>
     </Panel>
   );
 }
