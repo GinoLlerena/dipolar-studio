@@ -751,3 +751,45 @@ def test_the_in_place_factorization_leaves_the_callers_covariance_alone(order: s
     wy = np.linalg.solve(lower, a @ S_TRUE)
     s5 = np.linalg.lstsq(wa, wy, rcond=None)[0]
     np.testing.assert_allclose(res.s5, s5, rtol=1e-9, atol=1e-12)
+
+
+# =============================================================================================
+# V1.5a gate (docs/phase2/v1.5-plan.md, "V1.5a collinear recovery gate"; Opus plan review B2).
+# Frozen before any V1.5 implementation. The reference couplings come from the scalar
+# distance-cubed law D = K u^T S u / r^3, not from design_rows or fixed.py.
+# =============================================================================================
+
+#: Collinear protons along one unit direction, at several separations (Å).
+COLLINEAR_T = np.array([0.0, 1.8, 3.1, 4.7])
+#: A physical order matrix (traceless, symmetric) with a nonzero contraction along every u used.
+S_COLLINEAR = np.array([[0.11, 0.04, -0.03], [0.04, -0.19, 0.06], [-0.03, 0.06, 0.08]])
+
+
+@pytest.mark.parametrize("frame", ["axis-aligned", "rotated"])
+def test_v15a_collinear_rank_1_recovers_the_contraction(frame: str) -> None:
+    if frame == "axis-aligned":
+        u, s = np.array([0.0, 0.0, 1.0]), S_COLLINEAR
+    else:
+        q = _random_rotation(np.random.default_rng(20261121))
+        u = q @ (np.array([1.0, 2.0, -0.5]) / math.sqrt(5.25))
+        s = q @ S_COLLINEAR @ q.T
+    contraction = float(u @ s @ u)
+    assert abs(contraction) > 1e-2
+    positions = COLLINEAR_T[:, None] * u[None, :]
+    pairs = _all_pairs(len(positions))
+    y = np.array([K * contraction / abs(COLLINEAR_T[j] - COLLINEAR_T[i]) ** 3 for i, j in pairs])
+
+    res = fixed.fit_fixed(design_rows(positions, pairs, K), y, np.full(len(y), 0.1))
+
+    assert res.required_rank == 5 and res.numerical_rank == 1
+    assert res.retained_b.shape == (5, 1) and res.null_b.shape == (5, 4)
+    assert not res.rank_verified
+    # The retained combination is the contraction along u, recovered from the projection alone.
+    recovered = float(u @ fixed.matrix_from_b(res.retained_b[:, 0] * res.retained_estimates[0]) @ u)
+    assert abs(recovered - contraction) <= 1e-10
+    assert np.max(np.abs(res.predictions - y)) <= 1e-8
+    # None of the five named C1 components is estimated.
+    assert len(res.components) == 5
+    assert all(c.status == "unverified" and c.estimate is None for c in res.components), [
+        (c.name, c.status) for c in res.components
+    ]
