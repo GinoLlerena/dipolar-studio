@@ -113,6 +113,7 @@ restricted-fit scan tier.
 | 2026-11-22T16:26Z | `46865eecdb39ad123ba1b6eaf919300ff479874b` (commit `016a56a`) | passed, not skipped | Claude |
 | 2026-11-22T17:20Z | `bb23b01d5eb136482391097d52e43eef94e0c048` (commit `76f4aba`) | passed, not skipped | Claude |
 | 2026-11-22T17:22Z | `31cd0fe992daba9e652d7d0fbdd52fa863c4db34` (commit `1382313`) | passed, not skipped | Claude |
+| 2026-11-22T20:32Z | `491ac4dfdaaebc5a916e135cf4a11381f387a1e8` (commit `5b219c4`) | passed, not skipped | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.

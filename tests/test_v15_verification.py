@@ -1,0 +1,1301 @@
+"""Phase 2 V1.5b: the report workflow's tests, frozen before its implementation.
+
+They are written from the plan (docs/phase2/v1.5-plan.md, "V1.5b" and "Frozen comparison
+procedure"), V0.3 §3–§7 (docs/phase2/v0.3-preregistration.md) and the V1.5a ledger
+(docs/phase2/verification/gates.md), not from the code they check. What they cover, in the plan's
+words: hashes, keys and frames, roster completeness and uniqueness, σ/sign/factor, rank, gated
+targets, covariance off-diagonals, both comparison margins, review receipts, drop-one
+sensitivity, absent local files, Python and HTTP agreement, and synthetic fit-value sentinels
+across outward output and failure paths.
+
+**No experimental coupling is fitted here** (the V1.5a first-fit gate). Every dataset below is
+synthetic: its conditions, couplings and targets are made up, written to a temporary root, and
+bound to a copy of the preregistration whose SHA-256 fields are those of the synthetic files. The
+real files are never read.
+
+**Pending implementation.** ``tools/validation/verification.py`` and the reproduction margin in
+``prereg_labels`` are V1.5b's. While that module's file does not exist, these tests xfail through
+``_v()``, and through that alone; once it exists, any exception fails (round 82).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import copy
+import csv
+import hashlib
+import importlib
+import io
+import json
+import math
+import sys
+from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pytest
+from dipolar_core.nuclides import dipolar_constant_hz_a3
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools" / "validation"))
+
+import prereg  # noqa: E402
+import prereg_labels as pl  # noqa: E402
+
+PREREG = prereg.load()
+VERIFICATION_PY = ROOT / "tools" / "validation" / "verification.py"
+BENZENE, ODCB = "benzene-taggar2006", "odcb-chandrakumar1993"
+K = dipolar_constant_hz_a3("1H", "1H")
+
+
+def _v() -> Any:
+    """The V1.5b module, or an xfail while (and only while) its file does not exist."""
+    if not VERIFICATION_PY.is_file():
+        pytest.xfail("V1.5b: tools/validation/verification.py is not written yet")
+    return importlib.import_module("verification")
+
+
+def _sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+# ------------------------------------------------------------ an independent forward model
+def _protons(dataset: str) -> dict[str, np.ndarray]:
+    """The declared geometry's protons in the paper's frame (z normal to the ring), built here from
+    the frozen radii and ring angles, independently of the engine."""
+    g, d = PREREG["geometry"], PREREG["datasets"][dataset]
+    r = g["r_cc_angstrom"] + g["r_ch_angstrom"]
+    out = {}
+    for name, deg in d["ring_positions"].items():
+        a = math.radians(deg)
+        out[name] = np.array([r * math.cos(a), r * math.sin(a), 0.0])
+    return out
+
+
+def _coupling(dataset: str, pair: tuple[str, str], s_paper: np.ndarray) -> float:
+    """The scalar law D = K·uᵀSu/r³ for an order matrix S in the paper's frame."""
+    h = _protons(dataset)
+    v = h[pair[1]] - h[pair[0]]
+    r = float(np.linalg.norm(v))
+    u = v / r
+    return float(K * (u @ s_paper @ u) / r**3)
+
+
+def _benzene_s(s_zz: float) -> np.ndarray:
+    """Axial: S_xx = S_yy = −S_zz/2 (V0.3 §4)."""
+    return np.diag([-s_zz / 2, -s_zz / 2, s_zz])
+
+
+def _odcb_s(s_zz: float, aniso: float) -> np.ndarray:
+    """The paper's frame: S_zz normal to the ring, S_xx − S_yy in its plane."""
+    s_xx = (aniso - s_zz) / 2
+    return np.diag([s_xx, s_xx - aniso, s_zz])
+
+
+# ------------------------------------------------------------------- synthetic datasets
+#: Synthetic condition keys (run/sample for benzene, table/T for o-DCB), not the sources'. The
+#: o-DCB set keeps the frozen drop-one conditions II/300 and II/302 so the sensitivity applies.
+BENZENE_CONDITIONS = [("9", f"s{k:02d}") for k in range(1, 16)]
+ODCB_CONDITIONS = [("I", str(t)) for t in range(310, 328, 2)] + [("II", str(t)) for t in range(290, 316, 2)]
+assert len(BENZENE_CONDITIONS) == PREREG["datasets"][BENZENE]["conditions"]
+assert len(ODCB_CONDITIONS) == PREREG["datasets"][ODCB]["conditions"]
+assert {"II/300", "II/302"} <= {f"{a}/{b}" for a, b in ODCB_CONDITIONS}
+
+#: Deterministic offsets (Hz) and heterogeneous σ (Hz), so the weights matter and ν > 0 has a residual.
+OFFSETS = {BENZENE: (0.31, -0.22, 0.12), ODCB: (0.21, -0.17, 0.09, -0.05)}
+SIGMAS = {BENZENE: (0.15, 0.6, 1.1), ODCB: (0.2, 0.9, 0.4, 1.3)}
+
+
+def _truth(dataset: str, i: int) -> dict[str, float]:
+    """A synthetic tensor for condition i: not a value from any source."""
+    if dataset == BENZENE:
+        return {"S_zz": -0.0612 - 0.0011 * i}
+    return {"S_zz": -0.1834 + 0.0013 * i, "S_xx-S_yy": 0.0417 + 0.0009 * i}
+
+
+def _s_paper(dataset: str, t: dict[str, float]) -> np.ndarray:
+    return _benzene_s(t["S_zz"]) if dataset == BENZENE else _odcb_s(t["S_zz"], t["S_xx-S_yy"])
+
+
+def _condition_keys(dataset: str) -> list[str]:
+    return [f"{a}/{b}" for a, b in (BENZENE_CONDITIONS if dataset == BENZENE else ODCB_CONDITIONS)]
+
+
+def _couplings_rows(dataset: str, truths: dict[str, dict[str, float]], *, offsets: bool = True) -> list[dict[str, str]]:
+    d = PREREG["datasets"][dataset]
+    rows = []
+    for key in _condition_keys(dataset):
+        a, b = key.split("/")
+        s = _s_paper(dataset, truths[key])
+        for j, (orbit, pair) in enumerate(d["orbits"].items()):
+            value = _coupling(dataset, tuple(pair), s) + (OFFSETS[dataset][j] if offsets else 0.0)
+            sigma = SIGMAS[dataset][j]
+            if dataset == BENZENE:
+                rows.append(
+                    {
+                        "run": a,
+                        "sample": b,
+                        "coupling": orbit,
+                        "spin_a": pair[0],
+                        "spin_b": pair[1],
+                        "D_obs_Hz": repr(value),
+                        "sigma_Hz": repr(sigma),
+                    }
+                )
+            else:
+                rows.append(
+                    {
+                        "table": a,
+                        "T_K": b,
+                        "coupling": orbit,
+                        "D_token": repr(value),
+                        "sigma_token": repr(sigma),
+                        "D_Hz": repr(value),
+                        "sigma_Hz": repr(sigma),
+                    }
+                )
+    return rows
+
+
+def _target_rows(dataset: str, targets: dict[tuple[str, str], tuple[float, float] | None]) -> list[dict[str, str]]:
+    rows = []
+    for (key, comp), t in targets.items():
+        a, b = key.split("/")
+        if dataset == BENZENE:
+            value, sigma = t if t is not None else (math.nan, math.nan)
+            rows.append(
+                {"run": a, "sample": b, "S_zz_token": f"{value}({sigma})", "S_zz": repr(value), "sigma": repr(sigma)}
+            )
+        else:
+            rows.append(
+                {
+                    "table": a,
+                    "T_K": b,
+                    "component": comp,
+                    "value": "" if t is None else repr(t[0]),
+                    "precision": "" if t is None else repr(t[1]),
+                    "status": "pending" if t is None else "target",
+                    "flags": "" if t is not None else "no-marker",
+                }
+            )
+    return rows
+
+
+def _write_csv(path: Path, rows: list[dict[str, str]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=list(rows[0]), lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(rows)
+    path.write_text(buf.getvalue(), encoding="utf-8")
+
+
+def _default_targets(dataset: str, truths: dict[str, dict[str, float]]) -> dict[tuple[str, str], tuple[float, float]]:
+    """Targets equal to the synthetic truth, with a small precision: every compared cell agrees."""
+    return {
+        (key, comp): (truths[key][comp], 0.0004) for key in _condition_keys(dataset) for comp in _estimands(dataset)
+    }
+
+
+def _estimands(dataset: str) -> list[str]:
+    return list(PREREG["datasets"][dataset]["estimands"])
+
+
+class Synthetic:
+    """A synthetic dataset under a temporary root, with its own copy of the preregistration."""
+
+    def __init__(
+        self,
+        root: Path,
+        dataset: str,
+        *,
+        truths: dict[str, dict[str, float]] | None = None,
+        targets: dict[tuple[str, str], tuple[float, float] | None] | None = None,
+        couplings_rows: list[dict[str, str]] | None = None,
+        offsets: bool = True,
+    ) -> None:
+        self.root, self.dataset = root, dataset
+        self.truths = truths or {k: _truth(dataset, i) for i, k in enumerate(_condition_keys(dataset))}
+        self.targets = targets if targets is not None else _default_targets(dataset, self.truths)
+        self.prereg = copy.deepcopy(PREREG)
+        d = self.prereg["datasets"][dataset]
+        self.couplings_path = root / d["couplings"]["path"]
+        self.targets_path = root / d["targets"]["path"]
+        _write_csv(self.couplings_path, couplings_rows or _couplings_rows(dataset, self.truths, offsets=offsets))
+        _write_csv(self.targets_path, _target_rows(dataset, self.targets))
+        d["couplings"]["sha256"] = _sha(self.couplings_path)
+        d["targets"]["sha256"] = _sha(self.targets_path)
+        assert prereg.validate(self.prereg) == []
+
+    @property
+    def protocol(self) -> str:
+        return prereg.protocol_sha256(self.prereg)
+
+    def receipt(self) -> dict[str, str]:
+        """The owner's signed spot-check receipt (P-2), bound to the checked artifact's hash."""
+        artifact = self.prereg["reporting"]["spot_check_gating"]["checked_artifact"][self.dataset]
+        return {
+            "dataset": self.dataset,
+            "artifact": artifact,
+            "sha256": self.prereg["datasets"][self.dataset][artifact]["sha256"],
+        }
+
+    def submission(self, **changes: Any) -> dict[str, Any]:
+        """The first-fit gate's record, made immediately before the submission (plan, V1.5a)."""
+        record: dict[str, Any] = {
+            "dataset": self.dataset,
+            "runner": "owner",
+            "at": datetime(2026, 11, 25, 10, 0, tzinfo=UTC),
+            "release_or_commit": "v0.2.0b1",
+            "protocol_sha256": self.protocol,
+        }
+        record.update(changes)
+        return record
+
+
+# --------------------------------------------------------------------- registry clients
+@pytest.fixture
+def call() -> Any:
+    """The in-process Python adapter (``LocalClient``) over a fresh session."""
+    return _v().local_call()
+
+
+class _Asgi:
+    """The HTTP adapter, driven in process: ``POST /api/v1/ops/{name}`` with a bearer token."""
+
+    PORT = 8765
+
+    def __init__(self) -> None:
+        from dipolar_app.auth import Credentials
+        from dipolar_app.http import create_app
+        from dipolar_app.jobs import JobRunner
+        from dipolar_app.operations import build_registry
+        from dipolar_app.policy import Principal, Tier
+        from dipolar_app.registry import CONTRACT_VERSION
+        from dipolar_app.session import Session
+
+        session = Session(None, contract_version=CONTRACT_VERSION)
+        JobRunner(session, mode="thread")
+        robot = Principal(actor="script:verification", tier=Tier.APPLY, human=False)
+        self.app = create_app(build_registry(), session, Credentials({"tok": robot}), port=self.PORT)
+        self.calls: list[str] = []
+
+    def envelope(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        body = json.dumps({"args": args}, allow_nan=False).encode()
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": f"/api/v1/ops/{name}",
+            "raw_path": f"/api/v1/ops/{name}".encode(),
+            "query_string": b"",
+            "root_path": "",
+            "headers": [
+                (b"host", f"127.0.0.1:{self.PORT}".encode()),
+                (b"authorization", b"Bearer tok"),
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+            "server": ("127.0.0.1", self.PORT),
+            "client": ("127.0.0.1", 50000),
+        }
+        sent: list[dict[str, Any]] = []
+        delivered = {"done": False}
+
+        async def receive() -> dict[str, Any]:
+            if delivered["done"]:
+                await asyncio.sleep(3600)
+            delivered["done"] = True
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        async def send(message: dict[str, Any]) -> None:
+            sent.append(message)
+
+        asyncio.run(self.app(scope, receive, send))
+        payload = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+        out: dict[str, Any] = json.loads(payload)
+        return out
+
+    def __call__(self, name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+        self.calls.append(name)
+        envelope = self.envelope(name, args or {})
+        if not envelope.get("ok"):
+            raise _v().RegistryError(name, envelope.get("error", {}).get("code", "UNKNOWN"))
+        result: dict[str, Any] = envelope["result"]
+        return result
+
+
+def _never(name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+    raise AssertionError(f"the registry was called ({name}) although the inputs block the comparison")
+
+
+# ======================================================================= hashes and inputs
+@pytest.mark.parametrize("dataset", [BENZENE, ODCB])
+def test_the_inputs_verify_against_their_frozen_hashes(tmp_path: Path, dataset: str) -> None:
+    v, syn = _v(), Synthetic(tmp_path, dataset)
+    assert v.check_inputs(dataset, prereg=syn.prereg, root=tmp_path) == []
+    observed = v.read_couplings(dataset, prereg=syn.prereg, root=tmp_path)
+    assert sorted(observed) == sorted(_condition_keys(dataset))
+
+
+@pytest.mark.parametrize("which", ["couplings", "targets"])
+@pytest.mark.parametrize("dataset", [BENZENE, ODCB])
+def test_a_changed_input_blocks_its_comparison(tmp_path: Path, dataset: str, which: str) -> None:
+    """Corrupt source material blocks the comparison: nothing is fitted, no label is made."""
+    v, syn = _v(), Synthetic(tmp_path, dataset)
+    path = syn.couplings_path if which == "couplings" else syn.targets_path
+    path.write_bytes(path.read_bytes() + b"\n")
+    problems = v.check_inputs(dataset, prereg=syn.prereg, root=tmp_path)
+    assert problems and any(str(path.relative_to(tmp_path)) in p for p in problems)
+    report = v.run_report(
+        dataset, call=_never, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=syn.receipt()
+    )
+    assert report["status"] == "blocked" and "tracks" not in report and "cells" not in report
+    shared = v.shared_output(report)
+    assert shared["status"] == "blocked" and "tracks" not in shared
+
+
+@pytest.mark.parametrize("which", ["couplings", "targets"])
+@pytest.mark.parametrize("dataset", [BENZENE, ODCB])
+def test_absent_local_files_are_reported_not_certified(tmp_path: Path, dataset: str, which: str) -> None:
+    """Public CI has no local evidence: the report says so, names the path, and certifies nothing."""
+    v, syn = _v(), Synthetic(tmp_path, dataset)
+    path = syn.couplings_path if which == "couplings" else syn.targets_path
+    path.unlink()
+    report = v.run_report(
+        dataset, call=_never, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=syn.receipt()
+    )
+    assert report["status"] == "local evidence unavailable"
+    assert report["missing"] == [str(path.relative_to(tmp_path))]
+    assert "tracks" not in report and "cells" not in report
+    shared = v.shared_output(report)
+    assert shared == {
+        "dataset": dataset,
+        "protocol_sha256": syn.protocol,
+        "status": "local evidence unavailable",
+    }
+    with pytest.raises(ValueError):
+        v.page_lines(shared)
+
+
+# ============================================================== keys, roster and frames
+def _mutate_rows(dataset: str, rows: list[dict[str, str]], name: str) -> list[dict[str, str]]:
+    rows = [dict(r) for r in rows]
+    cond_cols = ("run", "sample") if dataset == BENZENE else ("table", "T_K")
+    d_col = "D_obs_Hz" if dataset == BENZENE else "D_Hz"
+    s_col = "sigma_Hz"
+    if name == "an unknown coupling key":
+        rows[0]["coupling"] = "D15"
+    elif name == "a coupling repeated":
+        rows.append(dict(rows[0]))
+    elif name == "a coupling missing":
+        rows.pop(1)
+    elif name == "a condition missing":
+        first = (rows[0][cond_cols[0]], rows[0][cond_cols[1]])
+        rows = [r for r in rows if (r[cond_cols[0]], r[cond_cols[1]]) != first]
+    elif name == "an extra condition":
+        extra = [dict(r) for r in rows[: len(PREREG["datasets"][dataset]["orbits"])]]
+        for r in extra:
+            r[cond_cols[1]] = "999"
+        rows += extra
+    elif name == "a non-numeric coupling":
+        rows[2][d_col] = "-1024.1749x"
+    elif name == "a non-finite coupling":
+        rows[2][d_col] = "nan"
+    elif name == "a zero sigma":
+        rows[2][s_col] = "0"
+    elif name == "a negative sigma":
+        rows[2][s_col] = "-0.5"
+    elif name == "an infinite sigma":
+        rows[2][s_col] = "inf"
+    return rows
+
+
+KEY_MUTANTS = [
+    "an unknown coupling key",
+    "a coupling repeated",
+    "a coupling missing",
+    "a condition missing",
+    "an extra condition",
+    "a non-numeric coupling",
+    "a non-finite coupling",
+    "a zero sigma",
+    "a negative sigma",
+    "an infinite sigma",
+]
+
+
+@pytest.mark.parametrize("name", KEY_MUTANTS)
+@pytest.mark.parametrize("dataset", [BENZENE, ODCB])
+def test_the_couplings_must_bind_to_the_frozen_roster_and_orbits(tmp_path: Path, dataset: str, name: str) -> None:
+    """Each condition has exactly the frozen orbit keys once, with a finite D and a positive σ."""
+    v = _v()
+    good = Synthetic(tmp_path / "good", dataset)
+    rows = _mutate_rows(dataset, _couplings_rows(dataset, good.truths), name)
+    syn = Synthetic(tmp_path / "bad", dataset, couplings_rows=rows)
+    with pytest.raises(ValueError):
+        v.read_couplings(dataset, prereg=syn.prereg, root=syn.root)
+    report = v.run_report(
+        dataset, call=_never, prereg=syn.prereg, root=syn.root, submission=syn.submission(), receipt=syn.receipt()
+    )
+    assert report["status"] == "blocked" and "tracks" not in report
+
+
+TARGET_MUTANTS = ["a target missing", "a target repeated", "an unknown target key", "a non-numeric target"]
+
+
+@pytest.mark.parametrize("name", TARGET_MUTANTS)
+@pytest.mark.parametrize("dataset", [BENZENE, ODCB])
+def test_the_targets_must_cover_the_roster_once(tmp_path: Path, dataset: str, name: str) -> None:
+    v = _v()
+    syn = Synthetic(tmp_path, dataset)
+    rows = _target_rows(dataset, syn.targets)
+    if name == "a target missing":
+        rows.pop(0)
+    elif name == "a target repeated":
+        rows.append(dict(rows[0]))
+    elif name == "an unknown target key":
+        rows[0][("sample" if dataset == BENZENE else "T_K")] = "999"
+    else:
+        rows[0][("S_zz" if dataset == BENZENE else "value")] = "0.0612x"
+    _write_csv(syn.targets_path, rows)
+    syn.prereg["datasets"][dataset]["targets"]["sha256"] = _sha(syn.targets_path)
+    with pytest.raises(ValueError):
+        v.read_targets(dataset, prereg=syn.prereg, root=tmp_path)
+
+
+def test_a_pending_target_is_read_as_no_target(tmp_path: Path) -> None:
+    """o-DCB's digitizer marks a cell it cannot assign ``pending``: that cell has no target."""
+    v = _v()
+    truths = {k: _truth(ODCB, i) for i, k in enumerate(_condition_keys(ODCB))}
+    targets: dict[tuple[str, str], tuple[float, float] | None] = dict(_default_targets(ODCB, truths))
+    targets[("II/296", "S_xx-S_yy")] = None
+    syn = Synthetic(tmp_path, ODCB, truths=truths, targets=targets)
+    read = v.read_targets(ODCB, prereg=syn.prereg, root=tmp_path)
+    assert read[("II/296", "S_xx-S_yy")] is None
+    assert read[("II/296", "S_zz")] == pytest.approx(targets[("II/296", "S_zz")])
+    assert set(read) == set(prereg.frozen_roster(ODCB, syn.prereg, tmp_path))
+
+
+@pytest.mark.parametrize("dataset", [BENZENE, ODCB])
+def test_the_declared_geometry_and_axes_are_the_frozen_ones(dataset: str) -> None:
+    """The protons sit at the frozen radii and angles; the declared axes are the frozen map."""
+    v = _v()
+    elements, xyz, index = v.declared_geometry(dataset, PREREG)
+    assert len(elements) == len(xyz) and set(index) == set(PREREG["datasets"][dataset]["ring_positions"])
+    for name, p in _protons(dataset).items():
+        assert elements[index[name]] == "H"
+        assert np.allclose(xyz[index[name]], p, atol=1e-12)
+    sym = v.symmetry_declaration(dataset, PREREG)
+    assert sym["point_group"] == PREREG["datasets"][dataset]["point_group"]
+    assert np.allclose(np.array(sym["axes"], dtype=float), np.array(PREREG["datasets"][dataset]["frame_map_matrix"]))
+
+
+@pytest.mark.parametrize("dataset", [BENZENE, ODCB])
+def test_the_fit_recovers_a_synthetic_tensor_in_the_papers_frame(tmp_path: Path, dataset: str, call: Any) -> None:
+    """Exact synthetic couplings, fitted through the registry in V1's frame, come back as the
+    paper-frame estimands through the frozen map and conversion (V0.3 §5). The o-DCB tensor is
+    anisotropic in the ring plane, so a wrong map or conversion changes the answer."""
+    v = _v()
+    syn = Synthetic(tmp_path, dataset, offsets=False)
+    observed = v.read_couplings(dataset, prereg=syn.prereg, root=tmp_path)
+    for key in _condition_keys(dataset)[:3]:
+        fit = v.paper_fit(dataset, syn.prereg, v.fit_condition(call, dataset, syn.prereg, observed[key]))
+        assert fit.rank_verified
+        for comp in _estimands(dataset):
+            assert fit.estimates[comp] == pytest.approx(syn.truths[key][comp], abs=1e-10), (key, comp)
+
+
+def test_one_session_fits_each_condition_on_its_own(tmp_path: Path, call: Any) -> None:
+    """Nothing is pooled (V0.3 §1): fitting a second condition in the same session gives that
+    condition's answer, the same as fitting it first in a fresh session."""
+    v = _v()
+    syn = Synthetic(tmp_path, ODCB, offsets=False)
+    observed = v.read_couplings(ODCB, prereg=syn.prereg, root=tmp_path)
+    a, b = _condition_keys(ODCB)[0], _condition_keys(ODCB)[-1]
+    v.fit_condition(call, ODCB, syn.prereg, observed[a])
+    second = v.paper_fit(ODCB, syn.prereg, v.fit_condition(call, ODCB, syn.prereg, observed[b]))
+    fresh = v.paper_fit(ODCB, syn.prereg, v.fit_condition(v.local_call(), ODCB, syn.prereg, observed[b]))
+    assert second.estimates == pytest.approx(fresh.estimates, abs=1e-14)
+    assert second.estimates["S_zz"] == pytest.approx(syn.truths[b]["S_zz"], abs=1e-10)
+
+
+# =================================================================== σ, sign and factor
+def _design_ac(dataset: str) -> np.ndarray:
+    """∂D/∂(estimand) in the paper's frame, from the scalar law: the model is linear."""
+    d = PREREG["datasets"][dataset]
+    cols = []
+    for comp in d["estimands"]:
+        unit = {"S_zz": 0.0, "S_xx-S_yy": 0.0, comp: 1.0}
+        s = _benzene_s(unit["S_zz"]) if dataset == BENZENE else _odcb_s(unit["S_zz"], unit["S_xx-S_yy"])
+        cols.append([_coupling(dataset, tuple(pair), s) for pair in d["orbits"].values()])
+    return np.array(cols).T
+
+
+def _wls(dataset: str, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The weighted least-squares answer with weights 1/σ², and its covariance (σ as printed)."""
+    a = _design_ac(dataset)
+    w = np.diag(1.0 / np.array(SIGMAS[dataset]) ** 2)
+    cov = np.linalg.inv(a.T @ w @ a)
+    return cov @ a.T @ w @ y, cov
+
+
+@pytest.mark.parametrize("dataset", [BENZENE, ODCB])
+def test_the_couplings_enter_as_printed_with_their_sigma(tmp_path: Path, dataset: str, call: Any) -> None:
+    """The estimate is the 1/σ² weighted fit of the signed couplings as printed: no factor of
+    two, no sign change, no σ rescaling (V0.3 §1, §3)."""
+    v = _v()
+    syn = Synthetic(tmp_path, dataset)
+    observed = v.read_couplings(dataset, prereg=syn.prereg, root=tmp_path)
+    key = _condition_keys(dataset)[4]
+    d = PREREG["datasets"][dataset]
+    y = np.array([observed[key][orbit][0] for orbit in d["orbits"]])
+    assert [observed[key][orbit][1] for orbit in d["orbits"]] == list(SIGMAS[dataset])
+    expected, cov = _wls(dataset, y)
+    fit = v.paper_fit(dataset, syn.prereg, v.fit_condition(call, dataset, syn.prereg, observed[key]))
+    got = np.array([fit.estimates[c] for c in d["estimands"]])
+    assert got == pytest.approx(expected, abs=1e-12)
+    assert np.array([fit.se[c] for c in d["estimands"]]) == pytest.approx(np.sqrt(np.diag(cov)), rel=1e-9)
+    resid = y - _design_ac(dataset) @ expected
+    chi2 = float(np.sum((resid / np.array(SIGMAS[dataset])) ** 2))
+    assert fit.chi2 == pytest.approx(chi2, rel=1e-9) and fit.nu == d["nu"]
+    scaled = np.sqrt(np.diag(cov)) * math.sqrt(chi2 / d["nu"])
+    assert np.array([fit.scaled_se[c] for c in d["estimands"]]) == pytest.approx(scaled, rel=1e-9)
+
+
+@pytest.mark.parametrize("dataset", [BENZENE, ODCB])
+def test_negated_couplings_give_the_negated_tensor(tmp_path: Path, dataset: str, call: Any) -> None:
+    v = _v()
+    syn = Synthetic(tmp_path, dataset)
+    observed = v.read_couplings(dataset, prereg=syn.prereg, root=tmp_path)
+    key = _condition_keys(dataset)[2]
+    flipped = {orbit: (-dv, s) for orbit, (dv, s) in observed[key].items()}
+    plus = v.paper_fit(dataset, syn.prereg, v.fit_condition(call, dataset, syn.prereg, observed[key]))
+    minus = v.paper_fit(dataset, syn.prereg, v.fit_condition(call, dataset, syn.prereg, flipped))
+    for comp in _estimands(dataset):
+        assert minus.estimates[comp] == pytest.approx(-plus.estimates[comp], abs=1e-12)
+
+
+# ======================================================================= covariance
+def test_the_paper_frame_covariance_keeps_its_off_diagonal(tmp_path: Path, call: Any) -> None:
+    """Σ_paper = M Σ_ac Mᵀ from the full fitted covariance (V0.3 §3), reconstructed from the wire's
+    basis: compared with the independent weighted fit, cross terms included."""
+    v = _v()
+    syn = Synthetic(tmp_path, ODCB)
+    observed = v.read_couplings(ODCB, prereg=syn.prereg, root=tmp_path)
+    key = _condition_keys(ODCB)[7]
+    y = np.array([observed[key][orbit][0] for orbit in PREREG["datasets"][ODCB]["orbits"]])
+    _, expected = _wls(ODCB, y)
+    fit = v.paper_fit(ODCB, syn.prereg, v.fit_condition(call, ODCB, syn.prereg, observed[key]))
+    got = np.array(fit.covariance, dtype=float)
+    assert got.shape == (2, 2)
+    assert got == pytest.approx(expected, rel=1e-9)
+    assert abs(expected[0, 1]) > 1e-3 * math.sqrt(expected[0, 0] * expected[1, 1])  # the test can see a loss
+
+
+def test_the_covariance_is_rebuilt_from_its_supplied_basis() -> None:
+    """The wire stores Σ in its own basis (``basis_b``): a rotated basis gives the same paper Σ."""
+    v = _v()
+    c = np.zeros((5, 2))
+    c[0, 0] = c[1, 1] = 1.0
+    sigma_reduced = np.array([[2.0e-6, 0.7e-6], [0.7e-6, 1.1e-6]])
+    theta = 0.37
+    rot = np.array([[math.cos(theta), -math.sin(theta)], [math.sin(theta), math.cos(theta)]])
+    c_rot = c @ rot
+    sigma_rot = rot.T @ sigma_reduced @ rot
+    base = {"coordinates": ["b1", "b2"], "basis_b": c.T.tolist(), "matrix": sigma_reduced.tolist()}
+    turned = {"coordinates": ["u1", "u2"], "basis_b": c_rot.T.tolist(), "matrix": sigma_rot.tolist()}
+    a = np.array(v.paper_covariance(ODCB, PREREG, base), dtype=float)
+    b = np.array(v.paper_covariance(ODCB, PREREG, turned), dtype=float)
+    assert b == pytest.approx(a, rel=1e-12)
+    j = np.diag([1 / math.sqrt(1.5), math.sqrt(2.0)])
+    m = np.array(PREREG["datasets"][ODCB]["conversion_matrix"], dtype=float)
+    assert a == pytest.approx(m @ j @ sigma_reduced @ j @ m.T, rel=1e-12)
+
+
+# ============================================================================= rank
+def _unverified(result: dict[str, Any]) -> dict[str, Any]:
+    """The wire result of a fit whose rank is not verified: projected coordinates only."""
+    out = copy.deepcopy(result)
+    out["rank"] = {**out["rank"], "verified": False, "reason": "synthetic: rank unverified"}
+    for comp in out["components"]:
+        if comp["status"] == "estimated":
+            comp.update(status="projected", estimate=None, se=None, intervals=None)
+    out["covariance_b"] = None
+    return out
+
+
+def test_an_unverified_rank_estimates_nothing_and_stays_pending(tmp_path: Path, call: Any) -> None:
+    """Rank-unverified keeps its precedence over everything, a signed receipt and targets included."""
+    v = _v()
+    syn = Synthetic(tmp_path, ODCB)
+    observed = v.read_couplings(ODCB, prereg=syn.prereg, root=tmp_path)
+    key = _condition_keys(ODCB)[0]
+    fit = v.paper_fit(ODCB, syn.prereg, _unverified(v.fit_condition(call, ODCB, syn.prereg, observed[key])))
+    assert fit.rank_verified is False
+    assert all(fit.estimates[c] is None for c in _estimands(ODCB)) and fit.covariance is None
+    fits = {k: fit for k in _condition_keys(ODCB)}
+    cells = v.independent_cells(ODCB, syn.prereg, fits, syn.targets, receipt=syn.receipt())
+    assert {(c.status, c.reason) for c in cells} == {("pending", "rank-unverified")}
+
+
+# ==================================================================== gated targets
+@pytest.mark.parametrize("dataset", [BENZENE, ODCB])
+def test_targets_are_withheld_until_the_spot_check_is_signed(tmp_path: Path, dataset: str, call: Any) -> None:
+    """P-2: without the signed receipt every cell is pending/no-target in both tracks; with it,
+    every cell is compared. The o-DCB note stays while its check is open."""
+    v = _v()
+    syn = Synthetic(tmp_path, dataset)
+    roster = PREREG["datasets"][dataset]["roster_cells"]
+    gated = v.run_report(dataset, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission())
+    assert gated["status"] == "complete"
+    for track in ("independent", "reproduction"):
+        full = gated["tracks"][track]["full"]
+        assert (full.name, full.roster, full.compared, full.pending) == ("pending", roster, 0, roster)
+    assert {c["reason"] for c in gated["cells"]["independent"]} == {"no-target"}
+    assert all(c["target"] is None for c in gated["cells"]["independent"])  # withheld, not just unused
+    open_note = PREREG["reporting"]["spot_check_gating"]["open_note"]
+    assert (open_note in gated["notes"]) is (dataset == ODCB)
+    assert "development data, no independent holdout" in gated["notes"]
+
+    signed = v.run_report(
+        dataset, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=syn.receipt()
+    )
+    full = signed["tracks"]["independent"]["full"]
+    assert (full.name, full.compared, full.agreeing) == ("experimentally supported", roster, roster)
+    assert open_note not in signed["notes"]
+    # The authors' analysis inputs are absent: that track stays pending, with its own counts.
+    repro = signed["tracks"]["reproduction"]["full"]
+    assert (repro.name, repro.compared, repro.pending) == ("pending", 0, roster)
+    assert {c["reason"] for c in signed["cells"]["reproduction"]} == {"inputs-undocumented"}
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"sha256": "0" * 64},
+        {"artifact": "couplings"},
+        {"dataset": ODCB},
+        {"note": "trust me"},
+    ],
+)
+def test_a_receipt_that_does_not_bind_withholds_the_targets(tmp_path: Path, call: Any, bad: dict[str, str]) -> None:
+    v = _v()
+    syn = Synthetic(tmp_path, BENZENE)
+    receipt = {**syn.receipt(), **bad}
+    report = v.run_report(
+        BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=receipt
+    )
+    assert report["tracks"]["independent"]["full"].compared == 0
+
+
+# =================================================================== the first-fit gate
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"dataset": ODCB},
+        {"protocol_sha256": "a" * 64},
+        {"runner": "someone"},
+        {"release_or_commit": ""},
+        {"at": "2026-11-25T10:00Z"},
+        {"note": "extra"},
+    ],
+)
+def test_no_fit_without_its_submission_record(tmp_path: Path, change: dict[str, Any]) -> None:
+    """The owner records the submission before the fit (V1.5a): the workflow refuses to fit
+    without a record for this dataset at this protocol revision, before it reads any input."""
+    v = _v()
+    syn = Synthetic(tmp_path, BENZENE)
+    with pytest.raises(ValueError):
+        v.run_report(BENZENE, call=_never, prereg=syn.prereg, root=tmp_path, submission=syn.submission(**change))
+    with pytest.raises(ValueError):
+        v.run_report(BENZENE, call=_never, prereg=syn.prereg, root=tmp_path, submission=None)
+
+
+def test_the_report_keeps_its_submission_and_protocol(tmp_path: Path, call: Any) -> None:
+    v = _v()
+    syn = Synthetic(tmp_path, BENZENE)
+    sub = syn.submission()
+    report = v.run_report(BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=sub, receipt=syn.receipt())
+    assert report["protocol_sha256"] == syn.protocol
+    assert report["submission"] == {**sub, "at": "2026-11-25T10:00Z"}
+    assert report["tracks"]["independent"]["protocol_sha256"] == syn.protocol
+
+
+# ======================================================================= both margins
+def _fit(estimates: dict[str, float | None], verified: bool = True) -> Any:
+    return _v().PaperFit(rank_verified=verified, estimates=estimates)
+
+
+def _edge(target: float, margin: float, sign: float) -> tuple[float, float]:
+    """The last float with |s − target| ≤ margin on that side, and the next one outward."""
+    s = target + sign * margin
+    inward = target
+    while abs(s - target) > margin:
+        s = math.nextafter(s, inward)
+    outward = math.nextafter(s, sign * math.inf)
+    while abs(outward - target) <= margin:
+        outward = math.nextafter(outward, sign * math.inf)
+    return s, outward
+
+
+@pytest.mark.parametrize("sign", [1.0, -1.0])
+def test_the_independent_margin_for_s_zz(tmp_path: Path, sign: float) -> None:
+    """|S − S_pub| ≤ 0.05·|S_pub| + 2p, inclusive, with p the cell's own precision."""
+    v = _v()
+    syn = Synthetic(tmp_path, BENZENE)
+    keys = _condition_keys(BENZENE)
+    value, p = -0.25, 2.0**-8
+    margin = pl.RELATIVE_TOLERANCE * abs(value) + pl.PRECISION_FACTOR * p
+    inside, outside = _edge(value, margin, sign)
+    targets = {(k, "S_zz"): (value, p) for k in keys}
+    fits = {k: _fit({"S_zz": inside}) for k in keys}
+    fits[keys[3]] = _fit({"S_zz": outside})
+    cells = {c.condition: c for c in v.independent_cells(BENZENE, syn.prereg, fits, targets, receipt=syn.receipt())}
+    assert cells[keys[0]].status == "agrees"
+    assert cells[keys[3]].status == "disagrees"
+
+
+def test_the_independent_margin_for_the_anisotropy_uses_its_own_condition(tmp_path: Path) -> None:
+    """S_xx − S_yy: 0.05·|S_zz,pub| of the same condition + 2p of the anisotropy cell. Using the
+    cell's own value, the S_zz cell's precision or another condition's S_zz changes the verdict."""
+    v = _v()
+    syn = Synthetic(tmp_path, ODCB)
+    keys = _condition_keys(ODCB)
+    zz, p_zz, p_an = -0.25, 2.0**-5, 2.0**-9
+    margin = pl.RELATIVE_TOLERANCE * abs(zz) + pl.PRECISION_FACTOR * p_an
+    inside, outside = _edge(0.0, margin, 1.0)
+    targets: dict[tuple[str, str], tuple[float, float] | None] = {}
+    fits = {}
+    for i, k in enumerate(keys):
+        targets[(k, "S_zz")] = (zz if i != 1 else -0.9, p_zz)  # condition 1 has a much larger S_zz
+        targets[(k, "S_xx-S_yy")] = (0.0, p_an)
+        fits[k] = _fit({"S_zz": zz if i != 1 else -0.9, "S_xx-S_yy": inside})
+    fits[keys[0]] = _fit({"S_zz": zz, "S_xx-S_yy": outside})
+    cells = {
+        (c.condition, c.component): c
+        for c in v.independent_cells(ODCB, syn.prereg, fits, targets, receipt=syn.receipt())
+    }
+    assert cells[(keys[2], "S_xx-S_yy")].status == "agrees"
+    assert cells[(keys[0], "S_xx-S_yy")].status == "disagrees"  # 2·p_zz or condition 1's S_zz would pass it
+
+
+def test_the_anisotropy_waits_for_its_conditions_s_zz_target(tmp_path: Path) -> None:
+    v = _v()
+    syn = Synthetic(tmp_path, ODCB)
+    keys = _condition_keys(ODCB)
+    targets: dict[tuple[str, str], tuple[float, float] | None] = {
+        (k, c): (syn.truths[k][c], 0.0004) for k in keys for c in _estimands(ODCB)
+    }
+    targets[(keys[5], "S_zz")] = None
+    fits = {k: _fit(dict(syn.truths[k])) for k in keys}
+    cells = {
+        (c.condition, c.component): c
+        for c in v.independent_cells(ODCB, syn.prereg, fits, targets, receipt=syn.receipt())
+    }
+    assert (cells[(keys[5], "S_zz")].status, cells[(keys[5], "S_zz")].reason) == ("pending", "no-target")
+    aniso = cells[(keys[5], "S_xx-S_yy")]
+    assert (aniso.status, aniso.reason) == ("pending", "s_zz-target-pending")
+
+
+def test_the_cells_must_cover_the_fitted_conditions_exactly(tmp_path: Path) -> None:
+    v = _v()
+    syn = Synthetic(tmp_path, BENZENE)
+    keys = _condition_keys(BENZENE)
+    fits = {k: _fit(dict(syn.truths[k])) for k in keys[1:]}
+    with pytest.raises(ValueError):
+        v.independent_cells(BENZENE, syn.prereg, fits, syn.targets, receipt=syn.receipt())
+
+
+# ------------------------------------------------- the reproduction margin (prereg_labels)
+def test_the_reproduction_labels_are_the_frozen_ones() -> None:
+    _v()
+    r = PREREG["criteria"]["reproduction"]
+    assert pl.REPRODUCTION_LABEL == r["label"]
+    assert pl.FALLBACK_LABEL == r["fallback_label"].replace("1/sigma^2", "1/σ²")
+    assert tuple(pl.REPRODUCTION_REQUIREMENTS) == tuple(r["requires"])
+
+
+@pytest.mark.parametrize(
+    ("token", "margin"),
+    [
+        ("-0.6123(12)", 0.0012),  # printed σ wins
+        ("0.61230(5)", 0.00005),  # printed σ wins over half a unit (0.000005)
+        ("0.612(0)", 0.0005),  # half a unit wins
+        ("0.6120(3)", 0.0003),  # a trailing zero is a printed digit: units of 1e-4
+        ("0.61200(3)", 0.00003),
+        ("−0.0731(4)", 0.0004),  # U+2212
+        ("0.5(0)", 0.05),
+    ],
+)
+def test_the_table_margin_is_the_larger_of_sigma_and_half_a_unit(token: str, margin: float) -> None:
+    _v()
+    assert pl.table_margin(token) == pytest.approx(margin, rel=1e-12)
+
+
+@pytest.mark.parametrize("token", ["0.6123", "", "0.61(", "(12)", "abc(1)", "0.61(-1)", "0.61(1.5)", "6.1e-1(2)"])
+def test_the_table_margin_needs_a_printed_sigma(token: str) -> None:
+    """Missing or malformed precision: no margin (the cell stays pending)."""
+    _v()
+    assert pl.table_margin(token) is None
+
+
+def test_the_figure_margin_is_twice_the_precision() -> None:
+    _v()
+    assert pl.figure_margin(0.00031) == pytest.approx(0.00062, rel=1e-15)
+    for bad in (None, 0.0, -0.1, math.nan, math.inf):
+        assert pl.figure_margin(bad) is None
+
+
+@pytest.mark.parametrize(
+    ("documented", "mode"),
+    [
+        ({"geometry", "objective", "weights", "corrections"}, "reproduction"),
+        ({"geometry", "corrections"}, "fallback"),  # weights and objective unknown
+        ({"geometry", "objective", "corrections"}, "fallback"),  # weights unknown
+        ({"geometry", "weights", "corrections"}, "fallback"),  # objective unknown
+        ({"geometry"}, "fallback"),
+        ({"geometry", "objective", "weights"}, "pending"),  # corrections undocumented: no claim
+        ({"objective", "weights", "corrections"}, "pending"),  # no geometry
+        (set(), "pending"),
+    ],
+)
+def test_the_reproduction_mode_needs_all_four_documented(documented: set[str], mode: str) -> None:
+    _v()
+    assert pl.reproduction_mode(documented) == mode
+    assert (
+        pl.reproduction_track_label(mode)
+        == {
+            "reproduction": pl.REPRODUCTION_LABEL,
+            "fallback": pl.FALLBACK_LABEL,
+            "pending": pl.REPRODUCTION_LABEL,
+        }[mode]
+    )
+
+
+def test_the_reproduction_mode_refuses_an_unknown_requirement() -> None:
+    _v()
+    with pytest.raises(ValueError):
+        pl.reproduction_mode({"geometry", "vibes"})
+
+
+@pytest.mark.parametrize("sign", [1.0, -1.0])
+@pytest.mark.parametrize("mode", ["reproduction", "fallback"])
+def test_the_reproduction_comparison_at_its_margin(sign: float, mode: str) -> None:
+    _v()
+    value, margin = -0.25, 2.0**-7
+    inside, outside = _edge(value, margin, sign)
+    ok = pl.classify_reproduction("c", "S_zz", mode=mode, rank_verified=True, s=inside, target=(value, margin))
+    bad = pl.classify_reproduction("c", "S_zz", mode=mode, rank_verified=True, s=outside, target=(value, margin))
+    assert (ok.status, bad.status) == ("agrees", "disagrees")
+
+
+@pytest.mark.parametrize(
+    ("kw", "reason"),
+    [
+        ({"mode": "pending", "rank_verified": True, "s": 0.1, "target": (0.1, 0.01)}, "inputs-undocumented"),
+        ({"mode": "reproduction", "rank_verified": False, "s": 0.1, "target": (0.1, 0.01)}, "rank-unverified"),
+        ({"mode": "reproduction", "rank_verified": True, "s": None, "target": (0.1, 0.01)}, "rank-unverified"),
+        ({"mode": "reproduction", "rank_verified": True, "s": 0.1, "target": None}, "no-target"),
+        ({"mode": "reproduction", "rank_verified": True, "s": 0.1, "target": (0.1, None)}, "no-precision"),
+    ],
+)
+def test_the_reproduction_comparison_stays_pending(kw: dict[str, Any], reason: str) -> None:
+    _v()
+    cell = pl.classify_reproduction("c", "S_zz", **kw)
+    assert (cell.status, cell.reason) == ("pending", reason)
+
+
+# =========================================================== review receipts (decision 5B)
+def _key(dataset: str, track: str, condition: str, component: str, protocol: str) -> dict[str, str]:
+    return {
+        "dataset": dataset,
+        "track": track,
+        "condition": condition,
+        "component": component,
+        "protocol_sha256": protocol,
+    }
+
+
+def _disagreeing(tmp_path: Path, *, conditions: tuple[str, ...]) -> tuple[Synthetic, list[dict[str, str]]]:
+    """A synthetic o-DCB dataset whose S_zz targets are far off in the named conditions."""
+    truths = {k: _truth(ODCB, i) for i, k in enumerate(_condition_keys(ODCB))}
+    targets: dict[tuple[str, str], tuple[float, float] | None] = dict(_default_targets(ODCB, truths))
+    for k in conditions:
+        targets[(k, "S_zz")] = (truths[k]["S_zz"] + 0.05, 0.0004)
+    syn = Synthetic(tmp_path, ODCB, truths=truths, targets=targets)
+    keys = [_key(ODCB, "independent", k, "S_zz", syn.protocol) for k in conditions]
+    return syn, keys
+
+
+def test_complete_review_coverage_explains_the_discrepancy(tmp_path: Path, call: Any) -> None:
+    """One-to-one coverage of every disagreeing key across the annex and the public receipts sets
+    the review flag: an explained discrepancy, which is not validation (crosswalk: unresolved
+    failure, "explained, reviewed")."""
+    v = _v()
+    syn, keys = _disagreeing(tmp_path, conditions=("I/314", "II/306"))
+    reviews = {"annex": keys, "receipts": keys}
+    report = v.run_report(
+        ODCB,
+        call=call,
+        prereg=syn.prereg,
+        root=tmp_path,
+        submission=syn.submission(),
+        receipt=syn.receipt(),
+        reviews=reviews,
+    )
+    assert report["review_problems"] == []
+    full = report["tracks"]["independent"]["full"]
+    assert (full.name, full.disagreeing) == ("explained discrepancy", 2)
+    shared = v.shared_output(report)
+    assert (shared["verification"], shared["annotation"]) == ("unresolved failure", "explained, reviewed")
+
+
+def _coverage_mutant(name: str, keys: list[dict[str, str]], protocol: str) -> dict[str, list[dict[str, str]]]:
+    annex, receipts = [dict(k) for k in keys], [dict(k) for k in keys]
+    if name == "an annex entry missing":
+        annex.pop()
+    elif name == "a receipt missing":
+        receipts.pop()
+    elif name == "a duplicate annex entry":
+        annex.append(dict(annex[0]))
+    elif name == "a duplicate receipt":
+        receipts.append(dict(receipts[0]))
+    elif name == "a stale protocol revision":
+        receipts[0]["protocol_sha256"] = "1" * 64
+    elif name == "the wrong track":
+        receipts[0]["track"] = "reproduction"
+    elif name == "the wrong component":
+        annex[0]["component"] = "S_xx-S_yy"
+    elif name == "the wrong dataset":
+        annex[0]["dataset"] = BENZENE
+    elif name == "an entry for an agreeing cell":
+        extra = _key(ODCB, "independent", "II/290", "S_zz", protocol)
+        annex.append(extra)
+        receipts.append(dict(extra))
+    elif name == "an unknown field":
+        receipts[0]["reviewer"] = "someone"
+    elif name == "no receipts at all":
+        receipts = []
+    return {"annex": annex, "receipts": receipts}
+
+
+COVERAGE_MUTANTS = [
+    "an annex entry missing",
+    "a receipt missing",
+    "a duplicate annex entry",
+    "a duplicate receipt",
+    "a stale protocol revision",
+    "the wrong track",
+    "the wrong component",
+    "the wrong dataset",
+    "an entry for an agreeing cell",
+    "an unknown field",
+    "no receipts at all",
+]
+
+
+@pytest.mark.parametrize("name", COVERAGE_MUTANTS)
+def test_incomplete_review_evidence_leaves_the_failure_unresolved(tmp_path: Path, call: Any, name: str) -> None:
+    """Missing, duplicate or stale entries are refused, and no cell is flagged reviewed."""
+    v = _v()
+    syn, keys = _disagreeing(tmp_path, conditions=("I/314", "II/306"))
+    reviews = _coverage_mutant(name, keys, syn.protocol)
+    report = v.run_report(
+        ODCB,
+        call=call,
+        prereg=syn.prereg,
+        root=tmp_path,
+        submission=syn.submission(),
+        receipt=syn.receipt(),
+        reviews=reviews,
+    )
+    assert report["review_problems"], name
+    assert report["tracks"]["independent"]["full"].name == "unresolved failure"
+    assert not any(c["reviewed"] for c in report["cells"]["independent"])
+
+
+def test_review_coverage_alone() -> None:
+    v = _v()
+    keys = [_key(ODCB, "independent", "I/314", "S_zz", "a" * 64)]
+    assert v.review_coverage(keys, keys, keys) == []
+    assert v.review_coverage(keys, [], keys)
+    assert v.review_coverage([], keys, keys)
+
+
+# =================================================================== drop-one sensitivity
+def test_a_label_that_hangs_on_one_dropped_condition_is_fragile(tmp_path: Path, call: Any) -> None:
+    """II/300 alone disagrees: the full-data label (primary) is an unresolved failure, without
+    II/300 it is supported, so the result is fragile; both drop-one labels have their counts."""
+    v = _v()
+    syn, _ = _disagreeing(tmp_path, conditions=("II/300",))
+    report = v.run_report(
+        ODCB, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=syn.receipt()
+    )
+    track = report["tracks"]["independent"]
+    assert track["full"].name == "unresolved failure"
+    assert track["without II/300"].name == "experimentally supported"
+    assert track["without II/300"].roster == 42
+    assert track["without II/302"].name == "unresolved failure"
+    assert track["fragile"] is True
+    shared = v.shared_output(report)
+    labels = shared["tracks"]["independent"]["labels"]
+    assert set(labels) == {"full", "without II/300", "without II/302"} and shared["tracks"]["independent"]["fragile"]
+    assert shared["verification"] == "unresolved failure" and shared["annotation"] is None
+
+
+def test_benzene_has_no_drop_one(tmp_path: Path, call: Any) -> None:
+    v = _v()
+    syn = Synthetic(tmp_path, BENZENE)
+    report = v.run_report(
+        BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=syn.receipt()
+    )
+    assert set(v.shared_output(report)["tracks"]["independent"]["labels"]) == {"full"}
+
+
+# ======================================================================= Python and HTTP
+def test_python_and_http_give_the_same_fit(tmp_path: Path) -> None:
+    """The browser and scripts are registry clients: the same synthetic inputs through the Python
+    adapter and the HTTP adapter give the same estimates, errors and covariance."""
+    v = _v()
+    syn = Synthetic(tmp_path, ODCB)
+    observed = v.read_couplings(ODCB, prereg=syn.prereg, root=tmp_path)
+    key = _condition_keys(ODCB)[3]
+    http = _Asgi()
+    a = v.paper_fit(ODCB, syn.prereg, v.fit_condition(v.local_call(), ODCB, syn.prereg, observed[key]))
+    b = v.paper_fit(ODCB, syn.prereg, v.fit_condition(http, ODCB, syn.prereg, observed[key]))
+    assert "fit.run" in http.calls and "run.get" in http.calls
+    assert a.estimates == pytest.approx(b.estimates, abs=1e-15)
+    assert np.array(a.covariance) == pytest.approx(np.array(b.covariance), rel=1e-12)
+    assert a.chi2 == pytest.approx(b.chi2, rel=1e-12) and (a.nu, a.adequacy) == (b.nu, b.adequacy)
+
+
+def test_the_fit_goes_through_the_registry_operations(tmp_path: Path) -> None:
+    """The fixed-geometry registry path of the plan, step 2."""
+    v = _v()
+    syn = Synthetic(tmp_path, BENZENE)
+    observed = v.read_couplings(BENZENE, prereg=syn.prereg, root=tmp_path)
+    http = _Asgi()
+    result = v.fit_condition(http, BENZENE, syn.prereg, observed[_condition_keys(BENZENE)[0]])
+    for op in (
+        "project.import_xyz",
+        "molecule.set_symmetry",
+        "model.set",
+        "couplings.reconcile",
+        "couplings.import",
+        "fit.run",
+        "job.wait",
+        "run.get",
+    ):
+        assert op in http.calls, op
+    assert result["model"]["kind"] == "fixed" and result["provenance"]["fit_version"] == "fixed-linear.1"
+    assert result["symmetry"]["point_group"] == "D6h" and result["n_obs"] == 3
+
+
+# ============================================================ local detail and shared output
+def test_local_detail_is_written_only_under_datasets_local(tmp_path: Path, call: Any) -> None:
+    v = _v()
+    syn = Synthetic(tmp_path, BENZENE)
+    report = v.run_report(
+        BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=syn.receipt()
+    )
+    for bad in ("docs/phase2/verification/x.md", "datasets-local/../docs/x.md", "/tmp/x.md", "datasets/x.md"):
+        with pytest.raises(ValueError):
+            v.write_local(report, Path(bad), root=tmp_path)
+        assert not (tmp_path / bad.lstrip("/")).exists()
+    out = v.write_local(report, Path("datasets-local/benzene-taggar2006-targets/verification-v1.5.md"), root=tmp_path)
+    text = out.read_text(encoding="utf-8")
+    cell = report["cells"]["independent"][0]
+    for field in ("target", "fit", "discrepancy", "margin"):
+        assert cell[field] is not None
+        assert repr(cell[field]) in text, field  # the local report keeps every per-cell number
+
+
+def test_the_local_cells_carry_target_fit_discrepancy_and_margin(tmp_path: Path, call: Any) -> None:
+    v = _v()
+    syn = Synthetic(tmp_path, BENZENE)
+    report = v.run_report(
+        BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=syn.receipt()
+    )
+    cells = report["cells"]["independent"]
+    assert len(cells) == 15
+    for c in cells:
+        assert c["discrepancy"] == c["fit"] - c["target"]
+        assert c["margin"] == pl.RELATIVE_TOLERANCE * abs(c["target"]) + pl.PRECISION_FACTOR * c["precision"]
+        assert c["status"] == ("agrees" if abs(c["discrepancy"]) <= c["margin"] else "disagrees")
+    cond = report["conditions"][_condition_keys(BENZENE)[0]]
+    assert {"chi2", "nu", "p_value", "adequacy", "se", "scaled_se", "ratio_residuals", "rank_verified"} <= set(cond)
+
+
+def test_the_shared_output_is_labels_counts_and_revision_only(tmp_path: Path, call: Any) -> None:
+    v = _v()
+    syn = Synthetic(tmp_path, ODCB)
+    report = v.run_report(
+        ODCB, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=syn.receipt()
+    )
+    shared = v.shared_output(report)
+    assert set(shared) == {
+        "dataset",
+        "protocol_sha256",
+        "status",
+        "verification",
+        "annotation",
+        "tracks",
+        "notes",
+        "spot_check_signed",
+    }
+    for track in shared["tracks"].values():
+        assert set(track) == {"label", "labels", "fragile"}
+        for label in track["labels"].values():
+            assert set(label) == {"name", "roster", "compared", "agreeing", "disagreeing", "pending"}
+    assert shared["tracks"]["reproduction"]["label"] == pl.REPRODUCTION_LABEL
+    json.dumps(shared, allow_nan=False)  # plain JSON
+
+
+@pytest.mark.parametrize("dataset", [BENZENE, ODCB])
+def test_the_page_lines_pass_the_page_gate(tmp_path: Path, dataset: str, call: Any) -> None:
+    """The shared output renders the two page lines the V1.5a gate reads."""
+    v = _v()
+    syn = Synthetic(tmp_path, dataset)
+    for receipt in (None, syn.receipt()):
+        report = v.run_report(
+            dataset, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=receipt
+        )
+        lines = v.page_lines(v.shared_output(report))
+        assert len(lines) == 2 and lines[0].startswith("**Verification:** ") and lines[1].startswith("**V0.3 label:** ")
+        assert v.check_page("\n\n".join(lines) + "\n", dataset=dataset) == []
+
+
+# ======================================================================= fit-value sentinels
+#: Synthetic sentinel tensors: distinctive digits that must never leave the local report.
+SENTINEL_S_ZZ = -0.0731987654321
+
+
+def _renderings(x: float) -> set[str]:
+    """The ways a number could be written: fixed decimals with three or more significant digits."""
+    out = set()
+    for d in range(3, 13):
+        for y in (x, abs(x)):
+            s = f"{y:.{d}f}"
+            if len(s.lstrip("-0.").replace(".", "")) >= 3:
+                out.add(s)
+    out.add(repr(x))
+    return out
+
+
+def _leaks(text: str, values: list[float]) -> list[str]:
+    return sorted({s for x in values if x is not None and x != 0 for s in _renderings(x) if s in text})
+
+
+def _sentinel_dataset(tmp_path: Path) -> Synthetic:
+    truths = {k: {"S_zz": SENTINEL_S_ZZ - 1.234567e-4 * i} for i, k in enumerate(_condition_keys(BENZENE))}
+    targets = {(k, "S_zz"): (t["S_zz"] + 0.00198765, 0.000431) for k, t in truths.items()}
+    return Synthetic(tmp_path, BENZENE, truths=truths, targets=targets)
+
+
+def test_no_fit_or_target_value_reaches_the_shared_output(tmp_path: Path, call: Any) -> None:
+    v = _v()
+    syn = _sentinel_dataset(tmp_path)
+    reviews = None
+    report = v.run_report(
+        BENZENE,
+        call=call,
+        prereg=syn.prereg,
+        root=tmp_path,
+        submission=syn.submission(),
+        receipt=syn.receipt(),
+        reviews=reviews,
+    )
+    secret: list[float] = []
+    for c in report["cells"]["independent"]:
+        secret += [c["fit"], c["target"], c["discrepancy"], c["margin"]]
+    for cond in report["conditions"].values():
+        secret += [cond["chi2"], *cond["se"].values(), *cond["scaled_se"].values(), *cond["ratio_residuals"]]
+    assert len([x for x in secret if x]) > 60
+    shared = v.shared_output(report)
+    outward = json.dumps(shared, ensure_ascii=False) + "\n" + "\n".join(v.page_lines(shared))
+    assert _leaks(outward, secret) == []
+    # The local report, by contrast, has them (the sentinels are visible to the scan).
+    local = v.write_local(report, Path("datasets-local/benzene-taggar2006-targets/verification-v1.5.md"), root=tmp_path)
+    assert _leaks(local.read_text(encoding="utf-8"), secret)
+
+
+def _failure_messages(tmp_path: Path) -> Iterator[tuple[str, str]]:
+    """Each failure path's message, with a sentinel in the faulty input."""
+    v = _v()
+    token = "-0.0731987654"
+
+    def bad_target(syn: Synthetic) -> None:
+        rows = _target_rows(BENZENE, syn.targets)
+        rows[0]["S_zz"] = token + "x"
+        _write_csv(syn.targets_path, rows)
+        syn.prereg["datasets"][BENZENE]["targets"]["sha256"] = _sha(syn.targets_path)
+
+    def bad_coupling(syn: Synthetic) -> None:
+        rows = _couplings_rows(BENZENE, syn.truths)
+        rows[0]["D_obs_Hz"] = token + "x"
+        _write_csv(syn.couplings_path, rows)
+        syn.prereg["datasets"][BENZENE]["couplings"]["sha256"] = _sha(syn.couplings_path)
+
+    def bad_sigma(syn: Synthetic) -> None:
+        rows = _couplings_rows(BENZENE, syn.truths)
+        rows[0]["sigma_Hz"] = "-" + token.lstrip("-")
+        _write_csv(syn.couplings_path, rows)
+        syn.prereg["datasets"][BENZENE]["couplings"]["sha256"] = _sha(syn.couplings_path)
+
+    def changed_targets(syn: Synthetic) -> None:
+        syn.targets_path.write_text(syn.targets_path.read_text(encoding="utf-8") + token + "\n", encoding="utf-8")
+
+    cases: dict[str, Callable[[Synthetic], None]] = {
+        "bad target": bad_target,
+        "bad coupling": bad_coupling,
+        "bad sigma": bad_sigma,
+        "changed targets": changed_targets,
+    }
+    for name, mutate in cases.items():
+        syn = _sentinel_dataset(tmp_path / name.replace(" ", "-"))
+        mutate(syn)
+        messages = []
+        for fn in (v.read_couplings, v.read_targets, v.check_inputs):
+            try:
+                out = fn(BENZENE, prereg=syn.prereg, root=syn.root)
+                if fn is v.check_inputs:
+                    messages += list(out)
+            except ValueError as exc:
+                messages.append(str(exc))
+        report = v.run_report(
+            BENZENE, call=_never, prereg=syn.prereg, root=syn.root, submission=syn.submission(), receipt=syn.receipt()
+        )
+        yield name, "\n".join(messages) + "\n" + json.dumps(v.shared_output(report)) + json.dumps(report, default=str)
+
+
+def test_no_sentinel_reaches_a_failure_message(tmp_path: Path) -> None:
+    """Refusals name a path, a key or a column, never a value (V0.3 §6, plan V1.5b)."""
+    secret = [-0.0731987654, SENTINEL_S_ZZ]
+    for name, text in _failure_messages(tmp_path):
+        assert text.strip(), name
+        assert _leaks(text, secret) == [], name
+
+
+def test_a_registry_failure_names_the_operation_not_the_values(tmp_path: Path) -> None:
+    v = _v()
+    syn = _sentinel_dataset(tmp_path)
+    observed = v.read_couplings(BENZENE, prereg=syn.prereg, root=tmp_path)
+    key = _condition_keys(BENZENE)[0]
+
+    inner = v.local_call()
+
+    def failing(name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+        if name == "couplings.import":
+            raise v.RegistryError(name, "INVALID_ARGUMENT")
+        result: dict[str, Any] = inner(name, args)
+        return result
+
+    with pytest.raises(v.RegistryError) as info:
+        v.fit_condition(failing, BENZENE, syn.prereg, observed[key])
+    values = [dv for dv, _ in observed[key].values()]
+    assert "couplings.import" in str(info.value) and _leaks(str(info.value), values) == []
