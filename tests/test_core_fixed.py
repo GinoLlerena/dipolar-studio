@@ -754,27 +754,40 @@ def test_the_in_place_factorization_leaves_the_callers_covariance_alone(order: s
 
 
 # =============================================================================================
-# V1.5a gate (docs/phase2/v1.5-plan.md, "V1.5a collinear recovery gate"; Opus plan review B2).
-# Frozen before any V1.5 implementation. The reference couplings come from the scalar
-# distance-cubed law D = K u^T S u / r^3, not from design_rows or fixed.py.
+# V1.5a gate (docs/phase2/v1.5-plan.md, "V1.5a collinear recovery gate"; Opus plan review B2;
+# strengthened in round 81, A4). Frozen before any V1.5 implementation. The reference couplings
+# come from the scalar distance-cubed law D = K u^T S u / r^3, and the fit's b coordinates are
+# decoded with the D-7 formula written out here, not with fixed.py's basis.
 # =============================================================================================
 
 #: Collinear protons along one unit direction, at several separations (Å).
 COLLINEAR_T = np.array([0.0, 1.8, 3.1, 4.7])
-#: A physical order matrix (traceless, symmetric) with a nonzero contraction along every u used.
+#: A physical order matrix (traceless, symmetric) with a nonzero contraction along z.
 S_COLLINEAR = np.array([[0.11, 0.04, -0.03], [0.04, -0.19, 0.06], [-0.03, 0.06, 0.08]])
+
+
+def _matrix_from_b_d7(b: np.ndarray) -> np.ndarray:
+    """D-7: b = (√(3/2)·Szz, (Sxx − Syy)/√2, √2·Sxy, √2·Sxz, √2·Syz), inverted by hand."""
+    szz, d = b[0] / math.sqrt(1.5), b[1] * math.sqrt(2)
+    sxy, sxz, syz = b[2] / math.sqrt(2), b[3] / math.sqrt(2), b[4] / math.sqrt(2)
+    sxx, syy = (-szz + d) / 2, (-szz - d) / 2
+    return np.array([[sxx, sxy, sxz], [sxy, syy, syz], [sxz, syz, szz]])
+
+
+def _observable_b(u: np.ndarray) -> np.ndarray:
+    """The functional b ↦ uᵀ S(b) u, as a vector in b (by linearity of the D-7 decoding)."""
+    return np.array([u @ _matrix_from_b_d7(e) @ u for e in np.eye(5)])
 
 
 @pytest.mark.parametrize("frame", ["axis-aligned", "rotated"])
 def test_v15a_collinear_rank_1_recovers_the_contraction(frame: str) -> None:
-    if frame == "axis-aligned":
-        u, s = np.array([0.0, 0.0, 1.0]), S_COLLINEAR
-    else:
+    # One fixture, along z; the rotated frame turns the whole of it (positions, u and S) by Q.
+    u, s = np.array([0.0, 0.0, 1.0]), S_COLLINEAR
+    if frame == "rotated":
         q = _random_rotation(np.random.default_rng(20261121))
-        u = q @ (np.array([1.0, 2.0, -0.5]) / math.sqrt(5.25))
-        s = q @ S_COLLINEAR @ q.T
+        u, s = q @ u, q @ s @ q.T
     contraction = float(u @ s @ u)
-    assert abs(contraction) > 1e-2
+    assert abs(contraction - S_COLLINEAR[2, 2]) <= 1e-14 and abs(contraction) > 1e-2
     positions = COLLINEAR_T[:, None] * u[None, :]
     pairs = _all_pairs(len(positions))
     y = np.array([K * contraction / abs(COLLINEAR_T[j] - COLLINEAR_T[i]) ** 3 for i, j in pairs])
@@ -784,9 +797,18 @@ def test_v15a_collinear_rank_1_recovers_the_contraction(frame: str) -> None:
     assert res.required_rank == 5 and res.numerical_rank == 1
     assert res.retained_b.shape == (5, 1) and res.null_b.shape == (5, 4)
     assert not res.rank_verified
-    # The retained combination is the contraction along u, recovered from the projection alone.
-    recovered = float(u @ fixed.matrix_from_b(res.retained_b[:, 0] * res.retained_estimates[0]) @ u)
+    g = _observable_b(u)
+    # The retained direction is the observable; the four null directions are orthonormal,
+    # orthogonal to it, and annihilate it.
+    r = res.retained_b[:, 0]
+    assert abs(abs(r @ g) - np.linalg.norm(g)) <= 1e-12 and abs(np.linalg.norm(r) - 1) <= 1e-12
+    n = res.null_b
+    assert np.max(np.abs(n.T @ n - np.eye(4))) <= 1e-12
+    assert np.max(np.abs(n.T @ r)) <= 1e-12 and np.max(np.abs(n.T @ g)) <= 1e-12
+    # The contraction, recovered from the retained projection alone, with the D-7 decoding.
+    recovered = float(u @ _matrix_from_b_d7(r * res.retained_estimates[0]) @ u)
     assert abs(recovered - contraction) <= 1e-10
+    assert abs(float(g @ res.b) - contraction) <= 1e-10
     assert np.max(np.abs(res.predictions - y)) <= 1e-8
     # None of the five named C1 components is estimated.
     assert len(res.components) == 5
