@@ -92,6 +92,19 @@ def frozen_roster(dataset: str, prereg: dict[str, Any] | None = None, root: Path
     return [(c, comp) for c in conditions for comp in d["estimands"]]
 
 
+def spot_check_gate(
+    cells: Iterable[pl.Cell], *, receipt_sha256: str | None, checked_sha256: str, prereg: dict[str, Any]
+) -> list[pl.Cell]:
+    """Amendment P-2 (``reporting.spot_check_gating``): until the dataset's spot-check receipt is
+    signed for the checked file (its SHA-256), every compared cell is pending with ``no-target``,
+    in both comparison tracks. ``rank-unverified`` keeps its precedence. A protocol without the
+    field (the original V0.3) has no gating."""
+    cells = list(cells)
+    if "spot_check_gating" not in prereg.get("reporting", {}) or receipt_sha256 == checked_sha256:
+        return cells
+    return [c if c.status == "pending" else pl.Cell(c.condition, c.component, "pending", "no-target") for c in cells]
+
+
 def dataset_report(
     dataset: str, cells: Iterable[pl.Cell], prereg: dict[str, Any] | None = None, root: Path = ROOT
 ) -> dict[str, Any]:

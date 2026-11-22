@@ -7,17 +7,17 @@
       "date": "2026-11-21",
       "kind": "protocol",
       "post_hoc": false,
-      "reason": "P-1 (V1.5 decision 5a), disclosure: besides prereg.shareable, a reviewed discrepancy entry may be shared that names the dataset, comparison track, condition, estimand and protocol revision of a disagreeing cell, with its scientific context (estimand, frame and observable convention, geometry, vibrational corrections, solvent and sample) and the suspected cause. It carries no target, fit, signed difference, margin or ratio from which one could be recovered; the cell-level numbers stay in the local annex. Reason: no second person has authorized local access, so an independent review is possible only on a value-free public entry. Approved by the owner before any V1 experimental fit (docs/phase2/verification/gates.md).",
+      "reason": "P-1 (V1.5 decision 5a), disclosure: besides prereg.shareable, a reviewed discrepancy entry may be shared that names the dataset, comparison track, condition, estimand and protocol revision of a disagreeing cell, with its scientific context (estimand, frame and observable convention, geometry, vibrational corrections, solvent and sample) and the suspected cause. It carries no target, fit, signed difference, margin or ratio from which one could be recovered; the cell-level numbers stay in the local annex. Reason: no second person has authorized local access, so an independent review is possible only on a value-free public entry. Recorded as criteria field reporting.disclosure. Approved by the owner before any V1 experimental fit (docs/phase2/verification/gates.md).",
       "protocol_before_sha256": "332be1d699421d568655669a9fcaf2fc05667e195795a63913b9a67d22e48ea3",
-      "protocol_after_sha256": "332be1d699421d568655669a9fcaf2fc05667e195795a63913b9a67d22e48ea3"
+      "protocol_after_sha256": "1b12b8f474df4433e8089fbca63e0208480c3438acf3a8c1964a8d61c2dae714"
     },
     {
       "date": "2026-11-21",
       "kind": "protocol",
       "post_hoc": false,
-      "reason": "P-2 (V1.5 decision 3), spot-check gating: until a dataset's spot-check receipt is signed, bound to the checked file's SHA-256, its targets are treated as absent (pending/no-target) in both comparison tracks; rank-unverified keeps its precedence; the ortho-dichlorobenzene spot-check note stays on its label while the check is open. Reason: a comparison must not rest on an unchecked transcription. Approved by the owner before any V1 experimental fit (docs/phase2/verification/gates.md).",
-      "protocol_before_sha256": "332be1d699421d568655669a9fcaf2fc05667e195795a63913b9a67d22e48ea3",
-      "protocol_after_sha256": "332be1d699421d568655669a9fcaf2fc05667e195795a63913b9a67d22e48ea3"
+      "reason": "P-2 (V1.5 decision 3), spot-check gating: until a dataset's spot-check receipt is signed, bound to the checked file's SHA-256, its targets are treated as absent (pending/no-target) in both comparison tracks; rank-unverified keeps its precedence; the ortho-dichlorobenzene spot-check note stays on its label while the check is open. Reason: a comparison must not rest on an unchecked transcription. Recorded as criteria field reporting.spot_check_gating. Approved by the owner before any V1 experimental fit (docs/phase2/verification/gates.md).",
+      "protocol_before_sha256": "1b12b8f474df4433e8089fbca63e0208480c3438acf3a8c1964a8d61c2dae714",
+      "protocol_after_sha256": "a27e0921851193ff1f3845d1bee4ccf42a8f21e4173cbf63d7df6d598fc6a4c5"
     }
   ],
   "model": {
@@ -135,6 +135,43 @@
     ],
     "sensitivity": {
       "odcb-chandrakumar1993": ["II/300", "II/302"]
+    }
+  },
+  "reporting": {
+    "disclosure": {
+      "amendment": "P-1",
+      "shared": "prereg.shareable",
+      "discrepancy_entry_names": [
+        "dataset",
+        "track",
+        "condition",
+        "estimand",
+        "protocol_sha256"
+      ],
+      "discrepancy_entry_context": [
+        "estimand",
+        "frame and observable convention",
+        "geometry",
+        "vibrational corrections",
+        "solvent and sample",
+        "suspected cause"
+      ],
+      "discrepancy_entry_excludes": [
+        "target",
+        "fit",
+        "signed difference",
+        "margin",
+        "ratio"
+      ]
+    },
+    "spot_check_gating": {
+      "amendment": "P-2",
+      "rule": "targets absent (no-target) until the dataset's spot-check receipt is signed, bound to the checked file's SHA-256",
+      "tracks": [
+        "independent",
+        "reproduction"
+      ],
+      "keeps_precedence": "rank-unverified"
     }
   }
 }

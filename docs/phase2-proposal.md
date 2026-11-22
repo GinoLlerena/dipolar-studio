@@ -23,6 +23,9 @@ after review rounds 63–65. What the approval covers:
 **Still open:**
 
 - **Decision 6,** the external-reproduction path; it is needed before V1.5.
+  *Decided 2026-11-21:* the owner's V1.5 decisions 1, 2 and 6 (published benzene counts with a
+  private numerical check, the success criterion, and the `v0.2.0b1` pre-release); see
+  `docs/phase2/verification/gates.md` §1.
 - **Library access** for the authors' geometries (Diehl & Niederberger 1973; Diehl & Khetrapal
   1968). Until then, the published-value comparisons stay *pending*.
 

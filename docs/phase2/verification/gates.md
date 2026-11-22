@@ -60,7 +60,7 @@ revision changes with them.
 
 | Field | Value |
 |---|---|
-| No-fit attestation for V1.5 work | **Signed by the owner, 2026-11-22T14:11Z:** "No V1 fit of experimental data has been run by anyone for V1.5 before this entry." Exposure checked against [exposure-log.md](../exposure-log.md) (last entry 2026-11-19: no V1 fit). |
+| No-fit attestation for V1.5 work | **Owner to sign:** "No V1 fit of experimental data has been run by anyone for V1.5 before this entry." Exposure checked against [exposure-log.md](../exposure-log.md). |
 | Decisions approved | 2026-11-21T14:59Z (§1) |
 | V0.3 amendments P-1, P-2 approved | 2026-11-21T15:32Z (§2) |
 | V1.5a gates frozen | pending |
@@ -72,11 +72,14 @@ synthetic datasets) is fitted, by the owner, by every agent and by any participa
 
 ## 4. Owner actions outstanding
 
+- Sign the no-fit attestation (§3).
 - Sign the receipt of each staged-index scan (decision 11, as changed in §6).
 - Sign the benzene and ortho-dichlorobenzene spot-checks (`SPOT-CHECK.md` under
   `datasets-local/`). The benzene one gates V1.5e.
 - Publish the `v0.1.0b1` draft before the 8CB testers start (decision 7).
 - Recruit one benzene participant and two 8CB testers (decision 8).
+- Before any cell identity is published under P-1 (round 81, B): record a rights check that
+  naming a disagreeing cell discloses no restricted value of its source, for each dataset.
 
 ## 5. Frozen gates
 
@@ -105,3 +108,79 @@ restricted-fit scan tier.
 | UTC | Staged tree | Scan | Operator |
 |---|---|---|---|
 | 2026-11-21T15:34Z | `544f718b8c221c96e9feb667f48f6bd2c6b50ac6` (commit `241e8ed`) | passed, not skipped | Claude |
+| 2026-11-22T16:08Z | `55227c7b0fe72873c7b0d55e0a023c59f8237ff5` (commit `d5f5aa3`) | passed, not skipped | Claude |
+| 2026-11-22T16:24Z | `be08fce817d23ab758eb26767e734129ccf7f3d3` (commit `cad9342`) | passed, not skipped | Claude |
+
+Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
+row is appended here in the next commit.
+
+- **2026-11-22T14:11Z, no-fit attestation signed** by the owner: "No V1 fit of experimental data
+  has been run by anyone for V1.5 before this entry." Exposure was checked against
+  [exposure-log.md](../exposure-log.md): its last entry (2026-11-19) records no V1 fit. This
+  completes the §3 row and the first §4 action.
+- **2026-11-22, round 81 correction (A6).** Commit `d5f5aa3` edited the §3 attestation row and
+  removed the §4 action in place, against this ledger's append-only rule. Both are restored to
+  their `241e8ed` text, and the entry above records the signature.
+- **2026-11-22, protocol revision (round 81, A7).** Amendments P-1 and P-2 are now closed fields of
+  the JSON's `reporting` object, so they change the revision. The original is
+  `332be1d699421d568655669a9fcaf2fc05667e195795a63913b9a67d22e48ea3` (the header above). After P-1
+  it is `1b12b8f474df4433e8089fbca63e0208480c3438acf3a8c1964a8d61c2dae714`, and after P-2
+  `a27e0921851193ff1f3845d1bee4ccf42a8f21e4173cbf63d7df6d598fc6a4c5`, the current revision (V0.3
+  §8). §2's "*Open for review*" is decided: closed fields.
+- **2026-11-22, decision 8 by role (round 81, B).** From here on this ledger refers to the people
+  decision 8 excludes by role: the 1998 thesis co-authors and their advisor. They stay credited for
+  the 1998 work in the README and `CITATION.cff`.
+- **2026-11-22, frozen gates (round 81).** The items §5 deferred to V1.5b ("missing or skipped
+  local evidence and unsupported success claims", and the participant precision rule) are frozen
+  now, in §7–§8. Runner-level roster, receipt, gated-target and restricted-fit scan tests stay with
+  V1.5b, as the plan assigns them. The pending gates no longer use strict xfails. A V1.5b gate
+  xfails only while `tools/validation/verification.py` is missing, and the workflow gate only
+  while `release.yml` keeps `v*`. `pytest -rx` lists them.
+
+## 7. Exit matrix
+
+One row per exit criterion of the plan's audit table, each with its evidence: a test, or a named
+witness with a receipt. `verification.check_exit` (gated in `tests/test_v15_gates.py`) refuses a
+missing, repeated or unknown criterion, a result other than `passed` (a CI skip of local
+evidence never certifies), an empty reference, and a witness or local-only row without a receipt.
+
+| Exit criterion | Evidence (test or witness) | Local only |
+|---|---|---|
+| V0.1 selection and rights | `tests/test_v0_corpus.py` (selection and manifest); witness: owner, the staged-scan receipts (§6) | scan: yes |
+| V0.2 verified corpus | `tests/test_v0_corpus.py`; witness: owner, both signed spot-check receipts | yes |
+| V0.3 frozen criteria and comparison | `tests/test_v0_preregistration.py`, `tests/test_prereg_labels.py`, `tests/test_digitize_figure.py`, `tests/test_v15_gates.py` (amendments, chronology) | digests: yes |
+| V1.0 and V1.1 design and fit | `tests/test_core_fixed.py` (including the V1.5a collinear gate), V1.1 benchmark | no |
+| V1.2 symmetry and counting | `tests/test_core_symmetry.py`, V1.2 benchmark | no |
+| V1.3 application and compatibility | `packages/dipolar-app/tests/test_app_v13_fixed.py` | no |
+| V1.4 browser, robot and AI readiness | `packages/dipolar-app/tests/test_app_v14_browser.py`, `web/e2e/fixed-tutorial.spec.ts` (Chromium, Firefox, WebKit) | no |
+| Every implemented model has a robot tutorial | `robot.py --scenario tutorial` (rigid), `--scenario fixed-tutorial` (fixed), the V1.5b `jump4` tutorial | no |
+| V1.5 honest reporting and no tuning | `tests/test_v15_gates.py` (pages, crosswalk) and V1.5b's `tests/test_v15_verification.py`; witness: Sol review of the discrepancy entries (decision 5B) | annex check: yes |
+| Decision 6 and release | witness: owner, the published pre-release, and one external record passing `verification.check_participant` (§8) | yes |
+
+## 8. External evidence checklist
+
+A participant's success claim (decision 2A) is supported only if `verification.check_participant`
+finds no problem:
+
+- an opaque participant ID (`P-` and three digits), with no name, handle, e-mail address or
+  contact detail in the record (decision 9);
+- eligibility under decision 8;
+- the candidate's release tag and commit, and the protocol revision;
+- a matching SI SHA-256 (decision 10);
+- a geometry computed, not copied (guide step 3);
+- the owner's signed benzene spot-check receipt (A4);
+- all 15 conditions, each with a numerical match under the precision rule below;
+- the comparison counts equal to the published counts. Disagreements with the paper do not
+  fail a claim.
+
+A record that claims nothing (a failed or incomplete attempt) is kept, not refused.
+
+**The precision rule** (plan, guide step 4). The participant's S_zz must match the owner's
+reference within 1e-8 (absolute) when the coordinates have 12 or more decimals. At 8–11 decimals,
+the owner's rounding allowance is added: the change in the reference estimate when the reference
+coordinates are rounded to the participant's precision in the declared axes. Below 8 decimals,
+the participant regenerates the XYZ. The synthetic evidence is
+`tests/test_v15_gates.py::test_the_precision_rule_*`: a synthetic axial order on the frozen
+geometry, at 8–15 decimals, in the reference axes and turned by 30° about z. It includes a
+participant's independent construction (exact multiples of ½ and √3/2) and a refusal of a
+geometry 1e-4 Å off. It runs in CI on Linux and Windows and on the owner's macOS.

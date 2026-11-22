@@ -410,6 +410,7 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
          (`datasets-local/benzene-taggar2006-targets/SPOT-CHECK.md`, local only);
        - library access for Diehl & Niederberger (1973) and Diehl & Khetrapal (1968);
        - the external-reproduction path (before V1.5).
+         *Decided 2026-11-21* (V1.5 decisions 1, 2 and 6, `docs/phase2/verification/gates.md` §1).
    - **(B, CI after round 56)** a camera gesture made within the round trip of the page's previous
      camera commit is refused as superseded and reverted (rounds 41–42 rule); worth revisiting.
    - **Use pnpm 9** (as CI): `node_modules` linked by pnpm 10 makes `pnpm add` fail.
