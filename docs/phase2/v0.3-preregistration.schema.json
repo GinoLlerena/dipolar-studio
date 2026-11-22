@@ -697,6 +697,7 @@
           "required": [
             "amendment",
             "shared",
+            "discrepancy_entry_requires",
             "discrepancy_entry_names",
             "discrepancy_entry_context",
             "discrepancy_entry_excludes"
@@ -707,6 +708,9 @@
             },
             "shared": {
               "const": "prereg.shareable"
+            },
+            "discrepancy_entry_requires": {
+              "const": "a reviewed README entry for the cell"
             },
             "discrepancy_entry_names": {
               "const": [
@@ -745,7 +749,10 @@
             "amendment",
             "rule",
             "tracks",
-            "keeps_precedence"
+            "keeps_precedence",
+            "checked_artifact",
+            "open_note",
+            "open_note_datasets"
           ],
           "properties": {
             "amendment": {
@@ -762,11 +769,25 @@
             },
             "keeps_precedence": {
               "const": "rank-unverified"
+            },
+            "checked_artifact": {
+              "const": {
+                "benzene-taggar2006": "targets",
+                "odcb-chandrakumar1993": "couplings"
+              }
+            },
+            "open_note": {
+              "const": "the owner's spot-check of this transcription is open"
+            },
+            "open_note_datasets": {
+              "const": [
+                "odcb-chandrakumar1993"
+              ]
             }
           }
         }
       },
-      "description": "V0.3 amendments P-1 and P-2 (2026-11-21), as closed fields so that the protocol revision changes with them (round 81, A7)."
+      "description": "V0.3 amendments P-1 and P-2 (2026-11-21), as closed fields so that the protocol revision changes with them (rounds 81-82, A7)."
     }
   }
 }

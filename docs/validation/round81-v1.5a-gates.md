@@ -183,3 +183,23 @@ byte. The four-file suite in a tracked-only copy: 121 passed, 70 xfailed, 3 skip
 **Process note.** Before isolating the suite, the reviewer ran it once in the original checkout,
 where the three local-evidence tests read the restricted inputs automatically. No restricted
 value appeared in the output, and no experimental fit ran. Recorded in the gate ledger.
+
+## Round 82 fixes
+
+The regression gates are in commit `76f4aba`, before the fixes. Round 82 was the last review
+round, so these fixes have had no independent review, and the merge is the owner's decision.
+
+| Finding | Gate (`76f4aba`) | Fix |
+|---|---|---|
+| A1 exit | `EXIT_REQUIREMENTS` per criterion, and 12 refusals (placeholders, all-CI, skipped or xfailed, missing receipts, unknown fields) | Ledger §9 (§7 as amended). Implementation in V1.5b. |
+| A1 participant | Trusted owner values, a closed allowlist at every level (failed attempts included), and 15 + 10 refusals | Ledger §9 (§8 as amended). Implementation in V1.5b. |
+| A1 precision | The production symmetry path, independent C₆H₆ geometries, an off-centre input frame, 0° and 30° axes, the measured miss below 8.6e-9, an inclusive boundary | Passes now. Ledger §9 states that rounding happens in the input XYZ frame. |
+| A2 | The attestation, submission provenance, late or missing amendment approvals, unordered submissions (22 refusals, 10 classifications) | Implementation in V1.5b. |
+| A3 | The xfail applies only while the module file is absent. Exactly one V0.3 line, the label consistent with the counts, zero compared cells while P-2 is unsigned | Implementation in V1.5b. Ledger §9 sets the format of the signed-receipt line. |
+| A5 | The whole `on:` mapping, and five other-route refusals | The guard lands in V1.5c. The exit row requires the gate to have *passed*. |
+| A6 | — | Ledger §9: the owner's sign-off of the four trees (2026-11-22T17:15Z), and the `016a56a` and `76f4aba` scan rows in §6. |
+| A7 | "Reviewed", the checked artifacts and the open-check note in the closed fields; the gated classification; the notes | JSON and schema. `prereg.spot_check_signed`, `classify_gated` and `label_notes` replace `spot_check_gate`. The revision goes 332be1d… → e1116a5… → 263f268…, and §8 explains the superseded round 81 hashes. |
+| CI | — | The WebKit failure did not repeat on rerun (all six checks green at `016a56a`). |
+
+Evidence: a scratch reference implementation passes every gate. Five loose versions, built as
+round 82 described, each fail.

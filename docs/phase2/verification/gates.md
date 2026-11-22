@@ -110,6 +110,8 @@ restricted-fit scan tier.
 | 2026-11-21T15:34Z | `544f718b8c221c96e9feb667f48f6bd2c6b50ac6` (commit `241e8ed`) | passed, not skipped | Claude |
 | 2026-11-22T16:08Z | `55227c7b0fe72873c7b0d55e0a023c59f8237ff5` (commit `d5f5aa3`) | passed, not skipped | Claude |
 | 2026-11-22T16:24Z | `be08fce817d23ab758eb26767e734129ccf7f3d3` (commit `cad9342`) | passed, not skipped | Claude |
+| 2026-11-22T16:26Z | `46865eecdb39ad123ba1b6eaf919300ff479874b` (commit `016a56a`) | passed, not skipped | Claude |
+| 2026-11-22T17:20Z | `bb23b01d5eb136482391097d52e43eef94e0c048` (commit `76f4aba`) | passed, not skipped | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -184,3 +186,57 @@ the participant regenerates the XYZ. The synthetic evidence is
 geometry, at 8–15 decimals, in the reference axes and turned by 30° about z. It includes a
 participant's independent construction (exact multiples of ½ and √3/2) and a refusal of a
 geometry 1e-4 Å off. It runs in CI on Linux and Windows and on the owner's macOS.
+
+## 9. Round 82 entries
+
+- **2026-11-22T17:15Z, owner sign-off of the scan receipts (round 82, A6).** The owner approved the
+  scans Claude ran on trees `544f718…` (commit `241e8ed`), `55227c7…` (`d5f5aa3`), `be08fce…`
+  (`cad9342`) and `46865ee…` (`016a56a`), each passed and not skipped (§6). Later receipts are
+  signed the same way, by a value-free approval of the listed trees.
+- **2026-11-22, process note (round 82).** Before isolating the suite in a tracked-only copy, the
+  round 82 reviewer ran the four-file suite once in the owner's checkout. There, the three
+  local-evidence tests read the restricted inputs automatically, to compare them. No restricted
+  value appeared in the output, and no experimental fit ran. This is not an exposure in the
+  [exposure-log.md](../exposure-log.md) sense (no value was seen), and it is recorded here so that
+  it is not repeated: review briefs require a tracked-only copy.
+- **2026-11-22, protocol revision (round 82, A7).** P-1 now includes "reviewed", and P-2 its
+  checked artifacts and the open-check note. The revision after P-1 is
+  `e1116a59be81852bff1fd94dad81bc3fa0cdfcf1f0884f9f921cf6abe046b448`, and after P-2
+  `263f26857da15df184c7e662325e39036c307a02bc0042c610d6b8d4dab700b9`, the current revision. The
+  §6 revisions `1b12b8f…` and `a27e092…` belong to the round 81 draft, under which no result was
+  made.
+- **Recording a signed spot-check.** When the owner signs a spot-check receipt, it is appended
+  here as a line of its own, `- **Spot-check receipt signed:** `<dataset>`` followed by the
+  artifact, its SHA-256 and the UTC time. The page gate reads that line, and until it is present
+  the dataset's page must show zero compared cells (P-2).
+- **§7 as amended (round 82, A1).** The exit evidence is bound to each criterion, in
+  `EXIT_REQUIREMENTS` (`tests/test_v15_gates.py`, which V1.5b's module must equal). Each listed
+  test must have passed: not skipped and not xfailed. Each listed receipt must be recorded.
+
+  | Exit criterion | Required tests | Required receipts |
+  |---|---|---|
+  | V0.1 selection and rights | `tests/test_v0_corpus.py` | staged-index scans |
+  | V0.2 verified corpus | `tests/test_v0_corpus.py` | benzene spot-check; ortho-dichlorobenzene spot-check |
+  | V0.3 frozen criteria and comparison | `tests/test_v0_preregistration.py`, `tests/test_prereg_labels.py`, `tests/test_digitize_figure.py`, `tests/test_v15_gates.py` | local digests |
+  | V1.0 and V1.1 design and fit | `tests/test_core_fixed.py` | — |
+  | V1.2 symmetry and counting | `tests/test_core_symmetry.py` | — |
+  | V1.3 application and compatibility | `packages/dipolar-app/tests/test_app_v13_fixed.py` | — |
+  | V1.4 browser, robot and AI readiness | `packages/dipolar-app/tests/test_app_v14_browser.py`, `web/e2e/fixed-tutorial.spec.ts` | — |
+  | Every implemented model has a robot tutorial | `robot --scenario tutorial`, `--scenario fixed-tutorial`, `--scenario jump4-tutorial` | — |
+  | V1.5 honest reporting and no tuning | `tests/test_v15_gates.py`, `tests/test_v15_verification.py` | discrepancy review; local annex coverage; restricted-fit scan |
+  | Decision 6 and release | `tests/test_v15_gates.py::test_the_release_workflow_uses_exactly_the_approved_trigger` | published pre-release; external record; owner sign-off |
+
+  The release row requires the whole-trigger gate to have passed, so a return to `v*` (which
+  only xfails it) fails the exit.
+- **§8 as amended (round 82, A1).** The participant check takes **trusted** values from the
+  owner, not from the record: the candidate's release tag and commit, the protocol revision, the
+  frozen 15-condition roster, the signed benzene receipt, and the published counts, which must be
+  complete (all 15 compared, none pending). The record has a closed set of fields at every level.
+  A failed or incomplete attempt is checked against that allowlist too, so it cannot carry
+  personal data. **Precision rule:** the participant rounds the coordinates **in the input XYZ
+  frame**, as written in the XYZ file. The evidence runs the production path
+  (`symmetry.validate` with D6h averaging, then `fixed_rows`) on independently built C₆H₆
+  geometries, off-centre, with 0° and 30° axes, at 8–15 decimals. The measured miss is below
+  8.6e-9 at every precision, below the 1e-8 tolerance with no allowance at all, as the round 82
+  bound predicts. The allowance boundary is tested as inclusive. CI results at `016a56a`: Python on
+  Linux and on Windows passed.
