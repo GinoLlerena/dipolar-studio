@@ -7,9 +7,12 @@ rules are frozen: changing them is an amendment (§8).
 
 from __future__ import annotations
 
+import math
+import re
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Literal
 
 Status = Literal["agrees", "disagrees", "pending"]
@@ -26,6 +29,12 @@ PRECEDENCE = (
     "partially supported",
     "experimentally supported",
 )
+#: The authors' analysis track (V0.3 §6, criteria.reproduction): its label, the fallback's label
+#: and the four documented inputs a reproduction claim requires.
+REPRODUCTION_LABEL = "reproduction (the authors' analysis)"
+FALLBACK_LABEL = "approximate reproduction (assumed weights 1/σ²)"
+REPRODUCTION_REQUIREMENTS = ("geometry", "objective", "weights", "corrections")
+ReproductionMode = Literal["reproduction", "fallback", "pending"]
 
 
 @dataclass(frozen=True)
@@ -126,3 +135,73 @@ def sensitivity(cells: Iterable[Cell], roster: Sequence[tuple[str, str]], drop: 
         isinstance(v, Label) and v.name != full.name for k, v in report.items() if k.startswith("without ")
     )
     return report
+
+
+# --------------------------------------------------------------- the reproduction track (§6)
+#: A printed table token: a plain decimal with its uncertainty in last-place units, "−0.6123(12)".
+_TOKEN = re.compile(r"[-\u2212]?(\d+)\.(\d+)\((\d+)\)")
+
+
+def table_margin(token: str) -> float | None:
+    """max(printed σ, half a unit in the last printed digit), from the token's own digits:
+    trailing zeros are printed digits. None when the token carries no printed σ."""
+    m = _TOKEN.fullmatch(token.strip())
+    if m is None:
+        return None
+    unit = Decimal(1).scaleb(-len(m.group(2)))
+    return float(max(Decimal(int(m.group(3))) * unit, unit / 2))
+
+
+def figure_margin(p: float | None) -> float | None:
+    """2p for a digitized target; None without a positive, finite precision."""
+    if p is None or not math.isfinite(p) or p <= 0:
+        return None
+    return PRECISION_FACTOR * p
+
+
+def reproduction_mode(documented: Iterable[str]) -> ReproductionMode:
+    """``reproduction`` when all four inputs are documented; ``fallback`` (weighted least squares
+    with 1/σ², the authors' geometry, documented corrections only) when the geometry is but the
+    weights or the objective are not; otherwise ``pending``. Undocumented corrections with a known
+    objective and weights support neither: pending."""
+    have = set(documented)
+    if have - set(REPRODUCTION_REQUIREMENTS):
+        raise ValueError(f"unknown reproduction inputs: {sorted(have - set(REPRODUCTION_REQUIREMENTS))}")
+    if have == set(REPRODUCTION_REQUIREMENTS):
+        return "reproduction"
+    if "geometry" in have and not {"weights", "objective"} <= have:
+        return "fallback"
+    return "pending"
+
+
+def reproduction_track_label(mode: ReproductionMode) -> str:
+    """Every fallback result, pass or fail, carries the fallback label: it is not a reproduction claim."""
+    if mode not in ("reproduction", "fallback", "pending"):
+        raise ValueError(f"unknown reproduction mode {mode!r}")
+    return FALLBACK_LABEL if mode == "fallback" else REPRODUCTION_LABEL
+
+
+def classify_reproduction(
+    condition: str,
+    component: str,
+    *,
+    mode: ReproductionMode,
+    rank_verified: bool,
+    s: float | None,
+    target: tuple[float, float | None] | None,
+    reviewed: bool = False,
+) -> Cell:
+    """One cell of the authors' analysis track: agrees when |S − S_pub| ≤ margin (the table or
+    figure margin, inclusive). Pending, in order: undocumented inputs, an unverified rank, no
+    target, no precision."""
+    if mode == "pending":
+        return Cell(condition, component, "pending", "inputs-undocumented")
+    if not rank_verified or s is None:
+        return Cell(condition, component, "pending", "rank-unverified")
+    if target is None:
+        return Cell(condition, component, "pending", "no-target")
+    value, margin = target
+    if margin is None:
+        return Cell(condition, component, "pending", "no-precision")
+    ok = abs(s - value) <= margin
+    return Cell(condition, component, "agrees" if ok else "disagrees", reviewed=reviewed and not ok)

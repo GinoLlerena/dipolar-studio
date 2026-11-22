@@ -114,6 +114,7 @@ restricted-fit scan tier.
 | 2026-11-22T17:20Z | `bb23b01d5eb136482391097d52e43eef94e0c048` (commit `76f4aba`) | passed, not skipped | Claude |
 | 2026-11-22T17:22Z | `31cd0fe992daba9e652d7d0fbdd52fa863c4db34` (commit `1382313`) | passed, not skipped | Claude |
 | 2026-11-22T20:32Z | `491ac4dfdaaebc5a916e135cf4a11381f387a1e8` (commit `5b219c4`) | passed, not skipped | Claude |
+| 2026-11-22T22:16Z | `21e153040a21075f1627543d70a9178cc2dbc0d9` (commit `0795f47`) | passed, not skipped | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -140,6 +141,19 @@ row is appended here in the next commit.
   V1.5b, as the plan assigns them. The pending gates no longer use strict xfails. A V1.5b gate
   xfails only while `tools/validation/verification.py` is missing, and the workflow gate only
   while `release.yml` keeps `v*`. `pytest -rx` lists them.
+
+- **2026-11-22, V1.5b report workflow (for review).** The gates in `tests/test_v15_verification.py`
+  were frozen in commit `0795f47`, before the implementation. Two readings of the frozen text are
+  open for the reviewer:
+  - **Reproduction with undocumented corrections.** V0.3 §6 requires all four inputs for a
+    reproduction claim, and uses the fallback when "the geometry is obtained but the weights or
+    the objective are not". With the geometry, objective and weights documented but the
+    corrections not, neither applies. `prereg_labels.reproduction_mode` returns `pending`.
+  - **The o-DCB declared geometry places no chlorine.** V0.3 §2: "chlorine enters no coupling".
+    The fit imports the six carbons and the four protons only. The couplings and the C2v
+    declaration do not depend on chlorine.
+  No experimental coupling has been fitted. Every V1.5b test uses synthetic files under a
+  temporary root.
 
 ## 7. Exit matrix
 
