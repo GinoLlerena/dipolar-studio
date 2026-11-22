@@ -14,6 +14,7 @@ import csv
 import dataclasses
 import hashlib
 import json
+import re
 from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -90,6 +91,58 @@ def frozen_roster(dataset: str, prereg: dict[str, Any] | None = None, root: Path
     if len(conditions) != d["conditions"]:
         raise ValueError(f"{dataset}: {len(conditions)} conditions, not {d['conditions']}")
     return [(c, comp) for c in conditions for comp in d["estimands"]]
+
+
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+
+
+def spot_check_signed(dataset: str, receipt: dict[str, str] | None, prereg: dict[str, Any]) -> bool:
+    """Amendment P-2 (``reporting.spot_check_gating``): a receipt counts only if it is for this
+    dataset and for the artifact P-2 names for it, at that artifact's frozen SHA-256, with no
+    other field. A protocol without the field (the original V0.3) has no gating: always True."""
+    gating = prereg.get("reporting", {}).get("spot_check_gating")
+    if gating is None:
+        return True
+    if receipt is None or set(receipt) != {"dataset", "artifact", "sha256"}:
+        return False
+    artifact = gating["checked_artifact"].get(dataset)
+    if artifact is None or receipt["dataset"] != dataset or receipt["artifact"] != artifact:
+        return False
+    frozen = prereg["datasets"][dataset][artifact]["sha256"]
+    return bool(_SHA256.fullmatch(receipt["sha256"])) and receipt["sha256"] == frozen
+
+
+def classify_gated(
+    condition: str,
+    component: str,
+    *,
+    dataset: str,
+    receipt: dict[str, str] | None,
+    prereg: dict[str, Any],
+    rank_verified: bool,
+    target: tuple[float, float] | None,
+    s: float | None,
+    s_zz_pub: float | None = None,
+    reviewed: bool = False,
+) -> pl.Cell:
+    """``prereg_labels.classify`` with P-2 applied first: until the spot-check is signed, the
+    target and the axial scale are withheld (``no-target``, in both tracks); ``rank-unverified``
+    keeps its precedence."""
+    if not spot_check_signed(dataset, receipt, prereg):
+        target, s_zz_pub = None, None
+    return pl.classify(
+        condition, component, rank_verified=rank_verified, target=target, s=s, s_zz_pub=s_zz_pub, reviewed=reviewed
+    )
+
+
+def label_notes(dataset: str, *, receipt: dict[str, str] | None, prereg: dict[str, Any]) -> list[str]:
+    """The notes every label of the dataset carries (V0.3 §7): development data, and for
+    ortho-dichlorobenzene the open spot-check note while its check is open (P-2)."""
+    notes = ["development data, no independent holdout"]
+    gating = prereg.get("reporting", {}).get("spot_check_gating")
+    if gating and dataset in gating["open_note_datasets"] and not spot_check_signed(dataset, receipt, prereg):
+        notes.append(gating["open_note"])
+    return notes
 
 
 def dataset_report(

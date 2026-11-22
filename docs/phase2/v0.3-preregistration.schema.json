@@ -14,7 +14,8 @@
     "geometry",
     "datasets",
     "digitization",
-    "criteria"
+    "criteria",
+    "reporting"
   ],
   "$defs": {
     "sha256": {
@@ -681,6 +682,112 @@
           }
         }
       }
+    },
+    "reporting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "disclosure",
+        "spot_check_gating"
+      ],
+      "properties": {
+        "disclosure": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "amendment",
+            "shared",
+            "discrepancy_entry_requires",
+            "discrepancy_entry_names",
+            "discrepancy_entry_context",
+            "discrepancy_entry_excludes"
+          ],
+          "properties": {
+            "amendment": {
+              "const": "P-1"
+            },
+            "shared": {
+              "const": "prereg.shareable"
+            },
+            "discrepancy_entry_requires": {
+              "const": "a reviewed README entry for the cell"
+            },
+            "discrepancy_entry_names": {
+              "const": [
+                "dataset",
+                "track",
+                "condition",
+                "estimand",
+                "protocol_sha256"
+              ]
+            },
+            "discrepancy_entry_context": {
+              "const": [
+                "estimand",
+                "frame and observable convention",
+                "geometry",
+                "vibrational corrections",
+                "solvent and sample",
+                "suspected cause"
+              ]
+            },
+            "discrepancy_entry_excludes": {
+              "const": [
+                "target",
+                "fit",
+                "signed difference",
+                "margin",
+                "ratio"
+              ]
+            }
+          }
+        },
+        "spot_check_gating": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "amendment",
+            "rule",
+            "tracks",
+            "keeps_precedence",
+            "checked_artifact",
+            "open_note",
+            "open_note_datasets"
+          ],
+          "properties": {
+            "amendment": {
+              "const": "P-2"
+            },
+            "rule": {
+              "const": "targets absent (no-target) until the dataset's spot-check receipt is signed, bound to the checked file's SHA-256"
+            },
+            "tracks": {
+              "const": [
+                "independent",
+                "reproduction"
+              ]
+            },
+            "keeps_precedence": {
+              "const": "rank-unverified"
+            },
+            "checked_artifact": {
+              "const": {
+                "benzene-taggar2006": "targets",
+                "odcb-chandrakumar1993": "couplings"
+              }
+            },
+            "open_note": {
+              "const": "the owner's spot-check of this transcription is open"
+            },
+            "open_note_datasets": {
+              "const": [
+                "odcb-chandrakumar1993"
+              ]
+            }
+          }
+        }
+      },
+      "description": "V0.3 amendments P-1 and P-2 (2026-11-21), as closed fields so that the protocol revision changes with them (rounds 81-82, A7)."
     }
   }
 }
