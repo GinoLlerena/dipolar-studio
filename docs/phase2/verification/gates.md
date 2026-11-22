@@ -60,7 +60,7 @@ revision changes with them.
 
 | Field | Value |
 |---|---|
-| No-fit attestation for V1.5 work | **Owner to sign:** "No V1 fit of experimental data has been run by anyone for V1.5 before this entry." Exposure checked against [exposure-log.md](../exposure-log.md). |
+| No-fit attestation for V1.5 work | **Signed by the owner, 2026-11-22T14:11Z:** "No V1 fit of experimental data has been run by anyone for V1.5 before this entry." Exposure checked against [exposure-log.md](../exposure-log.md) (last entry 2026-11-19: no V1 fit). |
 | Decisions approved | 2026-11-21T14:59Z (§1) |
 | V0.3 amendments P-1, P-2 approved | 2026-11-21T15:32Z (§2) |
 | V1.5a gates frozen | pending |
@@ -72,7 +72,6 @@ synthetic datasets) is fitted, by the owner, by every agent and by any participa
 
 ## 4. Owner actions outstanding
 
-- Sign the no-fit attestation (§3).
 - Sign the receipt of each staged-index scan (decision 11, as changed in §6).
 - Sign the benzene and ortho-dichlorobenzene spot-checks (`SPOT-CHECK.md` under
   `datasets-local/`). The benzene one gates V1.5e.
@@ -84,6 +83,14 @@ synthetic datasets) is fitted, by the owner, by every agent and by any participa
 | Gate | Test | Evidence |
 |---|---|---|
 | Collinear rank-1 recovery (plan, V1.5a; review B2) | `tests/test_core_fixed.py::test_v15a_collinear_rank_1_recovers_the_contraction` (axis-aligned and rotated) | Passes on `57307e9`'s fitter. A mutation check (2026-11-21) injected four defects: a contraction off by 1e-6, a claimed estimated component, a claimed verified rank, and predictions off by 1e-6 Hz. Each failed the gate in both frames. |
+| Four-value verification field and crosswalk (decision 4) | `tests/test_v15_gates.py`: the four values, every V0.3 label mapped, anything else refused | Strict xfail until V1.5b adds `tools/validation/verification.py`. |
+| Five pages, one valid field each | `tests/test_v15_gates.py::test_every_page_carries_exactly_one_verification_field` (benzene, ODCB and 8CB `pending`; both synthetic pages `synthetic-only`), plus refusals | Strict xfail until V1.5b writes the pages. |
+| First-fit chronology (A1, §3) | `tests/test_v15_gates.py`: an open decision, a fit during the freeze (including at the approval instant), the earliest submission across datasets, and amendment classes `pre-fit`, `after-submission` and `post hoc` (an unknown access time counts as post hoc) | Strict xfail until V1.5b. |
+| Release-trigger guard (B10) | `tests/test_v15_gates.py`: package tags trigger; milestone and malformed tags do not | The filter reader is checked against GitHub's syntax. Package tags pass now. The milestone cases are a strict xfail until V1.5c. On 2026-11-22 the current `v*` triggered all nine milestone and malformed tags, and the plan's three package patterns triggered none of them and all seven package tags. |
+
+Still to freeze, with V1.5b's tests (plan, V1.5b column): missing or skipped local evidence and
+unsupported success claims in the exit checks, receipts, roster completeness and the
+restricted-fit scan tier.
 
 ## 6. Later entries
 
@@ -97,3 +104,4 @@ synthetic datasets) is fitted, by the owner, by every agent and by any participa
 
 | UTC | Staged tree | Scan | Operator |
 |---|---|---|---|
+| 2026-11-21T15:34Z | `544f718b8c221c96e9feb667f48f6bd2c6b50ac6` (commit `241e8ed`) | passed, not skipped | Claude |
