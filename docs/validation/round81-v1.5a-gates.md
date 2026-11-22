@@ -117,3 +117,69 @@ The regression gates are in commit `cad9342`, before the fixes, and the fixes fo
 | A6 | (ledger) | The §3 row and §4 action are restored to their `241e8ed` text. The signature is a new §6 entry, and the `d5f5aa3` and `cad9342` scan rows are appended. |
 | A7 | Closed `reporting` fields, the hash chain, the schema, and `prereg.spot_check_gate` | JSON `reporting.disclosure` (P-1) and `reporting.spot_check_gating` (P-2). The schema requires both as constants. The revision goes 332be1d… → 1b12b8f… → a27e092…, and §8 records the chain. The runner applies P-2 through `prereg.spot_check_gate`. |
 | B | — | Dated pointers in `docs/phase2-proposal.md` and `docs/STATUS.md`. A rights-check action for P-1 in ledger §4. Decision 8 by role (§6). |
+
+# Round 82: re-review (GPT-6.2-Sol)
+
+Fresh independent review of PR #27 at `016a56a`, 2026-11-22. This was the final round. Verdict:
+**NOT READY** (8 A, 1 B resolved). Summarized from the report. Each finding was demonstrated
+with scratch implementations outside the repository.
+
+## A — Blocks merge
+
+1. **A1: exit and participant evidence can be self-certified.** A `check_exit` that passed every
+   assertion accepted all-CI rows with placeholder references and no local receipts. A
+   `check_participant` accepted a bogus commit and revision, 15 unrelated condition keys,
+   matching counts with all 15 comparisons pending, nested personal fields, and personal fields
+   on failed attempts. *Fix:* bind the evidence each criterion requires to that criterion.
+   Validate participants against trusted release and protocol identifiers, the exact roster, the
+   signed benzene receipt and independently supplied completed counts. Apply a closed field
+   allowlist at every level, failed attempts included.
+2. **A1: the precision tests bypass the participant's geometry processing.** All acceptance
+   cases pass with a zero allowance, and at 30° the participant and owner use the same array. In
+   a synthetic rounding-tie case the raw-row fit missed by 1.18e-8, but the production D6h
+   averaging reduced it to 1.48e-9. For a centred planar ring rounded at 8 decimals, the axial
+   error is below 8.6e-9 for |Szz| ≤ 1, so the rule is defensible in that domain. *Fix:* freeze
+   evidence with independently built C/H geometries through `symmetry.validate` and
+   `fixed_rows`. Specify rounding in the input XYZ frame. Test the allowance boundary directly,
+   and record the platform results.
+3. **A2: the chronology gates can still certify a late amendment.** A `freeze_ok` that passed
+   every case accepted an unsigned no-fit attestation and a P-2 approval after the first
+   submission. A classifier using `submissions[0]` passed every classification case. *Fix:*
+   require the dated attestation and complete submission provenance. Add late and missing
+   amendment-approval cases, and unordered submissions in both APIs.
+4. **A3: contradictory experimental pages pass.** A page reporting a V0.3 label of `pending`
+   with a fully compared, fully agreeing roster passed, and so did a page missing its V0.3 line.
+   *Fix:* exactly one visible V0.3 line, its label validated against its counts, zero compared
+   cells on the initial pages while P-2 is unsigned, all tested through `check_page`. The
+   import exemption should depend on the module file being absent: an import error that names
+   `verification` still xfails.
+5. **A5: other trigger routes stay open.** Adding `push.branches: [main]` or `on.create` passed
+   with the approved tag list intact. *Fix:* freeze the whole event mapping, and make V1.5c's
+   exit fail on a return to `v*`.
+6. **A6: the owner's sign-off on the scan receipts is missing.** The reviewer rebuilt all four
+   trees and matched them to the commit-message receipts. The plan also requires the owner to
+   sign them. *Fix:* reference the owner's value-free approval of those exact trees.
+7. **A7: P-2's helper diverges from target withholding, and P-1's review condition is outside
+   the hash.** With no receipt, an anisotropy cell stayed `s_zz-target-pending` where `target=None`
+   gives `no-target`. Equal empty digests opened the gate. P-1 authorizes *reviewed* entries
+   only, but the hashed fields omit that condition. *Fix:* bind the receipt to the dataset and the
+   frozen artifact digest. Withhold targets before classification in both tracks. Encode
+   "reviewed" in the policy, regenerate the hashes, and assert the ODCB open-check note.
+8. **Candidate CI is red.** The WebKit preview-domain test failed (152 other browser cases
+   passed). *Fix:* rerun it alone at this SHA, compare it with the baseline, and record green
+   checks before merge.
+
+## B
+
+Resolved. Keep future eligibility records role-only, and record the per-dataset rights check
+before publishing any cell identity.
+
+## Verified
+
+A4 is resolved. The hash chain 332be1d → 1b12b8f → a27e092 reproduces. The schema rejects extra
+keys at every reporting level, the other JSON fields are unchanged, and §§6–7 match byte for
+byte. The four-file suite in a tracked-only copy: 121 passed, 70 xfailed, 3 skipped.
+
+**Process note.** Before isolating the suite, the reviewer ran it once in the original checkout,
+where the three local-evidence tests read the restricted inputs automatically. No restricted
+value appeared in the output, and no experimental fit ran. Recorded in the gate ledger.
