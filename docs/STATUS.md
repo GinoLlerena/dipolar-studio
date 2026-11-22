@@ -397,8 +397,14 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
        estimable-combinations panel, the one-ring Structure view, and the fixed-geometry tutorial
        (`datasets/dichlorobenzene-synthetic/`, `robot.py --scenario fixed-tutorial`,
        `web/e2e/fixed-tutorial.spec.ts`). Isotopes are shown in the page, edited through the API.
-     - **Next:** V1.5, the verification report and the Phase 2 exit (`docs/phase2-proposal.md`
-       §V1.5); it needs the external-reproduction path (open, below).
+     - **Done:** V1.5a, the gate freeze (PR #27; rounds 81–82, both NOT READY, every finding fixed
+       with a gate frozen first, merged on the owner's decision; record
+       `docs/validation/round81-v1.5a-gates.md`, plan `docs/phase2/v1.5-plan.md`, ledger
+       `docs/phase2/verification/gates.md`): the owner's 12 decisions, V0.3 amendments P-1 and P-2
+       as closed JSON fields (protocol revision `263f268…`), the no-fit attestation, and the V1.5
+       gates (`tests/test_v15_gates.py`, the collinear rank-1 recovery gate).
+     - **Next:** V1.5b, the report workflow (`tools/validation/verification.py`, the five pages, the
+       restricted-fit scan tier, the `jump4` robot tutorial); then V1.5c–e (`docs/phase2/v1.5-plan.md`).
      - **Decided by the owner on 2026-11-18:**
        - D-1: carry projects over by export file;
        - decision 4: two independent AI transcriptions, with the owner's spot-check;

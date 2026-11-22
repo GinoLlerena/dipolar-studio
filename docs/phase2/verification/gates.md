@@ -112,6 +112,7 @@ restricted-fit scan tier.
 | 2026-11-22T16:24Z | `be08fce817d23ab758eb26767e734129ccf7f3d3` (commit `cad9342`) | passed, not skipped | Claude |
 | 2026-11-22T16:26Z | `46865eecdb39ad123ba1b6eaf919300ff479874b` (commit `016a56a`) | passed, not skipped | Claude |
 | 2026-11-22T17:20Z | `bb23b01d5eb136482391097d52e43eef94e0c048` (commit `76f4aba`) | passed, not skipped | Claude |
+| 2026-11-22T17:22Z | `31cd0fe992daba9e652d7d0fbdd52fa863c4db34` (commit `1382313`) | passed, not skipped | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -240,3 +241,8 @@ geometry 1e-4 Å off. It runs in CI on Linux and Windows and on the owner's macO
   8.6e-9 at every precision, below the 1e-8 tolerance with no allowance at all, as the round 82
   bound predicts. The allowance boundary is tested as inclusive. CI results at `016a56a`: Python on
   Linux and on Windows passed.
+- **2026-11-22T20:32Z, owner sign-off and merge.** The owner approved the scans of trees
+  `bb23b01…` (commit `76f4aba`) and `31cd0fe…` (`1382313`), both passed and not skipped (§6).
+  Round 82 was the final review round (NOT READY). Its findings were fixed with gates frozen
+  first, without a further review, and the owner decided to merge PR #27 once CI was green
+  (all six checks passed at `1382313`; merge `76b4848`).
