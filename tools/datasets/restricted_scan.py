@@ -25,8 +25,15 @@ output exists, ``results`` after; local fit outputs without a logged fit are a f
 problem. Round 83: a submission is logged in the ledger's first-fit log (gates.md §10; a filled §3
 row also counts), and the staged check judges by the **staged** ledger, whose log must extend the
 committed one. Each logged submission needs a complete output bound to it (its exact fields and
-revision, one estimate per roster cell), kept across reruns under ``retained/``. Its problems name
-the file and the entry, never a value, a key or an unexpected file name.
+revision), kept across reruns under ``retained/``. Its problems name the file and the entry,
+never a value, a key or an unexpected file name.
+
+Round 84: an output is required only for a submission in the **committed** log (A1), so the
+commit that logs a submission passes before its fit is run; outputs bound to a staged
+submission are accepted. A record declares every cell of the frozen roster on both tracks and
+carries its fits' provenance (A2, A4, A6; ``tools/validation/fit_record.py``), and each dataset's
+records and reports form one hash-bound chain of runs (A6). A file name the scan does not expect
+is never printed, whatever its characters (A3).
 
 **What it does not find** (documented limits): values rounded below the tier's digits outside the
 Phase 2 and validation docs; values spelled in words, split across lines or in images, PDFs or
@@ -53,6 +60,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "validation"))
 import first_fit_log as ffl  # noqa: E402
+import fit_record as fr  # noqa: E402
 
 FIRST_EXPOSURE = "2026-11-18"
 NUMBER = re.compile(r"(?<![\w.:])([-+−]?)(\d+(?:[.:]\d+)?|\.\d+)(?:[eE]([-+]?\d+))?(?![\w]|[.:]\d)")
@@ -224,12 +232,11 @@ FIT_TIER_SINCE = "2026-11-23T14:30Z"
 LEDGER = "docs/phase2/verification/gates.md"
 FIRST_FIT_FIELD = "| First experimental fit submission ("
 FIT_DATASETS = ("benzene-taggar2006", "odcb-chandrakumar1993")
-FIT_QUANTITIES = ("estimate", "discrepancy", "reproduction estimate", "reproduction discrepancy")
-#: (estimate, discrepancy) per track; the authors'-analysis pair is present only when that track
-#: was fitted (round 83, A4).
-_TRACK_QUANTITIES = (("estimate", "discrepancy", True), ("reproduction estimate", "reproduction discrepancy", False))
-FIT_ENTRY_FIELDS = frozenset({"condition", "component", "quantity", "value"})
-FIT_RECORD_FIELDS = frozenset({"dataset", "protocol_sha256", "submission", "values"})
+FIT_QUANTITIES = fr.QUANTITIES
+FIT_ENTRY_FIELDS = fr.ENTRY_FIELDS
+FIT_RECORD_FIELDS = fr.RECORD_FIELDS
+#: What a problem says in place of a file name the scan does not expect (round 84, A3).
+UNEXPECTED_NAME = "(a file with an unexpected name)"
 PREREG = "docs/phase2/v0.3-preregistration.json"
 #: The declared variants: significant digits matched in any path, and in the docs only.
 FIT_DIGITS_EVERYWHERE = (4, 5, 6, 7, 8)
@@ -294,8 +301,8 @@ class FitTier:
     values: int = 0
 
 
-_SAFE_NAME = re.compile(r"[A-Za-z0-9._-]+")
 _STAMP = "%Y-%m-%dT%H:%MZ"
+_RETAINED_NAME = re.compile(r"(.+)\.([1-9][0-9]*)" + re.escape(FIT_SUFFIX))
 
 
 def _logged_record(entry: ffl.Entry) -> dict[str, str | None]:
@@ -308,58 +315,59 @@ def _logged_record(entry: ffl.Entry) -> dict[str, str | None]:
     }
 
 
-def _expected_name(name: str, retained: bool) -> str | None:
-    """The dataset a fit output's file name declares, or None for an unexpected name."""
+def _expected_name(name: str, retained: bool) -> tuple[str, int] | None:
+    """The dataset a fit output's file name declares, and its retained number (0 for the current
+    output); None for an unexpected name."""
     for dataset in FIT_DATASETS:
         if not retained and name == f"{dataset}{FIT_SUFFIX}":
-            return dataset
-        if retained and re.fullmatch(re.escape(dataset) + r"\.[1-9][0-9]*" + re.escape(FIT_SUFFIX), name):
-            return dataset
+            return dataset, 0
+        m = _RETAINED_NAME.fullmatch(name)
+        if retained and m and m.group(1) == dataset:
+            return dataset, int(m.group(2))
     return None
 
 
-def _coverage(entries: list[dict[str, Any]], roster: tuple[int, tuple[str, ...]] | None) -> list[str]:
-    """Value-free coverage problems: one estimate for every roster cell, no repeats, and a
-    discrepancy only for an estimated cell; the same for the authors'-analysis values, when there
-    are any (round 83, A4)."""
-    problems = []
-    for estimate, discrepancy, required in _TRACK_QUANTITIES:
-        keys = [(e["condition"], e["component"]) for e in entries if e.get("quantity") == estimate]
-        gaps = [(e["condition"], e["component"]) for e in entries if e.get("quantity") == discrepancy]
-        label = "" if required else "authors'-analysis "
-        if len(set(keys)) != len(keys) or len(set(gaps)) != len(gaps):
-            problems.append(f"an {label}cell is repeated" if label else "a cell is repeated")
-        if not set(gaps) <= set(keys):
-            problems.append(f"an {label}discrepancy has no estimate" if label else "a discrepancy has no estimate")
-        if roster is None or not (required or keys):
-            continue
-        conditions, estimands = roster
-        by_condition: dict[str, set[str]] = {}
-        for condition, component in keys:
-            by_condition.setdefault(condition, set()).add(component)
-        if len(by_condition) != conditions or any(c != set(estimands) for c in by_condition.values()):
-            problems.append(f"the {label}estimates do not cover the roster exactly")
-    return problems
+class _Rosters:
+    """Each dataset's frozen roster, read once when an output of it is checked."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.read: dict[str, fr.Roster | None] = {}
+        self.problems: list[str] = []
+
+    def __call__(self, dataset: str | None) -> fr.Roster | None:
+        if dataset is None:
+            return None
+        if dataset not in self.read:
+            try:
+                self.read[dataset] = fr.roster(self.root, dataset)
+            except ValueError as exc:
+                self.read[dataset] = None
+                self.problems.append(str(exc))
+        roster: fr.Roster | None = self.read[dataset]
+        return roster
 
 
 def _fit_entries(
     path: Path,
     rel: str,
     dataset: str | None,
-    roster: dict[str, tuple[int, tuple[str, ...]]],
+    rosters: _Rosters,
     logged: list[dict[str, str | None]],
-) -> tuple[list[float], list[str], dict[str, Any] | None]:
-    """One fit output: its well-formed values, value-free problems, and the logged submission it
-    binds completely (None when it binds none)."""
+) -> tuple[list[float], list[str], dict[str, Any] | None, dict[str, Any] | None]:
+    """One fit output: its finite values (all scanned), value-free problems, the logged
+    submission it binds completely (None when it binds none), and the record read."""
     try:
         record: Any = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, ValueError):
-        return [], [f"{rel}: not a readable JSON fit-values record"], None
+        return [], [f"{rel}: not a readable JSON fit-values record"], None, None
     if not isinstance(record, dict):
-        return [], [f"{rel}: not a fit-values record (an object with {sorted(FIT_RECORD_FIELDS)})"], None
+        return [], [f"{rel}: not a fit-values record (an object with {sorted(FIT_RECORD_FIELDS)})"], None, None
     problems = []
     if set(record) - FIT_RECORD_FIELDS:
         problems.append(f"{rel}: unknown fields")
+    if FIT_RECORD_FIELDS - set(record):
+        problems.append(f"{rel}: missing fields (a record has {sorted(FIT_RECORD_FIELDS)})")
     if record.get("dataset") not in FIT_DATASETS:
         problems.append(f"{rel}: the dataset is not one of {list(FIT_DATASETS)}")
     elif record["dataset"] != dataset:
@@ -378,38 +386,38 @@ def _fit_entries(
         problems.append(f"{rel}: not bound to a submission of the first-fit log (gates.md §10) at its revision")
     entries = record.get("values")
     if not isinstance(entries, list) or not entries:
-        return [], [*problems, f"{rel}: no fit values"], None
+        return [], [*problems, f"{rel}: no fit values"], None, record
     values, good = [], []
     for i, entry in enumerate(entries):
         value = entry.get("value") if isinstance(entry, dict) else None
-        if not isinstance(entry, dict) or set(entry) != FIT_ENTRY_FIELDS:
-            problems.append(f"{rel}: entry {i} does not have exactly the fields {sorted(FIT_ENTRY_FIELDS)}")
-        elif entry["quantity"] not in FIT_QUANTITIES:
-            problems.append(f"{rel}: entry {i} has an unknown quantity")
-        elif not all(isinstance(entry[k], str) for k in ("condition", "component")):
-            problems.append(f"{rel}: entry {i} names no cell")
-        else:
+        if isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value):
+            values.append(float(value))
+        problem = fr.entry_problem(entry)
+        if problem is None:
             good.append(entry)
-        if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
-            problems.append(f"{rel}: entry {i} has no finite numeric value")
-            continue
-        values.append(float(value))
-    problems += [f"{rel}: {p}" for p in _coverage(good, roster.get(dataset or ""))]
-    return values, problems, (submission if bound and not problems else None)
+        else:
+            problems.append(f"{rel}: entry {i} {problem}")
+    frozen = rosters(dataset) if dataset == record.get("dataset") else None
+    if dataset is not None and frozen is None and dataset == record.get("dataset"):
+        problems.append(f"{rel}: the frozen roster cannot be read, so its declarations cannot be checked")
+    problems += [f"{rel}: {p}" for p in fr.check(record, good, frozen)]
+    return values, problems, (submission if bound and not problems else None), record
 
 
-def _roster(root: Path) -> tuple[dict[str, tuple[int, tuple[str, ...]]], list[str]]:
+def _submissions(text: str | None) -> list[ffl.Entry]:
+    """The submissions of a ledger's first-fit log; none for a ledger without a readable log (a
+    commit from before the log, or no commit)."""
     try:
-        datasets = json.loads((root / PREREG).read_text(encoding="utf-8"))["datasets"]
-        return {k: (int(datasets[k]["conditions"]), tuple(datasets[k]["estimands"])) for k in FIT_DATASETS}, []
-    except (OSError, ValueError, KeyError, TypeError):
-        return {}, [f"{PREREG}: the roster cannot be read"]
+        return ffl.submissions(ffl.parse(text or ""))
+    except ValueError:
+        return []
 
 
-def fit_tier(root: Path, ledger: str | None = None) -> FitTier:
+def fit_tier(root: Path, ledger: str | None = None, committed: str | None = None) -> FitTier:
     """The fit tier of the checkout at ``root``: its status, tiers and value-free problems.
     ``ledger`` is the ledger's text to judge by (the staged one, for a receipt); by default the
-    working copy's."""
+    working copy's. ``committed`` is the committed ledger's text (round 84, A1): only its
+    submissions need an output; by default those of ``ledger``."""
     problems: list[str] = []
     logged_entries: list[ffl.Entry] = []
     try:
@@ -422,34 +430,45 @@ def fit_tier(root: Path, ledger: str | None = None) -> FitTier:
     except (OSError, ValueError) as exc:
         problems.append(f"{LEDGER}: the first-fit record cannot be read ({type(exc).__name__})")
         logged = True  # unknown: require the tier
-    roster, roster_problems = _roster(root)
+    required_entries = logged_entries if committed is None else _submissions(committed)
+    rosters = _Rosters(root)
     logged_records = [_logged_record(e) for e in logged_entries]
+    required = [_logged_record(e) for e in required_entries]
     folder = root / FIT_DIR
     found = [(p, False) for p in sorted(folder.glob(f"*{FIT_SUFFIX}"))] if folder.is_dir() else []
-    kept = folder / "retained"
+    kept = folder / fr.RETAINED
     found += [(p, True) for p in sorted(kept.glob(f"*{FIT_SUFFIX}"))] if kept.is_dir() else []
     values: list[float] = []
     satisfied: list[dict[str, Any]] = []
-    for path, retained in found:
-        place = f"{FIT_DIR}/retained" if retained else FIT_DIR
-        if _SAFE_NAME.fullmatch(path.name):
-            rel = f"{place}/{path.name}"
-        else:
-            rel = f"{place}/(a file with an unexpected name)"
-        dataset = _expected_name(path.name, retained)
-        if dataset is None:
+    current: dict[str, dict[str, Any]] = {}
+    retained: dict[str, dict[int, tuple[dict[str, Any], str]]] = {}
+    for path, is_retained in found:
+        place = f"{FIT_DIR}/{fr.RETAINED}" if is_retained else FIT_DIR
+        expected = _expected_name(path.name, is_retained)
+        rel = f"{place}/{path.name}" if expected is not None else f"{place}/{UNEXPECTED_NAME}"
+        if expected is None:
             problems.append(f"{rel}: not named <dataset>{FIT_SUFFIX} (or <dataset>.<n>{FIT_SUFFIX} when retained)")
-        got, bad, bound = _fit_entries(path, rel, dataset, roster, logged_records)
+        if path.is_symlink():
+            problems.append(f"{rel}: a link, not a file")
+        dataset = expected[0] if expected is not None else None
+        got, bad, bound, record = _fit_entries(path, rel, dataset, rosters, logged_records)
         values += got
         problems += bad
         if bound is not None:
             satisfied.append(bound)
-    if found or logged:
-        problems += roster_problems
-    for n, record in enumerate(logged_records, start=1):
+        if expected is not None:
+            read = record if isinstance(record, dict) else {}
+            if is_retained:
+                retained.setdefault(expected[0], {})[expected[1]] = (read, fr.sha256(path))
+            else:
+                current[expected[0]] = read
+    for dataset in sorted(set(current) | set(retained)):
+        problems += fr.chain(root, dataset, current.get(dataset), retained.get(dataset, {}))
+    problems += rosters.problems
+    for n, record in enumerate(required, start=1):
         if record not in satisfied:
             problems.append(
-                f"the logged {record['dataset']} submission number {n} has no complete fit output under "
+                f"the committed {record['dataset']} submission number {n} has no complete fit output under "
                 f"{FIT_DIR}/: run the report workflow"
             )
     if logged and not logged_records and not found:
@@ -491,7 +510,7 @@ def check_staged(root: Path) -> list[str]:
                 problems.append(f"{LEDGER}: the staged first-fit log drops or changes a committed row")
         except ValueError:
             pass  # reported by the fit tier below
-    fit = fit_tier(root, ledger=staged if staged is not None else "")
+    fit = fit_tier(root, ledger=staged if staged is not None else "", committed=committed or "")
     hits = scan(index_blobs(root), restricted_tiers(root) + fit.tiers, ALLOWED_LINES)
     return [*problems, *fit.problems, *hits]
 
@@ -500,7 +519,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="The restricted-fit scan tier's status (value-free).")
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     ns = parser.parse_args(argv)
-    fit = fit_tier(ns.root, ledger=_git_show(ns.root, f":{LEDGER}"))  # the staged ledger, as receipted
+    # The staged ledger, as receipted; outputs are required for the committed submissions (A1).
+    fit = fit_tier(ns.root, ledger=_git_show(ns.root, f":{LEDGER}"), committed=_git_show(ns.root, f"HEAD:{LEDGER}") or "")
     print(status_line(fit))
     for problem in fit.problems:
         print(f"- {problem}")

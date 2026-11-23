@@ -65,7 +65,11 @@ review process, after a NOT READY final round the owner decides how to proceed b
 
 Every data probe and fit was synthetic. The detached worktree was removed.
 
-## Dispositions (provisional; each finding is verified before any fix, pending the owner's decision)
+## Dispositions
+
+The owner chose (2026-11-23T20:15Z) to fix all six, then run one Sol round (round 85) scoped to
+those fixes. The fixes are recorded in `docs/phase2/verification/gates.md` §6 ("round 84 fixes").
+
 
 | Finding | Disposition |
 |---|---|

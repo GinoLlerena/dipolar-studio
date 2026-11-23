@@ -391,10 +391,8 @@ def test_each_logged_submission_needs_its_own_output(tmp_path: Path) -> None:
     """A2: logging two datasets and supplying one leaves the other missing; an output of an
     unlogged dataset satisfies nothing."""
     rs = _r84()
-    ledger = _ledger(_submission(BENZENE), _submission(ODCB))
-    (tmp_path / LEDGER_REL).parent.mkdir(parents=True)
-    (tmp_path / LEDGER_REL).write_text(ledger, encoding="utf-8")
-    (tmp_path / PREREG_REL).write_bytes((ROOT / PREREG_REL).read_bytes())
+    _root(tmp_path, logged=False)  # the synthetic roster (corrected after the round 84 gate)
+    (tmp_path / LEDGER_REL).write_text(_ledger(_submission(BENZENE), _submission(ODCB)), encoding="utf-8")
     _fit_file(tmp_path, _record(ODCB, [0.7123456, -0.0312345, 0.0004567]), name=f"{ODCB}.fit-values.json")
     fit = rs.fit_tier(tmp_path)
     assert fit.status == "results" and fit.problems
@@ -472,14 +470,16 @@ def _without(quantity: str) -> dict[str, Any]:
     return record
 
 
-def _renamed(condition: str) -> dict[str, Any]:
-    """A frozen condition replaced by an invented one everywhere in the record (round 84, A2)."""
+def _renamed(condition: str, *, provenance: bool = True) -> dict[str, Any]:
+    """A frozen condition replaced by an invented one everywhere in the record, or in its
+    declarations only (round 84, A2)."""
     record = _record()
     for e in record["values"]:
         if e["condition"] == C0:
             e["condition"] = condition
-    fits = record["provenance"]["fits"]["independent"]
-    fits[condition] = fits.pop(C0)
+    if provenance:
+        fits = record["provenance"]["fits"]["independent"]
+        fits[condition] = fits.pop(C0)
     return record
 
 
@@ -515,6 +515,7 @@ MALFORMED: dict[str, Any] = {
     "a discrepancy without its estimate": _extra_entry(_declared("c98", "S_zz", "discrepancy", 0.3)),
     # Round 84, A2: the frozen roster's own keys, every cell declared on both tracks.
     "an invented condition": _renamed("9/s99"),
+    "an invented condition in the declarations only": _renamed("9/s99", provenance=False),  # mutation
     "an estimate undeclared": _without("estimate"),
     "a discrepancy undeclared": _without("discrepancy"),
     "a reproduction estimate undeclared": _without("reproduction estimate"),
@@ -522,6 +523,9 @@ MALFORMED: dict[str, Any] = {
     "a value and a reason": _entry(reason="rank-unverified"),
     "neither a value nor a reason": _entry(value=None),
     "an unknown reason": _changed(lambda r: r["values"][-1].update(reason="not wanted")),
+    "an unknown reason for a discrepancy": _changed(  # added for a surviving mutant
+        lambda r: next(e for e in r["values"] if e["reason"] == "no-target").update(reason="not wanted")
+    ),
     "a discrepancy value without an estimate value": _changed(
         lambda r: r["values"][0].update(value=None, reason="rank-unverified")
     ),
@@ -607,6 +611,21 @@ def test_no_unexpected_file_name_is_printed_by_the_scan(
     assert rs.main(["--root", str(root)]) == 1
     out = capsys.readouterr()
     assert _digits_free([out.out, out.err]) and "0.487" not in out.out + out.err
+
+
+def test_the_roster_comes_from_the_hash_verified_couplings(tmp_path: Path) -> None:
+    """Round 84 (A2; added for a surviving mutant): couplings changed after the freeze give no
+    roster, so the record's declarations cannot be checked and the record binds nothing."""
+    rs = _r84()
+    root = _root(tmp_path, logged=True)
+    path = _fit_file(root, _record())
+    assert rs.fit_tier(root).problems == []
+    prereg = json.loads((root / PREREG_REL).read_text(encoding="utf-8"))
+    couplings = root / prereg["datasets"][BENZENE]["couplings"]["path"]
+    couplings.write_text(couplings.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    fit = rs.fit_tier(root)
+    assert any(path.name in p and "roster" in p for p in fit.problems)
+    assert _digits_free(fit.problems)
 
 
 def _chain(root: Path, runs: int, dataset: str = BENZENE) -> list[Path]:

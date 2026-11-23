@@ -798,7 +798,7 @@ def test_no_fit_without_its_submission_record(tmp_path: Path, change: dict[str, 
 def test_the_report_keeps_its_submission_and_protocol(tmp_path: Path, call: Any) -> None:
     v = _v()
     syn = Synthetic(tmp_path, BENZENE)
-    sub = syn.submission()
+    sub = syn.logged()
     report = v.run_report(BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=sub, receipt=syn.receipt())
     assert report["protocol_sha256"] == syn.protocol
     assert report["submission"] == {**sub, "at": "2026-11-25T10:00Z"}
@@ -1945,7 +1945,7 @@ def test_the_figure_margin_on_the_reproduction_track(tmp_path: Path, call: Any) 
     syn = _odcb_authors(tmp_path, edges={"I/310": 0.0008 - 1e-6, "I/312": 0.0008 + 1e-6})
     g = PREREG["geometry"]
     method = _method(syn, geometry={"r_cc_angstrom": g["r_cc_angstrom"], "r_ch_angstrom": g["r_ch_angstrom"]})
-    kw = {"call": call, "prereg": syn.prereg, "root": tmp_path, "submission": syn.submission()}
+    kw = {"call": call, "prereg": syn.prereg, "root": tmp_path, "submission": syn.logged()}
     report = v.run_report(ODCB, **kw, receipt=syn.receipt(), method=method)
     cells = {(c["condition"], c["component"]): c for c in report["cells"]["reproduction"]}
     assert all(c["margin"] == pytest.approx(0.0008) for c in cells.values())
@@ -2013,7 +2013,7 @@ def test_a_printed_token_that_is_not_its_target_blocks(tmp_path: Path) -> None:
     tokens = {k: "-0.0612(4)" for k in _condition_keys(BENZENE)}
     tokens[_condition_keys(BENZENE)[3]] = "-0.0613(4)"
     syn = Synthetic(tmp_path, BENZENE, truths=truths, targets=targets, tokens=tokens)
-    kw = {"prereg": syn.prereg, "root": tmp_path, "submission": syn.submission(), "receipt": syn.receipt()}
+    kw = {"prereg": syn.prereg, "root": tmp_path, "submission": syn.logged(), "receipt": syn.receipt()}
     report = v.run_report(BENZENE, call=_never, **kw, method=_method(syn))
     assert report["status"] == "blocked" and report["problems"]
     assert not any("0.061" in p for p in report["problems"])

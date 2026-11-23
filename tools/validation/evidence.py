@@ -13,7 +13,12 @@ Two records, both kept on the owner's machine and read by ``verification.run_rep
   and SHA-256) to an existing local annex entry, and to an existing local review receipt that
   links the reviewed public entry by path, SHA-256 and heading. Each file binds the dataset,
   track, cell and protocol revision. A missing, stale, unbound, linked or misplaced file leaves
-  the failure unresolved.
+  the failure unresolved. Round 84 (A5): the annex entry holds the plan's fields (procedure 6:
+  frame and observable convention, geometry, vibrational corrections, solvent and sample
+  context, numerical comparison, and the likely cause or its limits), each a non-empty text, not
+  all one text, and not the same as another cell's. Each receipt links its own Markdown heading,
+  which the public file holds once, with a body. These checks are structural: the owner's
+  attestation remains the check of substance.
 
 Every problem is value-free: it names the cell and what is wrong, never a number or a file's
 content.
@@ -24,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -118,7 +124,16 @@ def method(record: object, *, dataset: str, protocol: str) -> tuple[Method, list
 # ------------------------------------------------------------------- review references (A5)
 KEY_FIELDS = ("dataset", "track", "condition", "component", "protocol_sha256")
 REF_FIELDS = frozenset({*KEY_FIELDS, "path", "sha256"})
-ANNEX_FIELDS = frozenset({*KEY_FIELDS, "kind", "entry"})
+#: The plan's fields of an annex entry (procedure 6), beside the key's condition and estimand.
+ANNEX_TEXT_FIELDS = (
+    "frame_and_convention",
+    "geometry",
+    "vibrational_corrections",
+    "sample_context",
+    "numerical_comparison",
+    "cause",
+)
+ANNEX_FIELDS = frozenset({*KEY_FIELDS, "kind", *ANNEX_TEXT_FIELDS})
 RECEIPT_FIELDS = frozenset({*KEY_FIELDS, "kind", "reviewer", "public_entry"})
 PUBLIC_FIELDS = frozenset({"path", "sha256", "heading"})
 
@@ -176,9 +191,34 @@ def check_annex(root: Path, ref: Mapping[str, Any]) -> str | None:
         return problem
     if set(record) != ANNEX_FIELDS or record["kind"] != "annex":
         return "is not an annex entry (fields " + ", ".join(sorted(ANNEX_FIELDS)) + ", kind 'annex')"
-    if not _text(record["entry"]):
-        return "is empty"
+    texts = [record[f] for f in ANNEX_TEXT_FIELDS]
+    if not all(_text(t) for t in texts):
+        return "has an empty field, or a field that is not text"
+    if len({t.strip() for t in texts}) == 1:
+        return "gives one text in every field"
     return None
+
+
+def _annex_texts(root: Path, ref: Mapping[str, Any]) -> tuple[str, ...] | None:
+    record, _ = _record(root, ref)
+    return None if record is None else tuple(str(record[f]).strip() for f in ANNEX_TEXT_FIELDS)
+
+
+_HEADING = re.compile(r"(#{1,6}) \S.*")
+
+
+def _section_has_body(lines: list[str], heading: str) -> bool:
+    """Whether the heading's section (up to the next heading of its level or above) holds a
+    line that is not blank and not a heading."""
+    level = len(heading) - len(heading.lstrip("#"))
+    at = lines.index(heading)
+    for line in lines[at + 1 :]:
+        m = _HEADING.fullmatch(line)
+        if m and len(m.group(1)) <= level:
+            return False
+        if line.strip() and not m:
+            return True
+    return False
 
 
 def check_receipt(root: Path, ref: Mapping[str, Any]) -> str | None:
@@ -201,9 +241,23 @@ def check_receipt(root: Path, ref: Mapping[str, Any]) -> str | None:
         lines = path.read_text(encoding="utf-8").splitlines()
     except UnicodeDecodeError:
         return "links a public file that is not text"
-    if public["heading"] not in lines:
+    heading = public["heading"]
+    if heading not in lines:
         return "links a public file without the reviewed entry's heading"
+    if not _HEADING.fullmatch(heading):
+        return "links a heading that is not a Markdown heading"
+    if lines.count(heading) != 1:
+        return "links a heading that the public file holds more than once"
+    if not _section_has_body(lines, heading):
+        return "links a heading without a body"
     return None
+
+
+def _public_heading(root: Path, ref: Mapping[str, Any]) -> tuple[str, str] | None:
+    record, _ = _record(root, ref)
+    if record is None or not isinstance(record.get("public_entry"), Mapping):
+        return None
+    return str(record["public_entry"].get("path")), str(record["public_entry"].get("heading"))
 
 
 def review_coverage(
@@ -233,8 +287,24 @@ def review_coverage(
         problems += [
             f"{name}: {k[2]} {k[3]} ({k[1]}) is stale or not a disagreement" for k in sorted(set(counts) - want)
         ]
+        passed = []
         for e in good:
             k = key(e)
             if k in want and (problem := check(root, e)):
                 problems.append(f"{name}: the evidence for {k[2]} {k[3]} ({k[1]}) {problem}")
+            elif k in want:
+                passed.append(e)
+        # Round 84 (A5): one cell's evidence does not stand in for another's.
+        shared = _annex_texts if name == "annex" else _public_heading
+        seen: dict[object, tuple[str, ...]] = {}
+        for e in passed:
+            k, what = key(e), shared(root, e)
+            if what is not None and what in seen and seen[what] != k:
+                other = seen[what]
+                problems.append(
+                    f"{name}: the evidence for {k[2]} {k[3]} ({k[1]}) is the same as for "
+                    f"{other[2]} {other[3]} ({other[1]})"
+                )
+            elif what is not None:
+                seen[what] = k
     return problems

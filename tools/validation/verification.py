@@ -21,7 +21,14 @@ apply to it as to the independent track. A disagreement in either track counts a
 through file-backed evidence (``evidence.review_coverage``, A5).
 
 The first-fit gate: ``run_report`` refuses to fit without the owner's submission record for this
-dataset at this protocol revision, made before the submission (V1.5a).
+dataset at this protocol revision, made before the submission (V1.5a). Round 84 (A1): it also
+checks, whoever calls it, that the first-fit log committed in its root authorizes that record
+(``authorization``), and raises ``Unauthorized`` before reading or fitting anything otherwise.
+
+Each complete run writes its fit values (``write_fit_values``; the format is
+``fit_record.py``'s): every roster cell of both tracks declared, each fit's provenance, and the
+run's place in a hash-bound chain with its local report, kept as
+``datasets-local/verification/reports/<dataset>.<run>.md`` (round 84, A2, A4, A6).
 
 Run by the owner, on the owner's machine (it prints only the shared output)::
 
@@ -40,10 +47,13 @@ The two optional owner-local inputs (round 83; ``evidence.py`` has the rules):
   documented}}``. An input is given exactly when it is documented.
 - ``--reviews``: ``{"annex": [ref, ...], "receipts": [ref, ...]}``. Each ref is the review key
   (dataset, track, condition, component, protocol_sha256) plus ``path`` and ``sha256`` of a file
-  under ``datasets-local/``. The annex file is the key plus ``"kind": "annex"`` and a non-empty
-  ``entry``. The receipt file is the key plus ``"kind": "review receipt"``, a ``reviewer``, and
-  ``public_entry``: the reviewed public entry's ``path`` (outside ``datasets-local/``),
-  ``sha256`` and ``heading`` (a whole line of that file).
+  under ``datasets-local/``. The annex file is the key plus ``"kind": "annex"`` and the plan's
+  fields (round 84, A5): ``frame_and_convention``, ``geometry``, ``vibrational_corrections``,
+  ``sample_context``, ``numerical_comparison`` and ``cause``, each a non-empty text, not all one
+  text and not another cell's. The receipt file is the key plus ``"kind": "review receipt"``, a
+  ``reviewer``, and ``public_entry``: the reviewed public entry's ``path`` (outside
+  ``datasets-local/``), ``sha256`` and ``heading``: a Markdown heading that the file holds once,
+  with a body, linked by no other receipt.
 """
 
 from __future__ import annotations
@@ -68,6 +78,7 @@ from typing import Any
 
 import evidence as ev
 import first_fit_log as ffl
+import fit_record as fr
 import numpy as np
 import prereg as pr
 import prereg_labels as pl
@@ -436,6 +447,24 @@ def committed_ledger(root: Path) -> str | None:
     """The ledger as committed at ``HEAD`` (what the owner logged and committed), or None."""
     shown = subprocess.run(["git", "show", f"HEAD:{ffl.LEDGER}"], cwd=root, capture_output=True)
     return shown.stdout.decode("utf-8") if shown.returncode == 0 else None
+
+
+class Unauthorized(PermissionError):
+    """The runner refuses to fit (round 84, A1): the submission is not authorized by the
+    first-fit log committed in the runner's root. ``reasons`` are value-free."""
+
+    def __init__(self, reasons: Sequence[str]) -> None:
+        self.reasons = list(reasons)
+        super().__init__("Not authorized to fit (docs/phase2/verification/gates.md §10): " + "; ".join(self.reasons))
+
+
+def authorization(submission: object, root: Path) -> list[str]:
+    """Why the runner may not fit ``submission`` in ``root``: judged by the first-fit log as
+    committed there, at the runner's clock. Empty when it may."""
+    ledger = committed_ledger(root)
+    if ledger is None:
+        return ["the ledger is not committed in this checkout"]
+    return authorize(submission, ledger, now=_now())
 
 
 TRACKS = ("independent", "reproduction")
@@ -998,13 +1027,18 @@ def run_report(
 ) -> dict[str, Any]:
     """The local report of one dataset. Absent inputs: ``local evidence unavailable``; changed or
     malformed inputs, a malformed method record, or a protocol that fails its closed schema or
-    ``prereg.validate``: ``blocked``; neither fits anything nor makes a label. The command (``main``) runs it only for
-    a submission that ``authorize`` accepts against the committed first-fit log (round 83, A1);
-    any other caller is responsible for the same check."""
+    ``prereg.validate``: ``blocked``; neither fits anything nor makes a label.
+
+    Round 84 (A1): whoever calls it, it first checks the submission against the first-fit log
+    committed in ``root`` (``authorization``), and raises ``Unauthorized`` before it reads or
+    fits anything when that log does not authorize it."""
     p = dict(prereg)
     protocol = _protocol(p)
     base: dict[str, Any] = {"dataset": dataset, "protocol_sha256": protocol}
     base["submission"] = _check_submission(submission, dataset, protocol)
+    refused = authorization(submission, root)
+    if refused:
+        raise Unauthorized(refused)
     invalid = check_protocol(p)  # round 83 (A6): before anything is read or fitted
     if invalid:
         return {**base, "status": BLOCKED, "problems": invalid}
@@ -1210,8 +1244,14 @@ def _md(x: object) -> str:
 
 
 def write_local(report: Mapping[str, Any], path: Path, *, root: Path) -> Path:
-    """The local detail as Markdown, under ``datasets-local/`` only (never tracked, never shared)."""
+    """The local detail as Markdown, under ``datasets-local/`` only (never tracked, never shared).
+    Each complete run's copy is also kept beside its fit values (``write_fit_values``)."""
     _local_path(path, root)
+    return _write_local_text(path, root, local_text(report))
+
+
+def local_text(report: Mapping[str, Any]) -> str:
+    """The local detail as Markdown text."""
     lines = [
         f"# Verification report (local): {report['dataset']}",
         "",
@@ -1263,7 +1303,7 @@ def write_local(report: Mapping[str, Any], path: Path, *, root: Path) -> Path:
             lines += ["", "## Conditions of the authors' analysis (not part of any label)", ""]
             for condition, c in report["reproduction_conditions"].items():
                 lines.append(f"- {condition}: " + json.dumps(c, sort_keys=True, default=str))
-    return _write_local_text(path, root, "\n".join(lines) + "\n")
+    return "\n".join(lines) + "\n"
 
 
 #: The restricted-fit scan tier's source (tools/datasets/restricted_scan.py, FIT_DIR and FIT_SUFFIX).
@@ -1271,65 +1311,84 @@ FIT_DIR = "datasets-local/verification"
 FIT_SUFFIX = ".fit-values.json"
 
 
+def _declared(cell: Mapping[str, Any], quantity: str, value: float | None) -> dict[str, Any]:
+    """One roster cell's declaration (round 84, A2): its value, or the cell's pending reason."""
+    if value is None and not cell["reason"]:
+        raise ValueError("a cell has neither a value nor a pending reason")
+    return {
+        "condition": cell["condition"],
+        "component": cell["component"],
+        "quantity": quantity,
+        "value": None if value is None else float(value),
+        "reason": None if value is not None else cell["reason"],
+    }
+
+
 def fit_values(report: Mapping[str, Any]) -> dict[str, Any]:
-    """The full-precision fit values of a complete report, for the restricted-fit scan tier: every
-    fitted condition's paper-frame estimates and every compared cell's discrepancy. Local only."""
+    """The full-precision fit values of a complete report, for the restricted-fit scan tier.
+    Round 84 (A2, A4): every roster cell of both tracks declares its estimate and its
+    discrepancy, each a value or the cell's pending reason (``rank-unverified`` for an unverified
+    rank, ``inputs-undocumented`` for a pending authors' analysis). A6: with the versions, the
+    flags, the method and each fit's provenance. Local only."""
     if report.get("status") != COMPLETE:
         raise ValueError(f"no fit values for a report that is {report.get('status')!r}")
-    values = [
-        {"condition": condition, "component": component, "quantity": "estimate", "value": float(x)}
-        for condition, f in report["conditions"].items()
-        for component, x in f["estimates"].items()
-        if x is not None
-    ]
-    values += [
-        {"condition": c["condition"], "component": c["component"], "quantity": "discrepancy", "value": float(d)}
-        for c in report["cells"]["independent"]
-        if (d := c["discrepancy"]) is not None
-    ]
-    # Round 83 (A4): the authors'-analysis fits and discrepancies are scanned too.
-    values += [
-        {"condition": condition, "component": component, "quantity": "reproduction estimate", "value": float(x)}
-        for condition, f in report.get("reproduction_conditions", {}).items()
-        for component, x in f["estimates"].items()
-        if x is not None
-    ]
-    values += [
-        {
-            "condition": c["condition"],
-            "component": c["component"],
-            "quantity": "reproduction discrepancy",
-            "value": float(d),
-        }
-        for c in report["cells"].get("reproduction", [])
-        if (d := c.get("discrepancy")) is not None
-    ]
+    values = []
+    for track, (estimate, discrepancy) in fr.TRACKS.items():
+        for cell in report["cells"][track]:
+            values.append(_declared(cell, estimate, cell["fit"]))
+            values.append(_declared(cell, discrepancy, cell["discrepancy"]))
+    provenance = {
+        "versions": report["provenance"]["versions"],
+        "flags": report["provenance"]["flags"],
+        "method": report["reproduction"],
+        "fits": {
+            "independent": {c: f["provenance"] for c, f in report["conditions"].items()},
+            "reproduction": {c: f["provenance"] for c, f in report["reproduction_conditions"].items()},
+        },
+    }
     return {
         "dataset": report["dataset"],
         "protocol_sha256": report["protocol_sha256"],
         "submission": dict(report["submission"]),
+        "provenance": json.loads(json.dumps(provenance, allow_nan=False, default=str)),
         "values": values,
     }
 
 
 def write_fit_values(report: Mapping[str, Any], *, root: Path) -> Path:
-    """``datasets-local/verification/<dataset>.fit-values.json`` (never tracked, never shared)."""
+    """``datasets-local/verification/<dataset>.fit-values.json`` (never tracked, never shared).
+
+    Round 84 (A6): each run is kept. A rerun first keeps the record it replaces, unchanged, as
+    ``retained/<dataset>.<n>.fit-values.json``; every record names its run number, the SHA-256 of
+    the record it replaced, and the SHA-256 of its run's local report, written to
+    ``reports/<dataset>.<run>.md`` and never overwritten. The scan checks the whole chain."""
+    if report.get("status") != COMPLETE:
+        raise ValueError(f"no fit values for a report that is {report.get('status')!r}")
+    dataset = str(report["dataset"])
+    current = Path(FIT_DIR) / f"{dataset}{FIT_SUFFIX}"
+    kept, reports = Path(FIT_DIR) / fr.RETAINED, Path(FIT_DIR) / fr.REPORTS
+    target = _local_path(current, root)
+    folder = _local_path(kept / "x", root).parent
+    _local_path(reports / "x", root)  # every destination is checked before anything is written
     record = fit_values(report)
-    path = Path(FIT_DIR) / f"{record['dataset']}{FIT_SUFFIX}"
-    target = _local_path(path, root)
-    if target.is_file() and not target.is_symlink():
-        # Round 83 (A2): a rerun keeps the earlier output, as retained/<dataset>.<n>.fit-values.json.
-        kept = Path(FIT_DIR) / "retained"
-        folder = _local_path(kept / "x", root).parent
-        taken = [
-            int(m.group(1)) for p in (folder.glob("*") if folder.is_dir() else []) if (m := _retained(p.name, record))
-        ]
-        _write_local_text(
-            kept / f"{record['dataset']}.{max(taken, default=0) + 1}{FIT_SUFFIX}",
-            root,
-            target.read_text(encoding="utf-8"),
-        )
-    return _write_local_text(path, root, json.dumps(record, indent=1, allow_nan=False) + "\n")
+    taken = [int(m.group(1)) for p in (folder.glob("*") if folder.is_dir() else []) if (m := _retained(p.name, record))]
+    n = max(taken, default=0)
+    replaced = target.is_file() and not target.is_symlink()
+    run = n + 2 if replaced else n + 1
+    report_path = reports / f"{dataset}.{run}.md"
+    if (root / report_path).exists() or (root / report_path).is_symlink():
+        raise ValueError("an earlier run's local report would be overwritten: the retained outputs are incomplete")
+    previous = None
+    if replaced:
+        old = target.read_bytes()
+        _write_local_text(kept / f"{dataset}.{n + 1}{FIT_SUFFIX}", root, old.decode("utf-8"))
+        previous = hashlib.sha256(old).hexdigest()
+    elif n:
+        previous = fr.sha256(folder / f"{dataset}.{n}{FIT_SUFFIX}")
+    text = local_text(report)
+    _write_local_text(report_path, root, text)
+    record.update(run=run, previous_sha256=previous, report_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest())
+    return _write_local_text(current, root, json.dumps(record, indent=1, allow_nan=False) + "\n")
 
 
 def _retained(name: str, record: Mapping[str, Any]) -> re.Match[str] | None:
@@ -1358,25 +1417,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     submission = _load_json(ns.submission)
     if isinstance(submission, dict) and isinstance(submission.get("at"), str):
         submission["at"] = datetime.fromisoformat(submission["at"].replace("Z", "+00:00"))
-    # Round 83 (A1): fit only a submission the owner logged and committed after the freeze.
-    ledger = committed_ledger(root)
-    refused = ["the ledger is not committed in this checkout"] if ledger is None else []
-    refused = refused or authorize(submission, ledger or "", now=_now())
-    if refused:
+    # Round 83 (A1): fit only a submission the owner logged and committed after the freeze;
+    # round 84: ``run_report`` checks it itself.
+    try:
+        report = run_report(
+            ns.dataset,
+            call=local_call(),
+            prereg=pr.load(),
+            root=root,
+            submission=submission,
+            receipt=_load_json(ns.receipt),
+            reviews=_load_json(ns.reviews),
+            method=_load_json(ns.method),
+        )
+    except Unauthorized as refused:
         print("Not authorized to fit (docs/phase2/verification/gates.md §10):", file=sys.stderr)
-        for reason in refused:
+        for reason in refused.reasons:
             print(f"- {reason}", file=sys.stderr)
         return 2
-    report = run_report(
-        ns.dataset,
-        call=local_call(),
-        prereg=pr.load(),
-        root=root,
-        submission=submission,
-        receipt=_load_json(ns.receipt),
-        reviews=_load_json(ns.reviews),
-        method=_load_json(ns.method),
-    )
     write_local(report, out, root=root)
     if report["status"] == COMPLETE:
         write_fit_values(report, root=root)  # the restricted-fit scan tier's source

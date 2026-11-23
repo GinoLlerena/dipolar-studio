@@ -87,7 +87,11 @@ synthetic datasets) is fitted, by the owner, by every agent and by any participa
   `datasets-local/` (`verification.py --method`, round 83, A4), naming where the source documents
   each input. Without it the authors'-analysis track stays pending.
 - For each disagreeing cell, write its annex entry and review receipt under `datasets-local/` and
-  pass their references with `--reviews` (round 83, A5).
+  pass their references with `--reviews` (round 83, A5). Round 84: the annex entry has the plan's
+  six fields, and each receipt links its own public heading, which has a body.
+- Keep every file under `datasets-local/verification/`, including `retained/` and `reports/`.
+  The scan checks the whole chain of runs, so deleting a run's record or report fails it
+  (round 84, A6).
 
 ## 5. Frozen gates
 
@@ -132,6 +136,7 @@ restricted-fit scan tier.
 | 2026-11-23T19:27Z | `9cfb4bdda7e45398ae2f3becc2c9bbe615020707` (commit `45f54a8`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-23T20:03Z | `3caa4572f249c978e7fc0dcf2dda65feedb58f4f` (commit `e74081d`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-23T20:12Z | `9e47637cf8d4f598b2556ae4f7350f38a1c438b1` (commit `35c0f9f`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-23T22:24Z | `41319233761248908f7c133c7377f2889bc609a7` (commit `46a1f2c`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -329,6 +334,49 @@ row is appended here in the next commit.
   tests), to the new annex format (every test that uses `_evidence`), and to the A1 timing (two
   staged-check tests). These now xfail on the round 84 marker.
   No case that the gate rejected before is removed.
+
+- **2026-11-23, round 84 fixes (A1–A6).** The new module `tools/validation/fit_record.py` holds the
+  fit-values record's format and checks. Both the writer (`verification.py`) and the scan use it.
+  - **A1.** `run_report` checks the submission itself, against the first-fit log committed in its
+    root, at the runner's clock (`authorization`). It raises `Unauthorized` (a `PermissionError`)
+    before reading or fitting anything. The command now relies on that check. The scan requires
+    an output only for each submission in the committed (`HEAD`) log, and still accepts outputs
+    bound to a staged submission.
+  - **A2, A4.** The record declares every roster cell of both tracks: its estimate and its
+    discrepancy, each a value or the cell's pending reason. The roster is the condition set of
+    the couplings file, read only when its SHA-256 matches the preregistration copy. A
+    rank-pending cell is declared `rank-unverified`, and a pending authors' analysis
+    `inputs-undocumented` throughout.
+  - **A3.** A file name the scan does not expect is shown as `(a file with an unexpected name)`,
+    whatever its characters.
+  - **A5.**
+    - The annex entry holds the plan's six fields. Each is a non-empty text, not all one text,
+      and not another cell's.
+    - Each receipt links a Markdown heading that the public file holds once, with a body, and
+      that no other receipt links.
+    - These checks are structural: the owner's attestation remains the check of substance.
+  - **A6.** The record carries the versions, the flags, the method and each condition's fit
+    provenance on both tracks. A rerun keeps the record it replaces, unchanged, under
+    `retained/`. Each record names:
+    - its run number;
+    - the SHA-256 of the record it replaced;
+    - the SHA-256 of its run's local report, kept as `reports/<dataset>.<run>.md` and never
+      overwritten.
+
+    The scan checks the whole chain: numbering, run numbers, predecessor hashes, and each
+    report's presence and hash.
+
+  Gate corrections after the gate commit:
+  - Four tests built their submission or root without the round 84 setup. Three fitted an
+    unlogged submission, and they now use `Synthetic.logged`. One built a root without the
+    synthetic roster, and it now uses `_root`.
+  - Mutation testing caught 25 of 28 mutants. The three survivors were each masked by another
+    check, so three cases were added, one for each check on its own:
+    - an invented condition in the declarations only;
+    - an unknown reason on an independent discrepancy;
+    - couplings changed after the freeze.
+
+    All 28 mutants are then caught.
 
 ## 7. Exit matrix
 
