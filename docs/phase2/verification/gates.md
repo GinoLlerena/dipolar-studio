@@ -118,6 +118,7 @@ restricted-fit scan tier.
 | 2026-11-22T22:33Z | `056b50b005c3c51025562a0f2e220781d154bb69` (commit `1654d64`) | passed, not skipped | Claude |
 | 2026-11-23T14:11Z | `e2e08c4417bee3dc4b13a6bf820196aaaefccb0a` (commit `13f41cb`) | passed, not skipped | Claude |
 | 2026-11-23T14:32Z | `da39310621d06ad536cad92fea31b0bdd2acb195` (commit `b413038`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-23T14:44Z | `51a4b9b4c2188839586ec248106bd8a01312fe69` (commit `1ad0fd4`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -178,6 +179,19 @@ row is appended here in the next commit.
   §3 first-fit row is filled the status is `pre-result`. After the owner logs the first fit, the
   report workflow's `datasets-local/verification/<dataset>.fit-values.json` must exist before any
   scan can pass.
+
+- **2026-11-23, round 83 gates frozen (A1–A3, A6, B1), before the fixes.** New:
+  `tests/test_v15_first_fit_log.py` (the §10 first-fit log, the runner's authorization, the
+  command's refusal without a committed, logged submission) and round 83 regressions at the end
+  of `tests/test_v15_verification.py` (linked local paths, protocol validation before any fit,
+  provenance). Amended in `tests/test_v15_fit_tier.py`: a fit is logged in §10, not by the §3
+  row; the staged check reads the staged ledger and refuses a log that drops a committed row;
+  each logged submission needs its own output, bound to it, covering the roster exactly and
+  retained across reruns; diagnostics never repeat a key or file name; every receipt row is well
+  formed and the first one under the tier is pinned. The amendment strengthens the frozen gate.
+  It removes no case that the gate rejected before. §10 is new and append-only. Its first four
+  rows transcribe earlier entries. The owner adds the `freeze approved` row. Until then the
+  runner authorizes no fit.
 
 ## 7. Exit matrix
 
@@ -285,3 +299,27 @@ geometry 1e-4 Å off. It runs in CI on Linux and Windows and on the owner's macO
   Round 82 was the final review round (NOT READY). Its findings were fixed with gates frozen
   first, without a further review, and the owner decided to merge PR #27 once CI was green
   (all six checks passed at `1382313`; merge `76b4848`).
+
+## 10. First-fit log
+
+Round 83 (A1). This table is the machine-read chronology of the first-fit gate. It is
+append-only: a row is never edited or removed, and every later commit's log must extend the
+committed one. Rows are in time order (UTC, to the minute). The runner fits only a submission
+logged here by its exact fields, after a `freeze approved` row, and only for the owner or a
+participant. The restricted-fit scan tier is required from the first `submission` row on. The
+§3 rows stay as written. Their first-fit field stays `empty`: a submission is recorded here.
+
+Events: `decisions approved`, `decision changed`, `amendments approved`, `no-fit attestation`,
+`freeze approved` (the owner's, once), `submission` (dataset, runner role, release or commit,
+protocol revision) and `first access` (the first access to any V1 experimental result, once,
+after a submission). The cells an event does not use hold `—`.
+
+| UTC | Event | Dataset | Runner | Release or commit | Protocol revision |
+|---|---|---|---|---|---|
+| 2026-11-21T14:59Z | decisions approved | — | — | — | — |
+| 2026-11-21T15:32Z | amendments approved | — | — | — | — |
+| 2026-11-21T15:33Z | decision changed | — | — | — | — |
+| 2026-11-22T14:11Z | no-fit attestation | — | — | — | — |
+
+The first four rows transcribe §1, §3 and the §6 entries of those times: the decisions, P-1 and
+P-2, decision 11's change from A to B, and the owner's signed attestation.

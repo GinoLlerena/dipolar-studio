@@ -25,9 +25,16 @@ What is frozen here:
 
 All values here are synthetic: no experimental coupling is fitted (the V1.5a first-fit gate).
 
+**Amended in round 83** (A1–A3, B1), before the fixes: a fit is logged in the ledger's
+first-fit log (§10), not the §3 row; the staged check reads the staged ledger and refuses a log
+that drops a committed row; each logged submission needs its own retained output, bound to it and
+covering the roster exactly; diagnostics never repeat a key or file name; every scan receipt row
+is well formed, and the first one under the tier is pinned.
+
 **Pending implementation.** While ``restricted_scan`` has no ``fit_tier`` (or ``verification``
 no ``write_fit_values``), these tests xfail through ``_rs()`` and ``_v()`` alone; once those
-names exist, any exception fails.
+names exist, any exception fails. The round 83 amendments xfail through ``_r83()`` while
+``tools/validation/first_fit_log.py`` is absent.
 """
 
 from __future__ import annotations
@@ -148,49 +155,111 @@ def test_zero_and_whole_values_do_not_flag_everything() -> None:
 
 
 # ============================================================= when the tier is required
-def test_the_real_ledger_has_no_logged_fit_yet() -> None:
+LOG_PY = ROOT / "tools" / "validation" / "first_fit_log.py"
+PREREG_REL = Path("docs/phase2/v0.3-preregistration.json")
+PROTOCOL = "263f26857da15df184c7e662325e39036c307a02bc0042c610d6b8d4dab700b9"
+LAST_LOG_ROW = "| 2026-11-22T14:11Z | no-fit attestation | — | — | — | — |"
+FREEZE_ROW = "| 2026-11-24T09:00Z | freeze approved | — | — | — | — |"
+AT = "2026-11-25T10:00Z"
+
+
+def _r83() -> Any:
+    """Round 83 (A1–A3): the scanner and its gate as amended. An xfail while (and only while) the
+    first-fit log's module is not written."""
     rs = _rs()
+    if not LOG_PY.is_file():
+        pytest.xfail("round 83: tools/validation/first_fit_log.py is not written yet")
+    return rs
+
+
+def _submission(dataset: str = BENZENE, protocol: str = PROTOCOL) -> dict[str, str]:
+    return {
+        "dataset": dataset,
+        "runner": "owner",
+        "at": AT,
+        "release_or_commit": "v0.2.0b1",
+        "protocol_sha256": protocol,
+    }
+
+
+def _log_row(s: dict[str, str]) -> str:
+    cells = [s["at"], "submission", s["dataset"], s["runner"], s["release_or_commit"], s["protocol_sha256"]]
+    return "| " + " | ".join(cells) + " |"
+
+
+def _ledger(*submissions: dict[str, str]) -> str:
+    text = LEDGER.read_text(encoding="utf-8")
+    if not submissions:
+        return text
+    return text.replace(LAST_LOG_ROW, "\n".join([LAST_LOG_ROW, FREEZE_ROW, *(_log_row(s) for s in submissions)]))
+
+
+def test_the_real_ledger_has_no_logged_fit_yet() -> None:
+    rs = _r83()
     text = LEDGER.read_text(encoding="utf-8")
     assert FIRST_FIT_ROW in text.splitlines()
     assert rs.first_fit_logged(text) is False
+    assert rs.first_fit_logged(_ledger(_submission())) is True
+    # The §3 row is no longer how a fit is logged, but a filled one still counts as logged.
     assert rs.first_fit_logged(text.replace(FIRST_FIT_ROW, LOGGED_ROW)) is True
 
 
-@pytest.mark.parametrize("change", ["the row missing", "the row twice", "the value blank"])
-def test_an_unreadable_first_fit_row_is_refused(change: str) -> None:
-    rs = _rs()
+@pytest.mark.parametrize("change", ["the row missing", "the row twice", "the value blank", "the log malformed"])
+def test_an_unreadable_first_fit_record_is_refused(change: str) -> None:
+    rs = _r83()
     text = LEDGER.read_text(encoding="utf-8")
     if change == "the row missing":
         text = text.replace(FIRST_FIT_ROW + "\n", "")
     elif change == "the row twice":
         text = text.replace(FIRST_FIT_ROW, FIRST_FIT_ROW + "\n" + LOGGED_ROW)
-    else:
+    elif change == "the value blank":
         text = text.replace(FIRST_FIT_ROW, FIRST_FIT_ROW.replace("| empty |", "|  |"))
+    else:
+        text = text.replace(LAST_LOG_ROW, LAST_LOG_ROW + "\n| 2026-11-01T00:00Z | freeze approved | — | — | — | — |")
     with pytest.raises(ValueError):
         rs.first_fit_logged(text)
 
 
-def _root(tmp_path: Path, *, logged: bool) -> Path:
-    ledger = LEDGER.read_text(encoding="utf-8")
-    if logged:
-        ledger = ledger.replace(FIRST_FIT_ROW, LOGGED_ROW)
+def _root(tmp_path: Path, *, logged: bool, protocol: str = PROTOCOL) -> Path:
+    ledger = _ledger(_submission(protocol=protocol)) if logged else _ledger()
     (tmp_path / LEDGER_REL).parent.mkdir(parents=True, exist_ok=True)
     (tmp_path / LEDGER_REL).write_text(ledger, encoding="utf-8")
+    (tmp_path / PREREG_REL).write_bytes((ROOT / PREREG_REL).read_bytes())
     return tmp_path
 
 
 VALUES = [-0.48736829, 0.0612349871, 0.00123456]
 
 
-def _record(dataset: str = BENZENE, values: list[float] = VALUES) -> dict[str, Any]:
+def _conditions(dataset: str) -> int:
+    return int(json.loads((ROOT / PREREG_REL).read_text(encoding="utf-8"))["datasets"][dataset]["conditions"])
+
+
+def _estimands(dataset: str) -> list[str]:
+    return list(json.loads((ROOT / PREREG_REL).read_text(encoding="utf-8"))["datasets"][dataset]["estimands"])
+
+
+def _record(dataset: str = BENZENE, values: list[float] = VALUES, protocol: str = PROTOCOL) -> dict[str, Any]:
+    """A complete record bound to the logged submission: one estimate for every roster cell (the
+    given values first, then fillers) and one discrepancy, the last given value."""
+    *estimates, discrepancy = values
+    cells = [(f"c{i:02d}", e) for i in range(_conditions(dataset)) for e in _estimands(dataset)]
+    fill = [0.2 + 0.0731 * k for k in range(len(cells))]
+    entries = [
+        {"condition": c, "component": e, "quantity": "estimate", "value": (estimates + fill[len(estimates) :])[k]}
+        for k, (c, e) in enumerate(cells)
+    ]
+    entries.append({**entries[0], "quantity": "discrepancy", "value": discrepancy})
     return {
         "dataset": dataset,
-        "protocol_sha256": "ab" * 32,
-        "values": [
-            {"condition": f"9/s{i + 1:02d}", "component": "S_zz", "quantity": q, "value": x}
-            for i, (x, q) in enumerate(zip(values, ("estimate", "estimate", "discrepancy"), strict=True))
-        ],
+        "protocol_sha256": protocol,
+        "submission": _submission(dataset, protocol),
+        "values": entries,
     }
+
+
+def _count(dataset: str) -> int:
+    return _conditions(dataset) * len(_estimands(dataset)) + 1
 
 
 def _fit_file(root: Path, record: Any, name: str = f"{BENZENE}.fit-values.json", raw: str | None = None) -> Path:
@@ -207,7 +276,7 @@ def _digits_free(texts: list[str], values: list[float] = VALUES) -> bool:
 
 
 def test_before_any_result_the_status_is_pre_result(tmp_path: Path) -> None:
-    rs = _rs()
+    rs = _r83()
     fit = rs.fit_tier(_root(tmp_path, logged=False))
     assert (fit.status, fit.tiers, fit.problems, fit.files, fit.values) == ("pre-result", [], [], 0, 0)
     assert rs.status_line(fit).startswith("fit tier: pre-result")
@@ -218,87 +287,174 @@ def test_before_any_result_the_status_is_pre_result(tmp_path: Path) -> None:
 
 
 def test_after_a_logged_fit_the_local_outputs_are_scanned(tmp_path: Path) -> None:
-    rs = _rs()
+    rs = _r83()
     root = _root(tmp_path, logged=True)
     _fit_file(root, _record())
     fit = rs.fit_tier(root)
-    assert (fit.status, fit.problems, fit.files, fit.values) == ("results", [], 1, 3)
+    assert (fit.status, fit.problems, fit.files, fit.values) == ("results", [], 1, _count(BENZENE))
     line = rs.status_line(fit)
     assert line.startswith("fit tier: results") and _digits_free([line])
     assert rs.scan([("notes.md", b"S = 0.4874\n")], fit.tiers, frozenset()) == ["notes.md:1"]
     assert rs.scan([("notes.md", b"d = 0.001235\n")], fit.tiers, frozenset()) == ["notes.md:1"]
-    # Both datasets' files are read.
-    _fit_file(root, _record(ODCB, [0.7123456, -0.0312345, 0.0004567]), name=f"{ODCB}.fit-values.json")
-    both = rs.fit_tier(root)
-    assert (both.files, both.values, both.problems) == (2, 6, [])
+
+
+def test_each_logged_submission_needs_its_own_output(tmp_path: Path) -> None:
+    """A2: logging two datasets and supplying one leaves the other missing; an output of an
+    unlogged dataset satisfies nothing."""
+    rs = _r83()
+    ledger = _ledger(_submission(BENZENE), _submission(ODCB))
+    (tmp_path / LEDGER_REL).parent.mkdir(parents=True)
+    (tmp_path / LEDGER_REL).write_text(ledger, encoding="utf-8")
+    (tmp_path / PREREG_REL).write_bytes((ROOT / PREREG_REL).read_bytes())
+    _fit_file(tmp_path, _record(ODCB, [0.7123456, -0.0312345, 0.0004567]), name=f"{ODCB}.fit-values.json")
+    fit = rs.fit_tier(tmp_path)
+    assert fit.status == "results" and fit.problems
+    assert _digits_free(fit.problems)
+    _fit_file(tmp_path, _record())
+    both = rs.fit_tier(tmp_path)
+    assert (both.problems, both.files, both.values) == ([], 2, _count(BENZENE) + _count(ODCB))
     assert rs.scan([("notes.md", b"0.71235\n")], both.tiers, frozenset()) == ["notes.md:1"]
+    (tmp_path / "datasets-local" / "verification" / f"{BENZENE}.fit-values.json").unlink()
+    assert rs.fit_tier(tmp_path).problems  # deleting one dataset's output fails the check
 
 
 def test_a_logged_fit_without_local_outputs_is_a_problem(tmp_path: Path) -> None:
-    rs = _rs()
+    rs = _r83()
     fit = rs.fit_tier(_root(tmp_path, logged=True))
     assert fit.status == "results" and fit.problems
     assert any("datasets-local/verification" in p for p in fit.problems)
 
 
+def test_a_filled_section_3_row_without_a_logged_submission_is_a_problem(tmp_path: Path) -> None:
+    rs = _r83()
+    root = _root(tmp_path, logged=False)
+    (root / LEDGER_REL).write_text(_ledger().replace(FIRST_FIT_ROW, LOGGED_ROW), encoding="utf-8")
+    fit = rs.fit_tier(root)
+    assert fit.status == "results" and fit.problems
+
+
 def test_local_outputs_without_a_logged_fit_are_a_first_fit_gate_problem(tmp_path: Path) -> None:
-    rs = _rs()
+    rs = _r83()
     root = _root(tmp_path, logged=False)
     _fit_file(root, _record())
     fit = rs.fit_tier(root)
-    assert fit.problems and any("§3" in p for p in fit.problems)
+    assert fit.problems and any("first-fit log" in p for p in fit.problems)
     assert fit.tiers  # the values are still scanned
     assert _digits_free(fit.problems)
 
 
 def test_a_missing_ledger_is_a_problem(tmp_path: Path) -> None:
-    rs = _rs()
+    rs = _r83()
     fit = rs.fit_tier(tmp_path)
+    assert fit.status == "results"  # unknown: required
     assert fit.problems and any("gates.md" in p for p in fit.problems)
+
+
+def _entry(**changes: Any) -> dict[str, Any]:
+    record = _record()
+    record["values"][0].update(changes)
+    return record
+
+
+def _without_cell() -> dict[str, Any]:
+    record = _record()
+    del record["values"][1]
+    return record
+
+
+def _with(**changes: Any) -> dict[str, Any]:
+    return {**_record(), **changes}
+
+
+def _extra_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    record = _record()
+    record["values"].append(entry)
+    return record
 
 
 MALFORMED: dict[str, Any] = {
     "not JSON": "{0.4873683",
     "a list": [0.48736829],
-    "no values": {"dataset": BENZENE, "protocol_sha256": "ab" * 32},
-    "no entries": {**_record(), "values": []},
-    "an entry without its value": {**_record(), "values": [{"condition": "9/s01", "component": "S_zz"}]},
-    "a value as text": {**_record(), "values": [{**_record()["values"][0], "value": "0.48736829"}]},
-    "a non-finite value": {**_record(), "values": [{**_record()["values"][0], "value": math.nan}]},
-    "a boolean value": {**_record(), "values": [{**_record()["values"][0], "value": True}]},
-    "an unknown quantity": {**_record(), "values": [{**_record()["values"][0], "quantity": "guess"}]},
-    "an unknown dataset": {**_record(), "dataset": "tfb"},
+    "no values": {k: v for k, v in _record().items() if k != "values"},
+    "no entries": _with(values=[]),
+    "an entry without its value": _with(values=[{"condition": "c00", "component": "S_zz", "quantity": "estimate"}]),
+    "a value as text": _entry(value="0.48736829"),
+    "a non-finite value": _entry(value=math.nan),
+    "a boolean value": _entry(value=True),
+    "an unknown quantity": _entry(quantity="guess"),
+    "an unknown dataset": _with(dataset="tfb"),
     "another dataset's file": _record(ODCB),
-    "an unknown field": {**_record(), "note": "0.48736829"},
+    "an unknown field": _with(note="0.48736829"),
+    "an unknown field named by a value": _with(**{"0.48736829": 1}),
+    # Round 83, A2: bound to the logged submission, with exact coverage.
+    "no submission": {k: v for k, v in _record().items() if k != "submission"},
+    "an unlogged submission": _with(submission={**_submission(), "at": "2026-11-25T11:00Z"}),
+    "a blank protocol revision": _with(protocol_sha256=""),
+    "another protocol revision": _record(protocol="0" * 64),
+    "a missing cell": _without_cell(),
+    "a repeated cell": _extra_entry({**_record()["values"][1]}),
+    "an extra condition": _extra_entry({"condition": "c99", "component": "S_zz", "quantity": "estimate", "value": 0.3}),
+    "an unknown component": _extra_entry(
+        {"condition": "c00", "component": "S_xy", "quantity": "estimate", "value": 0.3}
+    ),
+    "a discrepancy without its estimate": _extra_entry(
+        {"condition": "c98", "component": "S_zz", "quantity": "discrepancy", "value": 0.3}
+    ),
 }
 
 
 @pytest.mark.parametrize("name", list(MALFORMED))
 def test_a_malformed_fit_output_is_a_value_free_problem(tmp_path: Path, name: str) -> None:
-    rs = _rs()
+    rs = _r83()
     root = _root(tmp_path, logged=True)
     bad = MALFORMED[name]
     path = _fit_file(root, bad, raw=bad if isinstance(bad, str) else None)
     fit = rs.fit_tier(root)
     assert fit.problems, name
-    assert all(path.name in p for p in fit.problems), fit.problems
+    assert any(path.name in p for p in fit.problems), fit.problems
     assert _digits_free([*fit.problems, rs.status_line(fit)]), fit.problems
 
 
 def test_the_well_formed_entries_of_a_damaged_file_are_still_scanned(tmp_path: Path) -> None:
-    rs = _rs()
+    rs = _r83()
     root = _root(tmp_path, logged=True)
-    record = _record()
-    record["values"].append({"condition": "9/s09", "component": "S_zz", "quantity": "estimate", "value": "x"})
-    _fit_file(root, record)
+    _fit_file(root, _extra_entry({"condition": "c00", "component": "S_zz", "quantity": "estimate", "value": "x"}))
     fit = rs.fit_tier(root)
-    assert fit.problems and fit.values == 3
+    assert fit.problems and fit.values == _count(BENZENE)
     assert rs.scan([("notes.md", b"0.4874\n")], fit.tiers, frozenset()) == ["notes.md:1"]
+
+
+def test_an_unexpected_file_name_is_not_printed(tmp_path: Path) -> None:
+    """A3: a file name can carry a value; the diagnostic does not repeat it."""
+    rs = _r83()
+    root = _root(tmp_path, logged=True)
+    _fit_file(root, _record())
+    _fit_file(root, _record(), name="benzene 0.48736829.fit-values.json")
+    fit = rs.fit_tier(root)
+    assert fit.problems and _digits_free(fit.problems)
+
+
+def test_a_rerun_keeps_the_earlier_output(tmp_path: Path) -> None:
+    """A2: a retained output still binds its submission and is still scanned."""
+    rs = _r83()
+    root = _root(tmp_path, logged=True)
+    _fit_file(root, _record(), name=f"retained/{BENZENE}.1.fit-values.json")
+    fit = rs.fit_tier(root)
+    assert (fit.problems, fit.files, fit.values) == ([], 1, _count(BENZENE))
+    _fit_file(root, _record(BENZENE, [0.3333777, 0.25, 0.0011]))
+    both = rs.fit_tier(root)
+    assert (both.problems, both.files) == ([], 2)
+    assert rs.scan([("notes.md", b"0.4874\n")], both.tiers, frozenset()) == ["notes.md:1"]  # the earlier run
 
 
 # ================================================================ the staged-index entry
 def _git(root: Path, *args: str) -> None:
-    subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.name=test", "-c", "user.email=test@invalid", *args],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
 
 
 def _restricted_inputs(root: Path) -> None:
@@ -321,29 +477,52 @@ def _repo(tmp_path: Path, *, logged: bool, staged: str) -> Path:
 
 
 def test_the_staged_index_check_includes_the_fit_tier(tmp_path: Path) -> None:
-    rs = _rs()
+    rs = _r83()
     root = _repo(tmp_path, logged=True, staged="clean\nthe fit was 0.4874\n")
     _fit_file(root, _record())
     assert rs.check_staged(root) == ["notes.md:2"]
 
 
 def test_the_staged_index_check_keeps_the_input_tiers(tmp_path: Path) -> None:
-    rs = _rs()
+    rs = _r83()
     root = _repo(tmp_path, logged=False, staged="a target -0.27182\n")
     assert rs.check_staged(root) == ["notes.md:1"]
 
 
 def test_before_any_result_the_check_has_no_fit_source(tmp_path: Path) -> None:
-    rs = _rs()
+    rs = _r83()
     root = _repo(tmp_path, logged=False, staged="0.4874\n")
     assert rs.check_staged(root) == []
 
 
 def test_the_staged_index_check_fails_on_a_tier_problem(tmp_path: Path) -> None:
-    rs = _rs()
+    rs = _r83()
     root = _repo(tmp_path, logged=True, staged="clean\n")  # logged, but no local fit output
     problems = rs.check_staged(root)
     assert problems and any("datasets-local/verification" in p for p in problems)
+
+
+def test_the_staged_check_reads_the_staged_ledger(tmp_path: Path) -> None:
+    """A1: the receipt binds the ledger that is staged, not the working copy's."""
+    rs = _r83()
+    root = _repo(tmp_path, logged=True, staged="clean\n")  # the staged ledger logs a fit
+    (root / LEDGER_REL).write_text(_ledger(), encoding="utf-8")  # the working copy does not
+    problems = rs.check_staged(root)
+    assert any("datasets-local/verification" in p for p in problems)
+
+
+def test_the_staged_log_must_extend_the_committed_one(tmp_path: Path) -> None:
+    """A1: once a submission is committed, removing it from the log is refused, whatever the
+    local outputs are."""
+    rs = _r83()
+    root = _repo(tmp_path, logged=True, staged="clean\n")
+    _fit_file(root, _record())
+    _git(root, "commit", "-q", "-m", "a logged fit")
+    assert rs.check_staged(root) == []
+    (root / LEDGER_REL).write_text(_ledger(), encoding="utf-8")
+    _git(root, "add", str(LEDGER_REL))
+    problems = rs.check_staged(root)
+    assert problems and any("first-fit log" in p for p in problems)
 
 
 def test_the_decision_11_entry_point_runs_the_full_check() -> None:
@@ -355,13 +534,21 @@ def test_the_decision_11_entry_point_runs_the_full_check() -> None:
 
 
 # ============================================================================ receipts
+RECEIPT = re.compile(
+    r"\| (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z) \| `[0-9a-f]{40}` \(commit `[0-9a-f]{7}`\) "
+    r"\| (passed, not skipped(?:; fit tier: (?:pre-result|results))?) \| Claude \|"
+)
+
+
 def _scan_rows(text: str) -> list[tuple[str, str]]:
+    """The §6 scan receipts. Round 83 (B1): every row of the receipt table must be well formed."""
     section = text.split("## 6. Later entries", 1)[1].split("\n## ", 1)[0]
+    table = section.split("| UTC | Staged tree | Scan | Operator |", 1)[1].split("\n\n", 1)[0]
     rows = []
-    for line in section.splitlines():
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) == 4 and re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z", cells[0]):
-            rows.append((cells[0], cells[2]))
+    for line in table.strip().splitlines()[1:]:
+        match = RECEIPT.fullmatch(line.strip())
+        assert match, line
+        rows.append((match.group(1), match.group(2)))
     return rows
 
 
@@ -371,13 +558,31 @@ def test_scan_receipts_record_the_fit_tier_status() -> None:
     assert rs.FIT_TIER_SINCE >= "2026-11-23T00:00Z"
     rows = _scan_rows(LEDGER.read_text(encoding="utf-8"))
     assert len(rows) >= 9
+    # Round 83 (B1): the first receipt made under the tier exists and records its status, so a
+    # cutoff moved into the future fails here.
+    assert ("2026-11-23T14:32Z", "passed, not skipped; fit tier: pre-result") in rows
+    assert rs.FIT_TIER_SINCE <= "2026-11-23T14:32Z"
     for at, scan in rows:
         if at >= rs.FIT_TIER_SINCE:
             assert re.fullmatch(r"passed, not skipped; fit tier: (pre-result|results)", scan), (at, scan)
+        else:
+            assert scan == "passed, not skipped", (at, scan)
+
+
+def test_a_malformed_receipt_row_is_refused() -> None:
+    text = LEDGER.read_text(encoding="utf-8")
+    row = (
+        "| 2026-11-22T22:16Z | `21e153040a21075f1627543d70a9178cc2dbc0d9` (commit `0795f47`) "
+        "| passed, not skipped | Claude |"
+    )
+    assert row in text
+    for bad in (row.replace("passed, not skipped", "passed"), row.replace("Claude", "someone"), row[:-2]):
+        with pytest.raises(AssertionError):
+            _scan_rows(text.replace(row, bad))
 
 
 # ============================================================ the workflow's local source
-def _sentinel_report(tmp_path: Path, v: Any) -> dict[str, Any]:
+def _sentinel_report(tmp_path: Path, v: Any) -> tuple[dict[str, Any], Synthetic]:
     truths = {k: {"S_zz": -0.0731987654321 - 1.234567e-4 * i} for i, k in enumerate(_condition_keys(BENZENE))}
     targets = {(k, "S_zz"): (t["S_zz"] + 0.00198765, 0.000431) for k, t in truths.items()}
     syn = Synthetic(tmp_path, BENZENE, truths=truths, targets=targets)
@@ -390,15 +595,16 @@ def _sentinel_report(tmp_path: Path, v: Any) -> dict[str, Any]:
         receipt=syn.receipt(),
     )
     assert report["status"] == "complete"
-    return report
+    return report, syn
 
 
 def test_the_workflow_writes_every_fit_value_at_full_precision(tmp_path: Path) -> None:
     v = _v()
-    rs = _rs()
-    report = _sentinel_report(tmp_path, v)
+    rs = _r83()
+    report, syn = _sentinel_report(tmp_path, v)
     record = v.fit_values(report)
     assert (record["dataset"], record["protocol_sha256"]) == (BENZENE, report["protocol_sha256"])
+    assert record["submission"] == report["submission"] == _submission(protocol=syn.protocol)
     estimates = {
         (c, e, "estimate"): x
         for c, f in report["conditions"].items()
@@ -418,12 +624,19 @@ def test_the_workflow_writes_every_fit_value_at_full_precision(tmp_path: Path) -
     assert path == tmp_path / rs.FIT_DIR / f"{BENZENE}{rs.FIT_SUFFIX}"
     assert json.loads(path.read_text(encoding="utf-8")) == record
 
-    _root(tmp_path, logged=True)
+    _root(tmp_path, logged=True, protocol=syn.protocol)
     fit = rs.fit_tier(tmp_path)
     assert (fit.status, fit.problems, fit.files, fit.values) == ("results", [], 1, 30)
     some = next(iter(estimates.values()))
     rounded = f"{Decimal(repr(some)).quantize(Decimal('0.000001')):f}"  # six decimals: five significant digits
     assert rs.scan([("notes.md", f"S = {rounded}\n".encode())], fit.tiers, frozenset()) == ["notes.md:1"]
+
+    # A2: a rerun retains the earlier output beside the new one.
+    again = v.write_fit_values(report, root=tmp_path)
+    assert again == path
+    retained = sorted((tmp_path / rs.FIT_DIR / "retained").glob(f"*{rs.FIT_SUFFIX}"))
+    assert [p.name for p in retained] == [f"{BENZENE}.1{rs.FIT_SUFFIX}"]
+    assert rs.fit_tier(tmp_path).files == 2
 
 
 @pytest.mark.parametrize("status", ["local evidence unavailable", "blocked"])
@@ -438,11 +651,17 @@ def test_the_command_writes_the_fit_values_and_shares_none(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     v = _v()
-    rs = _rs()
+    rs = _r83()
     truths = {k: {"S_zz": -0.0731987654321 - 1.234567e-4 * i} for i, k in enumerate(_condition_keys(BENZENE))}
     syn = Synthetic(tmp_path, BENZENE, truths=truths)
+    # Round 83 (A1): the command fits only a submission logged in the committed ledger.
+    _root(tmp_path, logged=True, protocol=syn.protocol)
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "add", str(LEDGER_REL))
+    _git(tmp_path, "commit", "-q", "-m", "ledger")
     monkeypatch.setattr(v.pr, "ROOT", tmp_path)
     monkeypatch.setattr(v.pr, "load", lambda: syn.prereg)
+    monkeypatch.setattr(v, "_now", lambda: datetime(2026, 11, 25, 12, 0, tzinfo=UTC))
     submission = {**syn.submission(), "at": datetime(2026, 11, 25, 10, 0, tzinfo=UTC).isoformat()}
     (tmp_path / "submission.json").write_text(json.dumps(submission), encoding="utf-8")
     (tmp_path / "receipt.json").write_text(json.dumps(syn.receipt()), encoding="utf-8")

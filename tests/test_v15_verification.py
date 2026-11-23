@@ -1299,3 +1299,103 @@ def test_a_registry_failure_names_the_operation_not_the_values(tmp_path: Path) -
         v.fit_condition(failing, BENZENE, syn.prereg, observed[key])
     values = [dv for dv, _ in observed[key].values()]
     assert "couplings.import" in str(info.value) and _leaks(str(info.value), values) == []
+
+
+# ============================================ round 83 regressions (A3, A6), frozen before the fix
+R83_LOG_PY = ROOT / "tools" / "validation" / "first_fit_log.py"
+
+
+def _r83() -> Any:
+    """The round 83 fixes, or an xfail while (and only while) their marker module is absent."""
+    v = _v()
+    if not R83_LOG_PY.is_file():
+        pytest.xfail("round 83: the fixes are not written yet")
+    return v
+
+
+def _blocked_report() -> dict[str, Any]:
+    return {"dataset": BENZENE, "protocol_sha256": "ab" * 32, "submission": {}, "status": "blocked", "problems": []}
+
+
+def _complete_report() -> dict[str, Any]:
+    return {
+        "dataset": BENZENE,
+        "protocol_sha256": "ab" * 32,
+        "submission": {"dataset": BENZENE},
+        "status": "complete",
+        "conditions": {"c00": {"estimates": {"S_zz": 0.1234567}}},
+        "cells": {"independent": []},
+    }
+
+
+def test_a_linked_local_directory_is_refused(tmp_path: Path) -> None:
+    """A3: datasets-local (or a directory under it) linked to a shared place is not local."""
+    v = _r83()
+    root, shared = tmp_path / "checkout", tmp_path / "shared"
+    root.mkdir()
+    shared.mkdir()
+    (root / "datasets-local").symlink_to(shared, target_is_directory=True)
+    with pytest.raises(ValueError):
+        v.write_local(_blocked_report(), Path("datasets-local/report.md"), root=root)
+    with pytest.raises(ValueError):
+        v.write_fit_values(_complete_report(), root=root)
+    assert list(shared.iterdir()) == []
+
+    (root / "datasets-local").unlink()
+    (root / "datasets-local").mkdir()
+    (root / "datasets-local" / "verification").symlink_to(shared, target_is_directory=True)
+    with pytest.raises(ValueError):
+        v.write_fit_values(_complete_report(), root=root)
+    with pytest.raises(ValueError):
+        v.write_local(_blocked_report(), Path("datasets-local/verification/report.md"), root=root)
+    assert list(shared.iterdir()) == []
+
+
+def test_a_linked_local_file_is_replaced_not_followed(tmp_path: Path) -> None:
+    """A3: writing replaces a link at the destination; the file it pointed to is untouched."""
+    v = _r83()
+    outside = tmp_path / "outside.md"
+    outside.write_text("untouched\n", encoding="utf-8")
+    local = tmp_path / "datasets-local"
+    local.mkdir()
+    (local / "report.md").symlink_to(outside)
+    target = v.write_local(_blocked_report(), Path("datasets-local/report.md"), root=tmp_path)
+    assert not target.is_symlink() and target.read_text(encoding="utf-8").startswith("# Verification report")
+    assert outside.read_text(encoding="utf-8") == "untouched\n"
+    assert sorted(p.name for p in local.iterdir()) == ["report.md"]  # no temporary file left
+
+
+@pytest.mark.parametrize("change", ["an unknown key", "a frame that is not a rotation"])
+def test_an_invalid_protocol_is_never_fitted(tmp_path: Path, change: str) -> None:
+    """A6: the closed schema and the cross-field checks run before any fit, even when the
+    submission carries the changed protocol's own revision."""
+    v = _r83()
+    syn = Synthetic(tmp_path, BENZENE)
+    if change == "an unknown key":
+        syn.prereg["note"] = "changed"
+    else:
+        syn.prereg["datasets"][BENZENE]["frame_map_matrix"] = [[1, 0, 0], [0, 1, 0], [0, 0, -1]]
+    report = v.run_report(BENZENE, call=_never, prereg=syn.prereg, root=tmp_path, submission=syn.submission())
+    assert report["status"] == "blocked" and report["problems"]
+
+
+def test_the_local_report_keeps_each_fits_provenance(tmp_path: Path, call: Any) -> None:
+    """A6: the model, frame, science identity, fit version, symmetry, assumptions and warnings of
+    each fit, and the dataset's flags and the package versions, stay in the local report."""
+    v = _r83()
+    syn = Synthetic(tmp_path, BENZENE)
+    report = v.run_report(BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission())
+    d = PREREG["datasets"][BENZENE]
+    for condition in report["conditions"].values():
+        prov = condition["provenance"]
+        assert prov["model"]["kind"] == "fixed"
+        assert prov["frame"] and prov["estimand"]
+        assert prov["science_hash"].startswith("sha256:")
+        assert prov["fit_version"] == PREREG["model"]["fixed_fit_version"]
+        assert prov["symmetry"]["point_group"] == d["point_group"]
+        assert isinstance(prov["assumptions"], list) and isinstance(prov["warnings"], list)
+    assert report["provenance"]["flags"] == d["flags"]
+    assert set(report["provenance"]["versions"]) == {"dipolar-core", "dipolar-app"}
+    local = v.write_local(report, Path("datasets-local/report.md"), root=tmp_path).read_text(encoding="utf-8")
+    assert "fit_version" in local and "science_hash" in local
+    assert "provenance" not in json.dumps(v.shared_output(report))
