@@ -62,6 +62,25 @@ E-6: synthetic 1,4-dichlorobenzene, a rigid molecule with no torsion):
     python -I tools/robot/robot.py --ready-file DIR/serve.ready.json --scenario fixed-tutorial \
     --xyz datasets/dichlorobenzene-synthetic/dichlorobenzene.xyz --csv datasets/dichlorobenzene-synthetic/couplings.csv
 
+Four-site-jump tutorial (``--scenario jump4-tutorial``, Phase 2 V1.5b; the exit matrix's
+"Every implemented model has a robot tutorial"): the M2 proposal path, carried to a complete run,
+on synthetic couplings with a known answer (``datasets/biphenyl-synthetic/jump4_tutorial.py``):
+
+1. as the ``robot`` (apply tier): open the synthetic example and ``couplings.import`` the user's
+   couplings (``--csv``) under the reconciled mapping, once it is complete;
+2. as the ``agent`` (propose tier): a direct ``model.set`` is refused (``PROPOSAL_REQUIRED``), and
+   ``proposal.create`` proposes the jump model, then a fit with intervals;
+3. the robot **waits for a human** to accept or reject the proposal (in the page, or
+   ``proposal.accept`` with the user's credential); it says so on stderr with the proposal's ID
+   and never accepts it itself. A rejection, or no decision within ``--accept-timeout`` seconds,
+   ends the run with no fit;
+4. on acceptance of both steps: ``job.wait`` for the fit the acceptance started (proposed by the
+   agent), then ``run.get``; the report carries the decided proposal, the job, the run record and
+   the complete result under ``jump4``.
+
+    python -I tools/robot/robot.py --ready-file DIR/serve.ready.json --scenario jump4-tutorial \
+        --csv datasets/biphenyl-synthetic/jump4-couplings.csv
+
 Prints one JSON report on stdout and exits 0 on success, 1 on any failed step.
 
     python -I tools/robot/robot.py --ready-file DIR/serve.ready.json --phi 36.98502906633521
@@ -74,6 +93,7 @@ import argparse
 import json
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -557,21 +577,137 @@ def fixed_tutorial(
     }
 
 
+#: How often the robot reads a proposal while it waits for a human's decision.
+POLL_S = 0.5
+
+
+def run_jump4_tutorial(ready_file: Path, csv_path: Path, accept_timeout_s: float) -> dict[str, Any]:
+    ready = json.loads(ready_file.read_text(encoding="utf-8"))
+    robot = Client(ready["base_url"], ready["tokens"]["robot"])
+    agent = Client(ready["base_url"], ready["tokens"]["agent"])
+    if robot.instance().get("instance_id") != ready["instance_id"]:
+        raise RobotError("the ready file does not describe the server on its port")
+    csv = csv_path.read_text(encoding="utf-8")
+
+    # 1. The synthetic example, with the user's couplings.
+    revision = robot.call("render.describe_view")["science_revision"]
+    revision = robot.call(
+        "project.open_example", {"name": "biphenyl-synthetic", "expected_science_revision": revision}
+    )["science_revision"]
+    reconciled = _at(revision, robot.call("couplings.reconcile", {"csv": csv}), "the reconciliation")
+    if not reconciled["complete"]:
+        raise RobotError(
+            f"the CSV does not reconcile: {reconciled['unmatched_labels']} {reconciled['unresolved_pairs']}"
+        )
+    revision = robot.call(
+        "couplings.import",
+        {"csv": csv, "confirmed_mapping": reconciled["proposed_mapping"], "expected_science_revision": revision},
+    )["science_revision"]
+
+    # 2. The agent may only propose: the jump model, then the fit.
+    refused = agent.envelope("model.set", {**JUMP, "expected_science_revision": revision})
+    if refused.get("ok") or refused["error"]["code"] != "PROPOSAL_REQUIRED":
+        raise RobotError(f"the agent changed the science directly: {refused}")
+    proposal = agent.call(
+        "proposal.create",
+        {
+            "steps": [
+                {"operation": "model.set", "args": {**JUMP, "expected_science_revision": revision}},
+                {"operation": "fit.run", "args": {"intervals": True, "expected_science_revision": revision + 1}},
+            ],
+            "note": "the jump4 tutorial: fit the symmetric four-site jump model",
+        },
+    )["proposal"]
+
+    # 3. A human decides; the robot only waits.
+    pid = proposal["id"]
+    print(
+        f"jump4-tutorial: waiting for a human to accept or reject {pid} "
+        "(Proposals in the page, or proposal.accept with the user's credential)",
+        file=sys.stderr,
+        flush=True,
+    )
+    deadline = time.monotonic() + accept_timeout_s
+    while True:
+        decided = robot.call("proposal.get", {"proposal_id": pid})["proposal"]
+        if decided["status"] != "pending":
+            break
+        if time.monotonic() >= deadline:
+            raise RobotError(f"no human accepted or rejected {pid} within {accept_timeout_s:g} s; it is still pending")
+        time.sleep(POLL_S)
+    if decided["status"] != "accepted":
+        raise RobotError(f"{pid} was {decided['status']} by {decided['decided_by']}: {decided['reason']!r}; no fit")
+    if list(decided["accepted_steps"]) != [0, 1] or decided["decided_by"] != "user":
+        raise RobotError(f"{pid} was not accepted whole by the user: steps {decided['accepted_steps']}")
+
+    # 4. The fit the acceptance started, to its end; the complete run.
+    jobs = [
+        j
+        for j in robot.call("job.list")["jobs"]
+        if j["proposed_by"] == proposal["proposer"] and j["science_revision"] == revision + 1
+    ]
+    if len(jobs) != 1:
+        raise RobotError(f"{len(jobs)} fits were started by accepting {pid}, not one")
+    for _ in range(40):  # at most 20 minutes; each wait is bounded by the server (≤ 30 s)
+        waited = robot.call("job.wait", {"job_id": jobs[0]["id"], "timeout_s": 30})
+        if waited["finished"]:
+            break
+    else:
+        raise RobotError(f"{jobs[0]['id']} did not finish")
+    job = waited["job"]
+    if job["status"] != "succeeded":
+        raise RobotError(f"{job['id']} {job['status']}: {job['error']}")
+    run = robot.call("run.get", {"run_id": job["run_id"]})
+    if run["result"]["model"]["kind"] != "jump4":
+        raise RobotError(f"{run['run']['id']} is not a four-site-jump run")
+    project = robot.call("project.describe")
+    if run["run"]["stale"] or run["run"]["science_hash"] != project["science_hash"]:
+        raise RobotError(f"{run['run']['id']} is not the fit of the current science state")
+    view = robot.call("render.describe_view")
+    if view["run"] != {"run_id": run["run"]["id"], "stale": False, "available": True}:
+        raise RobotError(f"describe_view does not show {run['run']['id']}: {view['run']}")
+    return {
+        "ok": True,
+        "scenario": "jump4-tutorial",
+        "contract_version": ready["contract_version"],
+        "reconciled": {
+            "complete": reconciled["complete"],
+            "added": len(reconciled["added"]),
+            "removed": len(reconciled["removed"]),
+        },
+        "refused": refused["error"]["code"],
+        "proposal": decided,
+        "job": job,
+        "run": run["run"],
+        "result": run["result"],
+        "science_hash": project["science_hash"],
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--ready-file", type=Path, required=True)
     parser.add_argument(
         "--phi", type=float, help="torsion for fit.preview, degrees (default 37; the tutorial: the domain's midpoint)"
     )
-    parser.add_argument("--scenario", choices=("m0", "m2", "tutorial", "fixed-tutorial"), default="m0")
+    parser.add_argument(
+        "--scenario", choices=("m0", "m2", "tutorial", "fixed-tutorial", "jump4-tutorial"), default="m0"
+    )
     parser.add_argument("--point-group", default="D2h", help="fixed-tutorial: the declared point group")
     parser.add_argument("--xyz", type=Path, help="tutorials: the user's geometry")
     parser.add_argument("--csv", type=Path, help="tutorials: the user's couplings")
     parser.add_argument("--torsion", type=int, nargs=4, default=[1, 0, 6, 7], help="tutorial: atoms a i j b")
     parser.add_argument("--domain", type=float, nargs=2, default=[-90.0, 0.0], help="tutorial: φ domain, degrees")
+    parser.add_argument(
+        "--accept-timeout", type=float, default=900.0, help="jump4-tutorial: seconds to wait for a human's decision"
+    )
     ns = parser.parse_args()
     try:
-        if ns.scenario == "fixed-tutorial":
+        if ns.scenario == "jump4-tutorial":
+            if ns.csv is None:
+                raise RobotError("the jump4 tutorial needs --csv")
+            report = run_jump4_tutorial(ns.ready_file, ns.csv, ns.accept_timeout)
+        elif ns.scenario == "fixed-tutorial":
             if ns.xyz is None or ns.csv is None:
                 raise RobotError("the fixed-geometry tutorial needs --xyz and --csv")
             report = run_fixed_tutorial(ns.ready_file, ns.xyz, ns.csv, ns.point_group)

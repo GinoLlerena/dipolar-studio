@@ -14,5 +14,5 @@ deferred.
 | Reference and criterion | The thesis's AP-DPD comparison is pending. The order parameters agree descriptively (README); that is not independent validation of either model. Under the printed spectral σ the rigid jump model is grossly inadequate, and the engine reports it so, without rescaling σ. |
 | Distribution model | Deferred (a post-beta gate). |
 | Beta exercise | [`docs/beta/testers.md`](../../beta/testers.md): reproduce biphenyl in 8CB from your own transcription. |
-| Robot tutorial | Open: the four-site-jump robot tutorial (`robot.py --scenario jump4-tutorial`) is still to be written in V1.5b. Until then the exit matrix's tutorial row cannot pass. |
+| Robot tutorial | The four-site-jump model's tutorial, `robot.py --scenario jump4-tutorial`, runs on synthetic couplings with a known answer ([`jump4_tutorial.py`](../../../datasets/biphenyl-synthetic/jump4_tutorial.py)), not on the 8CB data. An agent proposes the jump model and a fit, a human accepts, and the robot reports the complete run. Gate: [`test_app_v15_jump4.py`](../../../packages/dipolar-app/tests/test_app_v15_jump4.py). |
 | Gate evidence | `tests/test_m1_acceptance.py`, `tests/test_expected_fixtures.py`, `web/e2e/eightcb.spec.ts`. |

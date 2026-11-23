@@ -13,22 +13,39 @@ or as UTF-16/32 by byte-order mark or by their NUL pattern.
 **The exceptions** are single lines (by hash) verified to exist in a commit before the first
 exposure (2026-11-18), and the ``upload-time`` fields of ``uv.lock``.
 
+**The fit tier** (V1.5b; tests/test_v15_fit_tier.py). After the first experimental fit, the
+report workflow's full-precision fit values (``datasets-local/verification/<dataset>.fit-values.json``:
+every fitted condition's paper-frame estimates and every compared cell's discrepancy) are restricted
+too. Each is matched as written and at 4–8 significant digits (half-up, half-even and truncated,
+from its shortest repr and from its exact binary value) in any path, and at 3 significant digits in
+the Phase 2 and validation docs. A variant with fewer significant digits than its tier (a whole or
+short value such as 1.0 or 0.12) is not matched. The ledger's first-fit row (gates.md §3) decides
+whether the tier is required: ``pre-result`` while that row is ``empty`` and no local fit output
+exists, ``results`` after; local fit outputs without a logged fit are a first-fit-gate problem.
+Its problems name the file and the entry, never a value.
+
 **What it does not find** (documented limits): values rounded below the tier's digits outside the
 Phase 2 and validation docs; values spelled in words, split across lines or in images, PDFs or
-compressed files; a value recoverable by arithmetic from other numbers; files outside git's index.
+compressed files; a value recoverable by arithmetic from other numbers (a fit from its target and
+discrepancy, a standard error, a predicted coupling); files outside git's index.
 """
 
 from __future__ import annotations
 
+import argparse
 import codecs
 import csv
 import hashlib
+import json
+import math
 import re
 import subprocess
+import sys
 from collections.abc import Iterable
-from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from dataclasses import dataclass, field
+from decimal import ROUND_DOWN, ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
+from typing import Any
 
 FIRST_EXPOSURE = "2026-11-18"
 NUMBER = re.compile(r"(?<![\w.:])([-+−]?)(\d+(?:[.:]\d+)?|\.\d+)(?:[eE]([-+]?\d+))?(?![\w]|[.:]\d)")
@@ -190,3 +207,162 @@ def verify_allowed(root: Path) -> list[str]:
         if shown.returncode != 0 or digest not in {line_hash(line) for line in shown.stdout.splitlines()}:
             problems.append(f"{path}: an allowed line is not in {commit[:7]}, before {FIRST_EXPOSURE}")
     return problems
+
+
+# --------------------------------------------------------------------------- the fit tier (V1.5b)
+FIT_DIR = "datasets-local/verification"
+FIT_SUFFIX = ".fit-values.json"
+#: The first scan receipt (gates.md §6) that records the fit tier's status.
+FIT_TIER_SINCE = "2026-11-23T14:30Z"
+LEDGER = "docs/phase2/verification/gates.md"
+FIRST_FIT_FIELD = "| First experimental fit submission ("
+FIT_DATASETS = ("benzene-taggar2006", "odcb-chandrakumar1993")
+FIT_QUANTITIES = ("estimate", "discrepancy")
+FIT_ENTRY_FIELDS = frozenset({"condition", "component", "quantity", "value"})
+FIT_RECORD_FIELDS = frozenset({"dataset", "protocol_sha256", "values"})
+#: The declared variants: significant digits matched in any path, and in the docs only.
+FIT_DIGITS_EVERYWHERE = (4, 5, 6, 7, 8)
+FIT_DIGITS_DOCS = (3,)
+DOCS_PREFIXES = ("docs/phase2/", "docs/validation/")
+_ROUNDINGS = (ROUND_HALF_UP, ROUND_HALF_EVEN, ROUND_DOWN)
+PRE_RESULT, RESULTS = "pre-result", "results"
+
+
+def _significant(value: Decimal) -> int:
+    return len(value.normalize().as_tuple().digits) if value != 0 else 0
+
+
+def _rounded(value: Decimal, digits: int) -> set[Decimal]:
+    exponent = value.adjusted() - digits + 1
+    return {_norm(value.quantize(Decimal(1).scaleb(exponent), rounding=r)) for r in _ROUNDINGS}
+
+
+def fit_tiers(values: Iterable[float]) -> list[Tier]:
+    """The fit tier's two tiers for the given full-precision values (see the module docstring)."""
+    everywhere: set[Decimal] = set()
+    docs: set[Decimal] = set()
+    for x in values:
+        if not math.isfinite(x) or x == 0:
+            continue
+        for exact in {Decimal(repr(x)), Decimal(x)}:
+            if exact == Decimal(repr(x)):
+                everywhere.add(_norm(exact))
+            for n in FIT_DIGITS_EVERYWHERE:
+                everywhere |= _rounded(exact, n)
+            for n in FIT_DIGITS_DOCS:
+                docs |= _rounded(exact, n)
+    return [
+        Tier(frozenset(v for v in everywhere if _significant(v) >= 4), 4, None),
+        Tier(frozenset(v for v in docs if _significant(v) >= 3), 3, DOCS_PREFIXES),
+    ]
+
+
+def first_fit_logged(ledger: str) -> bool:
+    """Whether the ledger's §3 first-fit row records a submission (anything but ``empty``)."""
+    rows = [line for line in ledger.splitlines() if line.startswith(FIRST_FIT_FIELD)]
+    if len(rows) != 1:
+        raise ValueError(f"the ledger has {len(rows)} first-fit rows in §3, not one")
+    cells = [c.strip() for c in rows[0].strip().strip("|").split("|")]
+    if len(cells) != 2 or not cells[1]:
+        raise ValueError("the ledger's §3 first-fit row has no value")
+    return cells[1] != "empty"
+
+
+@dataclass(frozen=True)
+class FitTier:
+    status: str  # PRE_RESULT or RESULTS
+    tiers: list[Tier] = field(default_factory=list)
+    problems: list[str] = field(default_factory=list)
+    files: int = 0
+    values: int = 0
+
+
+def _fit_entries(path: Path, rel: str) -> tuple[list[float], list[str]]:
+    """The well-formed values of one fit-values file, and value-free problems with the rest."""
+    try:
+        record: Any = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return [], [f"{rel}: not a readable JSON fit-values record"]
+    if not isinstance(record, dict):
+        return [], [f"{rel}: not a fit-values record (an object with dataset, protocol_sha256 and values)"]
+    problems = []
+    extra = sorted(set(record) - FIT_RECORD_FIELDS)
+    if extra:
+        problems.append(f"{rel}: unknown fields {extra}")
+    dataset = record.get("dataset")
+    if dataset not in FIT_DATASETS:
+        problems.append(f"{rel}: the dataset is not one of {list(FIT_DATASETS)}")
+    elif path.name != f"{dataset}{FIT_SUFFIX}":
+        problems.append(f"{rel}: the record is of another dataset than its file name")
+    if not isinstance(record.get("protocol_sha256"), str):
+        problems.append(f"{rel}: no protocol revision")
+    entries = record.get("values")
+    if not isinstance(entries, list) or not entries:
+        return [], [*problems, f"{rel}: no fit values"]
+    values = []
+    for i, entry in enumerate(entries):
+        value = entry.get("value") if isinstance(entry, dict) else None
+        if not isinstance(entry, dict) or set(entry) != FIT_ENTRY_FIELDS:
+            problems.append(f"{rel}: entry {i} does not have exactly the fields {sorted(FIT_ENTRY_FIELDS)}")
+        elif entry["quantity"] not in FIT_QUANTITIES:
+            problems.append(f"{rel}: entry {i} has an unknown quantity")
+        if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+            problems.append(f"{rel}: entry {i} has no finite numeric value")
+            continue
+        values.append(float(value))
+    return values, problems
+
+
+def fit_tier(root: Path) -> FitTier:
+    """The fit tier of the checkout at ``root``: its status, tiers and value-free problems."""
+    problems: list[str] = []
+    try:
+        logged = first_fit_logged((root / LEDGER).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        problems.append(f"{LEDGER}: the first-fit row cannot be read ({type(exc).__name__})")
+        logged = True  # unknown: require the tier
+    folder = root / FIT_DIR
+    paths = sorted(folder.glob(f"*{FIT_SUFFIX}")) if folder.is_dir() else []
+    values: list[float] = []
+    for path in paths:
+        got, bad = _fit_entries(path, f"{FIT_DIR}/{path.name}")
+        values += got
+        problems += bad
+    if logged and not paths:
+        problems.append(f"a first fit is logged but {FIT_DIR}/ holds no *{FIT_SUFFIX}: run the report workflow")
+    if paths and not logged:
+        problems.append(f"{FIT_DIR}/ holds fit outputs but no first experimental fit is logged in {LEDGER} §3")
+    status = RESULTS if logged or paths else PRE_RESULT
+    tiers = fit_tiers(values) if values else []
+    return FitTier(status, tiers, problems, len(paths), len(values))
+
+
+def status_line(fit: FitTier) -> str:
+    """The tier's status for the scan receipt: counts only, never a value."""
+    if fit.status == PRE_RESULT:
+        return "fit tier: pre-result (no experimental fit is logged and no local fit output exists)"
+    files = "file" if fit.files == 1 else "files"
+    return f"fit tier: results ({fit.files} {files}, {fit.values} values, {len(fit.problems)} problems)"
+
+
+def check_staged(root: Path) -> list[str]:
+    """The whole staged-index check: the fit tier's problems, then ``path:line`` hits of every
+    tier (the inputs' and the fit values'). Value-free."""
+    fit = fit_tier(root)
+    hits = scan(index_blobs(root), restricted_tiers(root) + fit.tiers, ALLOWED_LINES)
+    return [*fit.problems, *hits]
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="The restricted-fit scan tier's status (value-free).")
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
+    ns = parser.parse_args(argv)
+    fit = fit_tier(ns.root)
+    print(status_line(fit))
+    for problem in fit.problems:
+        print(f"- {problem}")
+    return 1 if fit.problems else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

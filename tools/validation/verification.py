@@ -956,6 +956,39 @@ def write_local(report: Mapping[str, Any], path: Path, *, root: Path) -> Path:
     return target
 
 
+#: The restricted-fit scan tier's source (tools/datasets/restricted_scan.py, FIT_DIR and FIT_SUFFIX).
+FIT_DIR = "datasets-local/verification"
+FIT_SUFFIX = ".fit-values.json"
+
+
+def fit_values(report: Mapping[str, Any]) -> dict[str, Any]:
+    """The full-precision fit values of a complete report, for the restricted-fit scan tier: every
+    fitted condition's paper-frame estimates and every compared cell's discrepancy. Local only."""
+    if report.get("status") != COMPLETE:
+        raise ValueError(f"no fit values for a report that is {report.get('status')!r}")
+    values = [
+        {"condition": condition, "component": component, "quantity": "estimate", "value": float(x)}
+        for condition, f in report["conditions"].items()
+        for component, x in f["estimates"].items()
+        if x is not None
+    ]
+    values += [
+        {"condition": c["condition"], "component": c["component"], "quantity": "discrepancy", "value": float(d)}
+        for c in report["cells"]["independent"]
+        if (d := c["discrepancy"]) is not None
+    ]
+    return {"dataset": report["dataset"], "protocol_sha256": report["protocol_sha256"], "values": values}
+
+
+def write_fit_values(report: Mapping[str, Any], *, root: Path) -> Path:
+    """``datasets-local/verification/<dataset>.fit-values.json`` (never tracked, never shared)."""
+    record = fit_values(report)
+    target = _local_path(Path(FIT_DIR) / f"{record['dataset']}{FIT_SUFFIX}", root)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(record, indent=1, allow_nan=False) + "\n", encoding="utf-8")
+    return target
+
+
 # --------------------------------------------------------------------------- the command
 def _load_json(path: str | None) -> Any:
     return None if path is None else json.loads(Path(path).read_text(encoding="utf-8"))
@@ -985,6 +1018,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         reviews=_load_json(ns.reviews),
     )
     write_local(report, out, root=root)
+    if report["status"] == COMPLETE:
+        write_fit_values(report, root=root)  # the restricted-fit scan tier's source
     print(json.dumps(shared_output(report), indent=2, ensure_ascii=False))
     return 0 if report["status"] == COMPLETE else 1
 

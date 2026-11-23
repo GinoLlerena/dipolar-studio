@@ -116,6 +116,7 @@ restricted-fit scan tier.
 | 2026-11-22T20:32Z | `491ac4dfdaaebc5a916e135cf4a11381f387a1e8` (commit `5b219c4`) | passed, not skipped | Claude |
 | 2026-11-22T22:16Z | `21e153040a21075f1627543d70a9178cc2dbc0d9` (commit `0795f47`) | passed, not skipped | Claude |
 | 2026-11-22T22:33Z | `056b50b005c3c51025562a0f2e220781d154bb69` (commit `1654d64`) | passed, not skipped | Claude |
+| 2026-11-23T14:11Z | `e2e08c4417bee3dc4b13a6bf820196aaaefccb0a` (commit `13f41cb`) | passed, not skipped | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -168,6 +169,14 @@ row is appended here in the next commit.
     Synthetic jump4 couplings with a known answer. The agent proposes, a human accepts, the robot
     waits and reports the complete `run.get` result. A rejection or no decision ends it without
     a fit.
+
+- **2026-11-23, the restricted-fit scan tier is in force.** The decision-11 command now runs the
+  whole staged check (`restricted_scan.check_staged`), fit tier included. From
+  `FIT_TIER_SINCE` (2026-11-23T14:30Z) each scan row records the tier's status, which
+  `uv run --locked python tools/datasets/restricted_scan.py` prints without any value. Until the
+  §3 first-fit row is filled the status is `pre-result`. After the owner logs the first fit, the
+  report workflow's `datasets-local/verification/<dataset>.fit-values.json` must exist before any
+  scan can pass.
 
 ## 7. Exit matrix
 

@@ -283,7 +283,9 @@ def test_no_restricted_value_is_in_a_tracked_blob() -> None:
     """Every blob in git's index, decoded (UTF-8, or UTF-16/32), is scanned for every numeric form
     of a restricted value (tools/datasets/restricted_scan.py). The exceptions are single lines
     verified to exist before the first exposure, and lock-file upload timestamps. Hits are
-    reported as path:line, without the value."""
+    reported as path:line, without the value. Since V1.5b the check includes the restricted-fit
+    tier (tests/test_v15_fit_tier.py); ``python tools/datasets/restricted_scan.py`` prints its
+    status for the receipt."""
     import sys
 
     sys.path.insert(0, str(ROOT / "tools" / "datasets"))
@@ -291,6 +293,5 @@ def test_no_restricted_value_is_in_a_tracked_blob() -> None:
 
     if not all(p.exists() for p in rs.restricted_files(ROOT)):
         pytest.skip("the local restricted files are not present")
-    hits = rs.scan(rs.index_blobs(ROOT), rs.restricted_tiers(ROOT), rs.ALLOWED_LINES)
-    assert hits == []
+    assert rs.check_staged(ROOT) == []
     assert rs.verify_allowed(ROOT) == []
