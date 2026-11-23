@@ -130,6 +130,7 @@ restricted-fit scan tier.
 | 2026-11-23T15:15Z | `0b79bdfebd5e1db1e3b91380b7188f0ce147c713` (commit `f2ef4d0`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-23T15:30Z | `0eda6177587680bb29bb4efc7bf4c0372eeda034` (commit `0ab5e5e`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-23T19:27Z | `9cfb4bdda7e45398ae2f3becc2c9bbe615020707` (commit `45f54a8`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-23T20:03Z | `3caa4572f249c978e7fc0dcf2dda65feedb58f4f` (commit `e74081d`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -266,6 +267,11 @@ row is appended here in the next commit.
   `rank-unverified` on the reproduction track. Sol's round 83 survivor ("passed gated targets
   and ignored rank") is caught in both parts. Second, the missing-heading mutant now refreshes
   every receipt's public hash, so only the heading is wrong. All 26 mutants are then caught.
+
+- **2026-11-23, round 84 (final Sol round): NOT READY (6 A, 2 B).** Record:
+  `docs/validation/round84-v1.5b-review.md`. Under the review process the owner decides how to
+  proceed before any merge. Until then PR #28 is not merged, and no fit is authorized: §10 has no
+  `freeze approved` row.
 
 ## 7. Exit matrix
 
