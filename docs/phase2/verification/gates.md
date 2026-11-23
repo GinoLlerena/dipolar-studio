@@ -80,6 +80,9 @@ synthetic datasets) is fitted, by the owner, by every agent and by any participa
 - Recruit one benzene participant and two 8CB testers (decision 8).
 - Before any cell identity is published under P-1 (round 81, B): record a rights check that
   naming a disagreeing cell discloses no restricted value of its source, for each dataset.
+- Append the `freeze approved` row to the first-fit log (§10) when the gates are frozen, then
+  log each submission there, and commit it, before running it (round 83, A1). The runner
+  authorizes no fit before that.
 
 ## 5. Frozen gates
 
@@ -119,6 +122,7 @@ restricted-fit scan tier.
 | 2026-11-23T14:11Z | `e2e08c4417bee3dc4b13a6bf820196aaaefccb0a` (commit `13f41cb`) | passed, not skipped | Claude |
 | 2026-11-23T14:32Z | `da39310621d06ad536cad92fea31b0bdd2acb195` (commit `b413038`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-23T14:44Z | `51a4b9b4c2188839586ec248106bd8a01312fe69` (commit `1ad0fd4`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-23T15:15Z | `0b79bdfebd5e1db1e3b91380b7188f0ce147c713` (commit `f2ef4d0`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -192,6 +196,25 @@ row is appended here in the next commit.
   It removes no case that the gate rejected before. §10 is new and append-only. Its first four
   rows transcribe earlier entries. The owner adds the `freeze approved` row. Until then the
   runner authorizes no fit.
+
+- **2026-11-23, round 83 fixes (A1–A3, A6, B2).**
+  - **A1.** `tools/validation/first_fit_log.py` reads §10. `verification.authorize` requires a
+    `freeze approved` row, a chronology that `freeze_ok` accepts, the owner or a participant, a
+    submission logged with exactly its fields, and a time not in the future. The command reads
+    the committed ledger (`git show HEAD:…`) and fits nothing without that authorization.
+  - **A2.** The fit tier requires, for each logged submission, a complete output bound to it.
+    Reruns keep earlier outputs under `retained/`.
+  - **A3.** Local writes refuse linked directories and replace, never follow, a linked file.
+    Diagnostics never print a key or an unexpected file name.
+  - **A6.** The closed schema and `prereg.validate` run before any fit. The local report keeps
+    each fit's provenance.
+  - **B2.** The robot documents the ready file's credential boundary.
+
+  Two tests were added after the gate commit, for mutants that survived it: an edited committed
+  log row, and a record at another revision than its submission. Two other surviving mutants are
+  redundant guards: another check raises the same problem. One read in the gate's own test file
+  named no encoding (`tests/test_boundaries.py` caught it). It now names UTF-8. Findings A4 and
+  A5 follow separately.
 
 ## 7. Exit matrix
 

@@ -33,8 +33,11 @@ import csv
 import hashlib
 import json
 import math
+import os
 import re
+import subprocess
 import sys
+import tempfile
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -42,6 +45,7 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+import first_fit_log as ffl
 import numpy as np
 import prereg as pr
 import prereg_labels as pl
@@ -327,6 +331,91 @@ def check_participant(record: Mapping[str, Any], *, trusted: Mapping[str, Any]) 
 #: A registry client: an operation's result, or ``RegistryError``.
 Call = Callable[[str, dict[str, Any] | None], dict[str, Any]]
 FIXED_MODEL = {"kind": "fixed", "order": "point-group", "frame": "symmetry"}
+# ------------------------------------------------------- the runner's authorization (round 83, A1)
+#: Who may run a comparison: the owner, or an outside participant (plan, V1.5d). An agent may not.
+AUTHORIZED_RUNNERS = ("owner", "participant")
+
+
+def _now() -> datetime:
+    """The runner's clock, in UTC."""
+    return datetime.now(UTC)
+
+
+def chronology(entries: Sequence[ffl.Entry]) -> dict[str, Any]:
+    """The first-fit log as ``freeze_ok`` reads it. Each decision and amendment counts at its
+    latest approval or change; every submission counts as an attempt, whatever its outcome."""
+
+    def times(event: str) -> list[datetime]:
+        return [e.at for e in entries if e.event == event]
+
+    decided = times("decisions approved") + times("decision changed")
+    amended = times("amendments approved")
+    attested, frozen, accessed = times("no-fit attestation"), times("freeze approved"), times("first access")
+    return {
+        "attestation": attested[0] if attested else None,
+        "freeze_approved": frozen[0] if frozen else None,
+        "decisions": dict.fromkeys(DECISION_KEYS, max(decided)) if decided else {},
+        "amendments": dict.fromkeys(AMENDMENT_KEYS, max(amended)) if amended else {},
+        "submissions": [
+            {
+                "dataset": e.dataset,
+                "runner": e.runner,
+                "at": e.at,
+                "outcome": "succeeded",
+                "release_or_commit": e.release_or_commit,
+                "protocol_sha256": e.protocol_sha256,
+            }
+            for e in ffl.submissions(entries)
+        ],
+        "first_access": accessed[0] if accessed else "none-yet",
+    }
+
+
+def authorize(submission: object, ledger: str, *, now: datetime) -> list[str]:
+    """Why ``submission`` may not be fitted, judged by the ledger's first-fit log (gates.md §10);
+    an empty list when it may. Value-free."""
+    try:
+        entries = ffl.parse(ledger)
+    except ValueError as exc:
+        return [f"the ledger's first-fit log cannot be read: {exc}"]
+    problems = []
+    if not any(e.event == "freeze approved" for e in entries):
+        problems.append("the first-fit log has no 'freeze approved' row: no fit is authorized before the freeze")
+    elif not freeze_ok(chronology(entries)):
+        problems.append("the first-fit log's chronology does not hold (freeze_ok)")
+    if (
+        not isinstance(submission, Mapping)
+        or set(submission) != REPORT_SUBMISSION_FIELDS
+        or not _is_time(submission.get("at"))
+    ):
+        return [
+            *problems,
+            "no submission record with exactly the fields " + ", ".join(sorted(REPORT_SUBMISSION_FIELDS)),
+        ]
+    if submission["runner"] not in AUTHORIZED_RUNNERS:
+        problems.append("only the owner or a participant may run a comparison")
+    at = submission["at"].astimezone(UTC)
+    if at > now:
+        problems.append("the submission time is in the future")
+    logged = {(e.dataset, e.runner, e.at, e.release_or_commit, e.protocol_sha256) for e in ffl.submissions(entries)}
+    key = (
+        submission["dataset"],
+        submission["runner"],
+        at,
+        submission["release_or_commit"],
+        submission["protocol_sha256"],
+    )
+    if key not in logged:
+        problems.append("the submission is not logged in the first-fit log with exactly these fields")
+    return problems
+
+
+def committed_ledger(root: Path) -> str | None:
+    """The ledger as committed at ``HEAD`` (what the owner logged and committed), or None."""
+    shown = subprocess.run(["git", "show", f"HEAD:{ffl.LEDGER}"], cwd=root, capture_output=True)
+    return shown.stdout.decode("utf-8") if shown.returncode == 0 else None
+
+
 TRACKS = ("independent", "reproduction")
 #: The fitted V1 components, in the order the conversion matrix takes them (V0.3 §5).
 _V1_NAMES = ("Szz", "Sxx-Syy")
@@ -771,11 +860,17 @@ def run_report(
     reviews: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """The local report of one dataset. Absent inputs: ``local evidence unavailable``; changed or
-    malformed inputs: ``blocked``; neither fits anything nor makes a label."""
+    malformed inputs, or a protocol that fails its closed schema or ``prereg.validate``:
+    ``blocked``; neither fits anything nor makes a label. The command (``main``) runs it only for
+    a submission that ``authorize`` accepts against the committed first-fit log (round 83, A1);
+    any other caller is responsible for the same check."""
     p = dict(prereg)
     protocol = _protocol(p)
     base: dict[str, Any] = {"dataset": dataset, "protocol_sha256": protocol}
     base["submission"] = _check_submission(submission, dataset, protocol)
+    invalid = check_protocol(p)  # round 83 (A6): before anything is read or fitted
+    if invalid:
+        return {**base, "status": BLOCKED, "problems": invalid}
     missing = [rel for rel in _paths(dataset, p).values() if not (root / rel).is_file()]
     if missing:
         return {**base, "status": UNAVAILABLE, "missing": missing}
@@ -788,9 +883,8 @@ def run_report(
     except ValueError as exc:
         return {**base, "status": BLOCKED, "problems": [str(exc)]}
 
-    fits = {
-        condition: paper_fit(dataset, p, fit_condition(call, dataset, p, obs)) for condition, obs in observed.items()
-    }
+    results = {condition: fit_condition(call, dataset, p, obs) for condition, obs in observed.items()}
+    fits = {condition: paper_fit(dataset, p, result) for condition, result in results.items()}
     first = independent_cells(dataset, p, fits, targets, receipt=receipt)
     disagreeing = [
         dict(zip(REVIEW_KEY_FIELDS, (dataset, "independent", c.condition, c.component, protocol), strict=True))
@@ -846,12 +940,58 @@ def run_report(
                 "p_value": f.p_value,
                 "adequacy": f.adequacy,
                 "ratio_residuals": list(f.ratio_residuals),
+                "provenance": _provenance(results[condition]),
             }
             for condition, f in fits.items()
         },
+        "provenance": {"flags": p["datasets"][dataset]["flags"], "versions": _versions()},
         "notes": pr.label_notes(dataset, receipt=dict(receipt) if receipt is not None else None, prereg=p),
         "review_problems": review_problems,
     }
+
+
+SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "phase2" / "v0.3-preregistration.schema.json"
+
+
+def check_protocol(p: Mapping[str, Any]) -> list[str]:
+    """The protocol's closed schema and its cross-field invariants (``prereg.validate``), as
+    value-free problems: a changed protocol is refused before any fit (round 83, A6)."""
+    import jsonschema
+
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    problems = [
+        "the protocol does not satisfy its closed schema at /" + "/".join(str(x) for x in error.absolute_path)
+        for error in jsonschema.Draft202012Validator(schema).iter_errors(dict(p))
+    ]
+    return problems or [f"the protocol fails a cross-field check ({x})" for x in pr.validate(dict(p))]
+
+
+def _provenance(result: Mapping[str, Any]) -> dict[str, Any]:
+    """What identifies one fit (round 83, A6): its model, frame and estimand, the science hash, the
+    fit version and numerical context, the symmetry, and its assumptions and warnings. Local only."""
+    return {
+        "model": result["model"],
+        "frame": result["frame"],
+        "estimand": result["estimand"],
+        "science_hash": result["science_hash"],
+        "fit_version": result["provenance"]["fit_version"],
+        "numerical_context": result["provenance"]["numerical_context"],
+        "symmetry": result["symmetry"],
+        "assumptions": list(result["assumptions"]),
+        "warnings": list(result["warnings"]),
+    }
+
+
+def _versions() -> dict[str, str]:
+    from importlib.metadata import PackageNotFoundError, version
+
+    out = {}
+    for name in ("dipolar-core", "dipolar-app"):
+        try:
+            out[name] = version(name)
+        except PackageNotFoundError:
+            out[name] = "not installed"
+    return out
 
 
 def _protocol(p: Mapping[str, Any]) -> str:
@@ -894,12 +1034,38 @@ def page_lines(shared: Mapping[str, Any]) -> list[str]:
 
 
 def _local_path(path: Path, root: Path) -> Path:
+    """``root/path`` when ``path`` lies under the checkout's own ``datasets-local/`` directory: no
+    absolute path, no ``..``, and no link at any directory along it (round 83, A3: a linked
+    directory can lead outside, wherever it resolves)."""
     parts = PurePosixPath(path.as_posix()).parts
-    if path.is_absolute() or not parts or parts[0] != "datasets-local" or ".." in parts:
+    if path.is_absolute() or not parts or parts[0] != "datasets-local" or ".." in parts or len(parts) < 2:
         raise ValueError("local detail is written only under datasets-local/")
-    target = root / path
-    if not target.resolve().is_relative_to((root / "datasets-local").resolve()):
-        raise ValueError("local detail is written only under datasets-local/")
+    current = root
+    for part in parts[:-1]:
+        current = current / part
+        if current.is_symlink() or (current.exists() and not current.is_dir()):
+            raise ValueError("local detail is written only into real directories under datasets-local/, not links")
+    return root / path
+
+
+def _write_local_text(path: Path, root: Path, text: str) -> Path:
+    """Write ``text`` to the local ``path`` atomically: a new file renamed over the destination, so
+    a link at the destination is replaced, never followed (round 83, A3)."""
+    target = _local_path(path, root)
+    current = root
+    for part in PurePosixPath(path.as_posix()).parts[:-1]:
+        current = current / part
+        if not current.exists():
+            current.mkdir()
+    _local_path(path, root)  # again, now that the directories exist
+    fd, temporary = tempfile.mkstemp(dir=target.parent, prefix=".tmp-", suffix=".part")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.replace(temporary, target)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
     return target
 
 
@@ -909,7 +1075,7 @@ def _md(x: object) -> str:
 
 def write_local(report: Mapping[str, Any], path: Path, *, root: Path) -> Path:
     """The local detail as Markdown, under ``datasets-local/`` only (never tracked, never shared)."""
-    target = _local_path(path, root)
+    _local_path(path, root)
     lines = [
         f"# Verification report (local): {report['dataset']}",
         "",
@@ -923,6 +1089,7 @@ def write_local(report: Mapping[str, Any], path: Path, *, root: Path) -> Path:
         lines += [f"- {x}" for x in [*report.get("missing", []), *report.get("problems", [])]]
     else:
         lines += [f"- Spot-check signed: {report['spot_check_signed']}", *[f"- Note: {n}" for n in report["notes"]]]
+        lines.append(f"- Provenance: {json.dumps(report['provenance'], sort_keys=True)}")
         lines += [f"- Review problem: {x}" for x in report["review_problems"]]
         for name in TRACKS:
             lines += ["", f"## {report['track_labels'][name]}", ""]
@@ -951,9 +1118,7 @@ def write_local(report: Mapping[str, Any], path: Path, *, root: Path) -> Path:
         lines += ["", "## Conditions (conditional on σ as printed; not part of any label)", ""]
         for condition, c in report["conditions"].items():
             lines.append(f"- {condition}: " + json.dumps(c, sort_keys=True, default=str))
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return target
+    return _write_local_text(path, root, "\n".join(lines) + "\n")
 
 
 #: The restricted-fit scan tier's source (tools/datasets/restricted_scan.py, FIT_DIR and FIT_SUFFIX).
@@ -977,16 +1142,36 @@ def fit_values(report: Mapping[str, Any]) -> dict[str, Any]:
         for c in report["cells"]["independent"]
         if (d := c["discrepancy"]) is not None
     ]
-    return {"dataset": report["dataset"], "protocol_sha256": report["protocol_sha256"], "values": values}
+    return {
+        "dataset": report["dataset"],
+        "protocol_sha256": report["protocol_sha256"],
+        "submission": dict(report["submission"]),
+        "values": values,
+    }
 
 
 def write_fit_values(report: Mapping[str, Any], *, root: Path) -> Path:
     """``datasets-local/verification/<dataset>.fit-values.json`` (never tracked, never shared)."""
     record = fit_values(report)
-    target = _local_path(Path(FIT_DIR) / f"{record['dataset']}{FIT_SUFFIX}", root)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(record, indent=1, allow_nan=False) + "\n", encoding="utf-8")
-    return target
+    path = Path(FIT_DIR) / f"{record['dataset']}{FIT_SUFFIX}"
+    target = _local_path(path, root)
+    if target.is_file() and not target.is_symlink():
+        # Round 83 (A2): a rerun keeps the earlier output, as retained/<dataset>.<n>.fit-values.json.
+        kept = Path(FIT_DIR) / "retained"
+        folder = _local_path(kept / "x", root).parent
+        taken = [
+            int(m.group(1)) for p in (folder.glob("*") if folder.is_dir() else []) if (m := _retained(p.name, record))
+        ]
+        _write_local_text(
+            kept / f"{record['dataset']}.{max(taken, default=0) + 1}{FIT_SUFFIX}",
+            root,
+            target.read_text(encoding="utf-8"),
+        )
+    return _write_local_text(path, root, json.dumps(record, indent=1, allow_nan=False) + "\n")
+
+
+def _retained(name: str, record: Mapping[str, Any]) -> re.Match[str] | None:
+    return re.fullmatch(re.escape(str(record["dataset"])) + r"\.([1-9][0-9]*)" + re.escape(FIT_SUFFIX), name)
 
 
 # --------------------------------------------------------------------------- the command
@@ -1008,6 +1193,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     submission = _load_json(ns.submission)
     if isinstance(submission, dict) and isinstance(submission.get("at"), str):
         submission["at"] = datetime.fromisoformat(submission["at"].replace("Z", "+00:00"))
+    # Round 83 (A1): fit only a submission the owner logged and committed after the freeze.
+    ledger = committed_ledger(root)
+    refused = ["the ledger is not committed in this checkout"] if ledger is None else []
+    refused = refused or authorize(submission, ledger or "", now=_now())
+    if refused:
+        print("Not authorized to fit (docs/phase2/verification/gates.md §10):", file=sys.stderr)
+        for reason in refused:
+            print(f"- {reason}", file=sys.stderr)
+        return 2
     report = run_report(
         ns.dataset,
         call=local_call(),

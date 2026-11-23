@@ -525,6 +525,28 @@ def test_the_staged_log_must_extend_the_committed_one(tmp_path: Path) -> None:
     assert problems and any("first-fit log" in p for p in problems)
 
 
+def test_an_edited_committed_log_row_is_refused(tmp_path: Path) -> None:
+    """A1 (added for a surviving mutant): an edited row, with every submission and output intact,
+    is refused by the extension check alone."""
+    rs = _r83()
+    root = _repo(tmp_path, logged=True, staged="clean\n")
+    _fit_file(root, _record())
+    _git(root, "commit", "-q", "-m", "a logged fit")
+    edited = _ledger(_submission()).replace(FREEZE_ROW, FREEZE_ROW.replace("09:00Z", "09:30Z"))
+    (root / LEDGER_REL).write_text(edited, encoding="utf-8")
+    _git(root, "add", str(LEDGER_REL))
+    assert any("drops or changes a committed row" in p for p in rs.check_staged(root))
+
+
+def test_a_record_at_another_revision_than_its_submission_is_refused(tmp_path: Path) -> None:
+    """A2 (added for a surviving mutant): the logged submission is bound, but the record's own
+    revision differs."""
+    rs = _r83()
+    root = _root(tmp_path, logged=True)
+    _fit_file(root, {**_record(), "protocol_sha256": "0" * 64})
+    assert rs.fit_tier(root).problems
+
+
 def test_the_decision_11_entry_point_runs_the_full_check() -> None:
     """The operator's command (pytest -k no_restricted_value_is_in_a_tracked_blob) runs the whole
     staged check, fit tier included."""

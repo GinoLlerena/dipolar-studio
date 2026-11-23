@@ -269,7 +269,9 @@ def test_the_command_fits_a_committed_authorized_submission(
     syn = Synthetic(tmp_path, BENZENE, truths=truths)
     _committed_ledger(tmp_path, _with_rows(FREEZE, _submission_row("2026-11-25T10:00Z", protocol=syn.protocol)))
     assert _command(tmp_path, monkeypatch, v, syn, v.local_call()) == 0
-    record = json.loads((tmp_path / "datasets-local/verification" / f"{BENZENE}.fit-values.json").read_text())
+    record = json.loads(
+        (tmp_path / "datasets-local/verification" / f"{BENZENE}.fit-values.json").read_text(encoding="utf-8")
+    )
     assert record["submission"] == {
         "dataset": BENZENE,
         "runner": "owner",

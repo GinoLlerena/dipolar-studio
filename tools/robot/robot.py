@@ -78,6 +78,12 @@ on synthetic couplings with a known answer (``datasets/biphenyl-synthetic/jump4_
    agent), then ``run.get``; the report carries the decided proposal, the job, the run record and
    the complete result under ``jump4``.
 
+The robot reads only the ``robot`` and ``agent`` credentials from the ready file, and never
+accepts a proposal: the server refuses acceptance from both, and the robot checks that the user
+decided. The ready file also holds the user's credential, so a process that can read it could act
+as the user. That is the local trust boundary of ``dipolar serve``: the file is private to the
+user who started the server (round 83, B2).
+
     python -I tools/robot/robot.py --ready-file DIR/serve.ready.json --scenario jump4-tutorial \
         --csv datasets/biphenyl-synthetic/jump4-couplings.csv
 
