@@ -12,7 +12,13 @@ The comparison follows the plan's frozen procedure: verify the inputs against th
 hashes and bind them to the frozen roster; fit one condition at a time through the registry's
 fixed-geometry path; convert to the paper's frame with the full covariance; classify with P-2's
 gating (``pr.classify_gated``) and aggregate with ``pr.dataset_report``. The authors'
-analysis track stays pending until its four inputs are documented (V0.3 §6).
+analysis track (round 83, A4) follows the owner's local method-evidence record
+(``evidence.method``): with all four inputs documented, a reproduction; with the geometry but not
+the objective or the weights, the frozen 1/σ² fallback under its own label; otherwise, and without
+a record, pending. Its fit uses the authors' radii and the applied weights, its margins are the
+printed token's (``pl.table_margin``) or 2p (``pl.figure_margin``), and P-2 and rank precedence
+apply to it as to the independent track. A disagreement in either track counts as reviewed only
+through file-backed evidence (``evidence.review_coverage``, A5).
 
 The first-fit gate: ``run_report`` refuses to fit without the owner's submission record for this
 dataset at this protocol revision, made before the submission (V1.5a).
@@ -23,7 +29,21 @@ Run by the owner, on the owner's machine (it prints only the shared output)::
         --submission datasets-local/benzene-taggar2006-targets/submission.json \\
         [--receipt datasets-local/benzene-taggar2006-targets/spot-check-receipt.json] \\
         [--reviews datasets-local/benzene-taggar2006-targets/reviews.json] \\
+        [--method datasets-local/benzene-taggar2006-targets/method-evidence.json] \\
         --out datasets-local/benzene-taggar2006-targets/verification-v1.5.md
+
+The two optional owner-local inputs (round 83; ``evidence.py`` has the rules):
+
+- ``--method``: ``{"dataset", "protocol_sha256", "documented": [...], "geometry":
+  {"r_cc_angstrom", "r_ch_angstrom"} | null, "objective": "least squares" | null, "weights":
+  "1/sigma^2" | "uniform" | null, "corrections": [] | null, "sources": {input: where it is
+  documented}}``. An input is given exactly when it is documented.
+- ``--reviews``: ``{"annex": [ref, ...], "receipts": [ref, ...]}``. Each ref is the review key
+  (dataset, track, condition, component, protocol_sha256) plus ``path`` and ``sha256`` of a file
+  under ``datasets-local/``. The annex file is the key plus ``"kind": "annex"`` and a non-empty
+  ``entry``. The receipt file is the key plus ``"kind": "review receipt"``, a ``reviewer``, and
+  ``public_entry``: the reviewed public entry's ``path`` (outside ``datasets-local/``),
+  ``sha256`` and ``heading`` (a whole line of that file).
 """
 
 from __future__ import annotations
@@ -42,9 +62,11 @@ from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+import evidence as ev
 import first_fit_log as ffl
 import numpy as np
 import prereg as pr
@@ -422,7 +444,7 @@ _V1_NAMES = ("Szz", "Sxx-Syy")
 #: s5 = b / ORTHO_SCALE: the named components' scale in the orthonormal basis b (V0.3 §3, J).
 _J = (1 / math.sqrt(1.5), math.sqrt(2.0))
 REPORT_SUBMISSION_FIELDS = frozenset({"dataset", "runner", "at", "release_or_commit", "protocol_sha256"})
-REVIEW_KEY_FIELDS = ("dataset", "track", "condition", "component", "protocol_sha256")
+REVIEW_KEY_FIELDS = ev.KEY_FIELDS
 UNAVAILABLE, BLOCKED, COMPLETE = "local evidence unavailable", "blocked", "complete"
 
 
@@ -579,6 +601,35 @@ def read_targets(
     if set(out) != set(roster):
         raise ValueError(f"{rel}: the target cells are not the frozen roster")
     return {k: out[k] for k in roster}
+
+
+_TOKEN_VALUE = re.compile(r"\s*([-\u2212]?\d+\.\d+)")
+
+
+def reproduction_targets(
+    dataset: str, *, prereg: Mapping[str, Any], root: Path
+) -> dict[tuple[str, str], tuple[float, float | None] | None]:
+    """(condition, estimand) → (value, reproduction margin), or None for a pending target (V0.3
+    §6; round 83, A4). A table's margin is its printed token's (``pl.table_margin``; None without
+    a printed σ), and the token must print the target's value; a figure's is 2p."""
+    targets = read_targets(dataset, prereg=prereg, root=root)
+    if prereg["datasets"][dataset]["targets"]["form"] != "table":
+        return {k: None if t is None else (t[0], pl.figure_margin(t[1])) for k, t in targets.items()}
+    rel, rows = _verified_rows(dataset, "targets", prereg, root)
+    a, b = _condition_columns(dataset, prereg)
+    _columns(rows, rel, ("S_zz_token",))
+    out: dict[tuple[str, str], tuple[float, float | None] | None] = {}
+    for n, row in enumerate(rows, start=2):
+        k = (f"{row[a]}/{row[b]}", "S_zz")
+        token, target = row["S_zz_token"], targets[k]
+        if target is None:
+            out[k] = None
+            continue
+        m = _TOKEN_VALUE.match(token)
+        if m is None or Decimal(m.group(1).replace("\u2212", "-")) != Decimal(row["S_zz"].strip()):
+            raise ValueError(f"{rel}:{n}: the printed token does not print the target's value")
+        out[k] = (target[0], pl.table_margin(token))
+    return {k: out[k] for k in targets}
 
 
 # ---------------------------------------------------------------- geometry and the fit
@@ -779,29 +830,66 @@ def independent_cells(
     return cells
 
 
-def _review_key(entry: Mapping[str, Any]) -> tuple[str, ...]:
-    return tuple(str(entry[f]) for f in REVIEW_KEY_FIELDS)
-
-
 def review_coverage(
-    disagreeing: Iterable[Mapping[str, Any]], annex: Iterable[Mapping[str, Any]], receipts: Iterable[Mapping[str, Any]]
+    disagreeing: Iterable[Mapping[str, Any]],
+    annex: Iterable[object],
+    receipts: Iterable[object],
+    *,
+    root: Path,
 ) -> list[str]:
     """Exact one-to-one coverage of the disagreeing (dataset, track, condition, component,
-    protocol) keys by the local annex and by the linked public review receipts: missing,
-    duplicate, stale or unrelated entries, and entries with other fields, are problems."""
-    want = {_review_key(k) for k in disagreeing}
-    problems = []
-    for name, entries in (("annex", list(annex)), ("receipts", list(receipts))):
-        if any(set(e) != set(REVIEW_KEY_FIELDS) for e in entries):
-            problems.append(f"{name}: an entry with fields other than {list(REVIEW_KEY_FIELDS)}")
-            continue
-        counts = Counter(_review_key(e) for e in entries)
-        problems += [f"{name}: {k[2]} {k[3]} ({k[1]}) is listed twice" for k, n in counts.items() if n > 1]
-        problems += [f"{name}: no entry for {k[2]} {k[3]} ({k[1]})" for k in sorted(want - set(counts))]
-        problems += [
-            f"{name}: {k[2]} {k[3]} ({k[1]}) is stale or not a disagreement" for k in sorted(set(counts) - want)
-        ]
-    return problems
+    protocol) keys by file-backed annex and review-receipt references (``evidence``; round 83,
+    A5): matching keys alone are not a review."""
+    return ev.review_coverage(disagreeing, annex, receipts, root=root)
+
+
+def authors_fit(
+    call: Call,
+    dataset: str,
+    p: Mapping[str, Any],
+    observations: Mapping[str, tuple[float, float]],
+    m: ev.Method,
+) -> dict[str, Any]:
+    """One condition's fit for the authors'-analysis track: the authors' radii in the protocol's
+    shape, and the applied weights (uniform weights enter as σ = 1 Hz for every coupling)."""
+    if m.mode == "pending" or m.geometry is None:
+        raise ValueError("no authors' analysis for a pending track")
+    authors = {**p, "geometry": {**p["geometry"], **m.geometry}}
+    if m.weights == "uniform":
+        observations = {orbit: (value, 1.0) for orbit, (value, _) in observations.items()}
+    return fit_condition(call, dataset, authors, observations)
+
+
+def reproduction_cells(
+    dataset: str,
+    p: Mapping[str, Any],
+    m: ev.Method,
+    fits: Mapping[str, PaperFit],
+    targets: Mapping[tuple[str, str], tuple[float, float | None] | None],
+    *,
+    receipt: Mapping[str, str] | None,
+    reviewed: Iterable[tuple[str, str]] = (),
+) -> list[pl.Cell]:
+    """The authors'-analysis cells in roster order (V0.3 §6), with P-2 applied first: until the
+    spot-check is signed, every target is withheld (``no-target``); ``inputs-undocumented`` and
+    then ``rank-unverified`` keep their precedence."""
+    signed = pr.spot_check_signed(dataset, dict(receipt) if receipt is not None else None, dict(p))
+    done = set(reviewed)
+    cells = []
+    for condition, component in _roster_of(dataset, p, targets):
+        fit = fits.get(condition)
+        cells.append(
+            pl.classify_reproduction(
+                condition,
+                component,
+                mode=m.mode,
+                rank_verified=fit is not None and fit.rank_verified,
+                s=None if fit is None else fit.estimates.get(component),
+                target=targets[(condition, component)] if signed else None,
+                reviewed=(condition, component) in done,
+            )
+        )
+    return cells
 
 
 def _check_submission(submission: object, dataset: str, protocol: str) -> dict[str, Any]:
@@ -849,6 +937,54 @@ def _cell_detail(
     return out
 
 
+def _reproduction_detail(
+    cell: pl.Cell, fit: PaperFit | None, target: tuple[float, float | None] | None, signed: bool
+) -> dict[str, Any]:
+    """The local record of an authors'-analysis cell: the fit, and while the spot-check is signed
+    the target, its margin and the signed discrepancy."""
+    s = None if fit is None else fit.estimates.get(cell.component)
+    out: dict[str, Any] = {
+        "condition": cell.condition,
+        "component": cell.component,
+        "status": cell.status,
+        "reason": cell.reason,
+        "reviewed": cell.reviewed,
+        "fit": s,
+        "target": None,
+        "margin": None,
+        "discrepancy": None,
+    }
+    if target is not None and signed:
+        out.update(target=target[0], margin=target[1])
+        if s is not None:
+            out["discrepancy"] = s - target[0]
+    return out
+
+
+def _diagnostics(f: PaperFit, result: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "rank_verified": f.rank_verified,
+        "estimates": dict(f.estimates),
+        "se": dict(f.se) if f.se is not None else None,
+        "scaled_se": dict(f.scaled_se) if f.scaled_se is not None else None,
+        "covariance": f.covariance,
+        "chi2": f.chi2,
+        "nu": f.nu,
+        "p_value": f.p_value,
+        "adequacy": f.adequacy,
+        "ratio_residuals": list(f.ratio_residuals),
+        "provenance": _provenance(result),
+    }
+
+
+def _disagreeing(cells: Iterable[pl.Cell], dataset: str, track: str, protocol: str) -> list[dict[str, str]]:
+    return [
+        dict(zip(REVIEW_KEY_FIELDS, (dataset, track, c.condition, c.component, protocol), strict=True))
+        for c in cells
+        if c.status == "disagrees"
+    ]
+
+
 def run_report(
     dataset: str,
     *,
@@ -858,10 +994,11 @@ def run_report(
     submission: Mapping[str, Any] | None,
     receipt: Mapping[str, str] | None = None,
     reviews: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
+    method: object = None,
 ) -> dict[str, Any]:
     """The local report of one dataset. Absent inputs: ``local evidence unavailable``; changed or
-    malformed inputs, or a protocol that fails its closed schema or ``prereg.validate``:
-    ``blocked``; neither fits anything nor makes a label. The command (``main``) runs it only for
+    malformed inputs, a malformed method record, or a protocol that fails its closed schema or
+    ``prereg.validate``: ``blocked``; neither fits anything nor makes a label. The command (``main``) runs it only for
     a submission that ``authorize`` accepts against the committed first-fit log (round 83, A1);
     any other caller is responsible for the same check."""
     p = dict(prereg)
@@ -871,6 +1008,9 @@ def run_report(
     invalid = check_protocol(p)  # round 83 (A6): before anything is read or fitted
     if invalid:
         return {**base, "status": BLOCKED, "problems": invalid}
+    m, method_problems = ev.method(method, dataset=dataset, protocol=protocol)  # round 83 (A4)
+    if method_problems:
+        return {**base, "status": BLOCKED, "problems": method_problems}
     missing = [rel for rel in _paths(dataset, p).values() if not (root / rel).is_file()]
     if missing:
         return {**base, "status": UNAVAILABLE, "missing": missing}
@@ -880,30 +1020,33 @@ def run_report(
     try:
         observed = read_couplings(dataset, prereg=p, root=root)
         targets = read_targets(dataset, prereg=p, root=root)
+        authors_targets = (
+            reproduction_targets(dataset, prereg=p, root=root) if m.mode != "pending" else dict.fromkeys(targets)
+        )
     except ValueError as exc:
         return {**base, "status": BLOCKED, "problems": [str(exc)]}
 
     results = {condition: fit_condition(call, dataset, p, obs) for condition, obs in observed.items()}
     fits = {condition: paper_fit(dataset, p, result) for condition, result in results.items()}
+    authors_results = (
+        {c: authors_fit(call, dataset, p, obs, m) for c, obs in observed.items()} if m.mode != "pending" else {}
+    )
+    authors = {c: paper_fit(dataset, p, result) for c, result in authors_results.items()}
     first = independent_cells(dataset, p, fits, targets, receipt=receipt)
-    disagreeing = [
-        dict(zip(REVIEW_KEY_FIELDS, (dataset, "independent", c.condition, c.component, protocol), strict=True))
-        for c in first
-        if c.status == "disagrees"
-    ]
+    first_r = reproduction_cells(dataset, p, m, authors, authors_targets, receipt=receipt)
+    disagreeing = _disagreeing(first, dataset, "independent", protocol)
+    disagreeing += _disagreeing(first_r, dataset, "reproduction", protocol)
     review_problems: list[str] = []
     if disagreeing or reviews:
         review_problems = review_coverage(
-            disagreeing, (reviews or {}).get("annex", []), (reviews or {}).get("receipts", [])
+            disagreeing, (reviews or {}).get("annex", []), (reviews or {}).get("receipts", []), root=root
         )
-    reviewed = [] if review_problems else [(k["condition"], k["component"]) for k in disagreeing]
-    independent = independent_cells(dataset, p, fits, targets, receipt=receipt, reviewed=reviewed)
-    reproduction = [
-        pl.classify_reproduction(
-            c, e, mode="pending", rank_verified=fits[c].rank_verified, s=fits[c].estimates.get(e), target=None
-        )
-        for c, e in _roster_of(dataset, p, targets)
-    ]
+    done = [] if review_problems else disagreeing
+    reviewed = {t: [(k["condition"], k["component"]) for k in done if k["track"] == t] for t in TRACKS}
+    independent = independent_cells(dataset, p, fits, targets, receipt=receipt, reviewed=reviewed["independent"])
+    reproduction = reproduction_cells(
+        dataset, p, m, authors, authors_targets, receipt=receipt, reviewed=reviewed["reproduction"]
+    )
     signed = pr.spot_check_signed(dataset, dict(receipt) if receipt is not None else None, p)
     shown = targets if signed else dict.fromkeys(targets)
     return {
@@ -916,7 +1059,14 @@ def run_report(
         },
         "track_labels": {
             "independent": p["criteria"]["independent"]["label"],
-            "reproduction": pl.reproduction_track_label("pending"),
+            "reproduction": pl.reproduction_track_label(m.mode),
+        },
+        "reproduction": {
+            "mode": m.mode,
+            "documented": list(m.documented),
+            "geometry": dict(m.geometry) if m.geometry is not None else None,
+            "weights": m.weights,
+            "sources": dict(m.sources),
         },
         "cells": {
             "independent": [
@@ -924,26 +1074,12 @@ def run_report(
                 for c in independent
             ],
             "reproduction": [
-                {"condition": c.condition, "component": c.component, "status": c.status, "reason": c.reason}
+                _reproduction_detail(c, authors.get(c.condition), authors_targets[(c.condition, c.component)], signed)
                 for c in reproduction
             ],
         },
-        "conditions": {
-            condition: {
-                "rank_verified": f.rank_verified,
-                "estimates": dict(f.estimates),
-                "se": dict(f.se) if f.se is not None else None,
-                "scaled_se": dict(f.scaled_se) if f.scaled_se is not None else None,
-                "covariance": f.covariance,
-                "chi2": f.chi2,
-                "nu": f.nu,
-                "p_value": f.p_value,
-                "adequacy": f.adequacy,
-                "ratio_residuals": list(f.ratio_residuals),
-                "provenance": _provenance(results[condition]),
-            }
-            for condition, f in fits.items()
-        },
+        "conditions": {condition: _diagnostics(f, results[condition]) for condition, f in fits.items()},
+        "reproduction_conditions": {c: _diagnostics(f, authors_results[c]) for c, f in authors.items()},
         "provenance": {"flags": p["datasets"][dataset]["flags"], "versions": _versions()},
         "notes": pr.label_notes(dataset, receipt=dict(receipt) if receipt is not None else None, prereg=p),
         "review_problems": review_problems,
@@ -1118,6 +1254,15 @@ def write_local(report: Mapping[str, Any], path: Path, *, root: Path) -> Path:
         lines += ["", "## Conditions (conditional on σ as printed; not part of any label)", ""]
         for condition, c in report["conditions"].items():
             lines.append(f"- {condition}: " + json.dumps(c, sort_keys=True, default=str))
+        lines += ["", f"## Cells ({report['track_labels']['reproduction']})", ""]
+        lines.append(f"- Method: {json.dumps(report['reproduction'], sort_keys=True, ensure_ascii=False)}")
+        heads = ["condition", "component", "status", "reason", "reviewed", "target", "margin", "fit", "discrepancy"]
+        lines += ["", "| " + " | ".join(heads) + " |", "|" + "---|" * len(heads)]
+        lines += ["| " + " | ".join(_md(c[h]) for h in heads) + " |" for c in report["cells"]["reproduction"]]
+        if report["reproduction_conditions"]:
+            lines += ["", "## Conditions of the authors' analysis (not part of any label)", ""]
+            for condition, c in report["reproduction_conditions"].items():
+                lines.append(f"- {condition}: " + json.dumps(c, sort_keys=True, default=str))
     return _write_local_text(path, root, "\n".join(lines) + "\n")
 
 
@@ -1141,6 +1286,23 @@ def fit_values(report: Mapping[str, Any]) -> dict[str, Any]:
         {"condition": c["condition"], "component": c["component"], "quantity": "discrepancy", "value": float(d)}
         for c in report["cells"]["independent"]
         if (d := c["discrepancy"]) is not None
+    ]
+    # Round 83 (A4): the authors'-analysis fits and discrepancies are scanned too.
+    values += [
+        {"condition": condition, "component": component, "quantity": "reproduction estimate", "value": float(x)}
+        for condition, f in report.get("reproduction_conditions", {}).items()
+        for component, x in f["estimates"].items()
+        if x is not None
+    ]
+    values += [
+        {
+            "condition": c["condition"],
+            "component": c["component"],
+            "quantity": "reproduction discrepancy",
+            "value": float(d),
+        }
+        for c in report["cells"].get("reproduction", [])
+        if (d := c.get("discrepancy")) is not None
     ]
     return {
         "dataset": report["dataset"],
@@ -1184,7 +1346,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--dataset", required=True, choices=DATASETS)
     parser.add_argument("--submission", required=True, help="the first-fit record (JSON; 'at' as ISO UTC)")
     parser.add_argument("--receipt", help="the signed spot-check receipt (JSON)")
-    parser.add_argument("--reviews", help="the review keys: {'annex': [...], 'receipts': [...]} (JSON)")
+    parser.add_argument(
+        "--reviews", help="the review references: {'annex': [...], 'receipts': [...]}, each key + path + sha256 (JSON)"
+    )
+    parser.add_argument("--method", help="the method-evidence record of the authors' analysis (JSON)")
     parser.add_argument("--out", required=True, help="the local detail, under datasets-local/")
     ns = parser.parse_args(argv)
     root = pr.ROOT
@@ -1210,6 +1375,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         submission=submission,
         receipt=_load_json(ns.receipt),
         reviews=_load_json(ns.reviews),
+        method=_load_json(ns.method),
     )
     write_local(report, out, root=root)
     if report["status"] == COMPLETE:

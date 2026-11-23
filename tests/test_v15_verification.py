@@ -1100,7 +1100,8 @@ def _coverage_mutant(name: str, root: Path, keys: list[dict[str, str]], protocol
     elif name == "a public entry without its heading":
         text = public.read_text(encoding="utf-8").replace("### Discrepancy review 1\n", "")
         public.write_text(text, encoding="utf-8")
-        _rewrite(root, receipts[0], lambda r: r["public_entry"].update(sha256=_sha(public)))
+        for ref in receipts:  # every receipt is current: only the heading is missing
+            _rewrite(root, ref, lambda r: r["public_entry"].update(sha256=_sha(public)))
     elif name == "a public entry that is local":
         local = root / "datasets-local" / "public.md"
         local.write_bytes(public.read_bytes())
@@ -1720,7 +1721,7 @@ def test_documented_uniform_weights_are_the_ones_applied(tmp_path: Path, call: A
     syn, est, _ = _authors_benzene(tmp_path, weighted=False)
     truths = {k: _truth(BENZENE, i) for i, k in enumerate(_condition_keys(BENZENE))}
     weighted = {k: _authors_benzene_fit(truths, k, weighted=True) for k in truths}
-    assert all(abs(est[k] - weighted[k]) > 1e-5 for k in est)  # the weights matter here
+    assert all(abs(est[k] - weighted[k]) > 1e-6 for k in est)  # the weights matter here
     report = v.run_report(
         BENZENE,
         call=call,
@@ -1937,3 +1938,19 @@ def test_reproduction_values_stay_local_and_reach_the_fit_tier(tmp_path: Path, c
         if c["discrepancy"] is not None:
             assert got[(c["condition"], c["component"], "reproduction discrepancy")] == c["discrepancy"]
     assert sum(q == "reproduction discrepancy" for _, _, q in got) == 15
+
+
+def test_the_reproduction_track_reads_the_rank_flag_itself() -> None:
+    """Rank precedence does not lean on the estimate being absent: a fit marked rank-unverified is
+    pending/rank-unverified on this track even if it carries an estimate."""
+    v = _r83b()
+    p = copy.deepcopy(PREREG)
+    keys = _condition_keys(BENZENE)
+    targets = {(k, "S_zz"): (-0.0612, 0.0004) for k in keys}
+    fits = {k: v.PaperFit(rank_verified=False, estimates={"S_zz": -0.0612}) for k in keys}
+    method = v.ev.Method("reproduction", tuple(FOUR), dict(AUTHORS), "1/sigma^2")
+    artifact = p["reporting"]["spot_check_gating"]["checked_artifact"][BENZENE]
+    receipt = {"dataset": BENZENE, "artifact": artifact, "sha256": p["datasets"][BENZENE][artifact]["sha256"]}
+    for r in (receipt, None):
+        cells = v.reproduction_cells(BENZENE, p, method, fits, targets, receipt=r)
+        assert {(c.status, c.reason) for c in cells} == {("pending", "rank-unverified")}

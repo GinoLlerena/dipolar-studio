@@ -224,7 +224,10 @@ FIT_TIER_SINCE = "2026-11-23T14:30Z"
 LEDGER = "docs/phase2/verification/gates.md"
 FIRST_FIT_FIELD = "| First experimental fit submission ("
 FIT_DATASETS = ("benzene-taggar2006", "odcb-chandrakumar1993")
-FIT_QUANTITIES = ("estimate", "discrepancy")
+FIT_QUANTITIES = ("estimate", "discrepancy", "reproduction estimate", "reproduction discrepancy")
+#: (estimate, discrepancy) per track; the authors'-analysis pair is present only when that track
+#: was fitted (round 83, A4).
+_TRACK_QUANTITIES = (("estimate", "discrepancy", True), ("reproduction estimate", "reproduction discrepancy", False))
 FIT_ENTRY_FIELDS = frozenset({"condition", "component", "quantity", "value"})
 FIT_RECORD_FIELDS = frozenset({"dataset", "protocol_sha256", "submission", "values"})
 PREREG = "docs/phase2/v0.3-preregistration.json"
@@ -317,22 +320,25 @@ def _expected_name(name: str, retained: bool) -> str | None:
 
 def _coverage(entries: list[dict[str, Any]], roster: tuple[int, tuple[str, ...]] | None) -> list[str]:
     """Value-free coverage problems: one estimate for every roster cell, no repeats, and a
-    discrepancy only for an estimated cell."""
-    keys = [(e["condition"], e["component"]) for e in entries if e.get("quantity") == "estimate"]
-    gaps = [(e["condition"], e["component"]) for e in entries if e.get("quantity") == "discrepancy"]
+    discrepancy only for an estimated cell; the same for the authors'-analysis values, when there
+    are any (round 83, A4)."""
     problems = []
-    if len(set(keys)) != len(keys) or len(set(gaps)) != len(gaps):
-        problems.append("a cell is repeated")
-    if not set(gaps) <= set(keys):
-        problems.append("a discrepancy has no estimate")
-    if roster is None:
-        return problems
-    conditions, estimands = roster
-    by_condition: dict[str, set[str]] = {}
-    for condition, component in keys:
-        by_condition.setdefault(condition, set()).add(component)
-    if len(by_condition) != conditions or any(c != set(estimands) for c in by_condition.values()):
-        problems.append("the estimates do not cover the roster exactly")
+    for estimate, discrepancy, required in _TRACK_QUANTITIES:
+        keys = [(e["condition"], e["component"]) for e in entries if e.get("quantity") == estimate]
+        gaps = [(e["condition"], e["component"]) for e in entries if e.get("quantity") == discrepancy]
+        label = "" if required else "authors'-analysis "
+        if len(set(keys)) != len(keys) or len(set(gaps)) != len(gaps):
+            problems.append(f"an {label}cell is repeated" if label else "a cell is repeated")
+        if not set(gaps) <= set(keys):
+            problems.append(f"an {label}discrepancy has no estimate" if label else "a discrepancy has no estimate")
+        if roster is None or not (required or keys):
+            continue
+        conditions, estimands = roster
+        by_condition: dict[str, set[str]] = {}
+        for condition, component in keys:
+            by_condition.setdefault(condition, set()).add(component)
+        if len(by_condition) != conditions or any(c != set(estimands) for c in by_condition.values()):
+            problems.append(f"the {label}estimates do not cover the roster exactly")
     return problems
 
 

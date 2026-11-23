@@ -83,6 +83,11 @@ synthetic datasets) is fitted, by the owner, by every agent and by any participa
 - Append the `freeze approved` row to the first-fit log (§10) when the gates are frozen, then
   log each submission there, and commit it, before running it (round 83, A1). The runner
   authorizes no fit before that.
+- If the library requests succeed, write each dataset's method-evidence record under
+  `datasets-local/` (`verification.py --method`, round 83, A4), naming where the source documents
+  each input. Without it the authors'-analysis track stays pending.
+- For each disagreeing cell, write its annex entry and review receipt under `datasets-local/` and
+  pass their references with `--reviews` (round 83, A5).
 
 ## 5. Frozen gates
 
@@ -124,6 +129,7 @@ restricted-fit scan tier.
 | 2026-11-23T14:44Z | `51a4b9b4c2188839586ec248106bd8a01312fe69` (commit `1ad0fd4`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-23T15:15Z | `0b79bdfebd5e1db1e3b91380b7188f0ce147c713` (commit `f2ef4d0`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-23T15:30Z | `0eda6177587680bb29bb4efc7bf4c0372eeda034` (commit `0ab5e5e`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-23T19:27Z | `9cfb4bdda7e45398ae2f3becc2c9bbe615020707` (commit `45f54a8`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -233,6 +239,33 @@ row is appended here in the next commit.
   Added to `tests/test_v15_fit_tier.py`: the scan covers the reproduction values, roster-exact.
   These tests xfail while `tools/validation/evidence.py` is absent. The amendment strengthens the
   frozen gate. It removes no case that the gate rejected before.
+
+- **2026-11-23, round 83 fixes (A4, A5).**
+  - **A4.** `tools/validation/evidence.py` reads the owner-local method-evidence record
+    (`verification.py --method`). It refuses, before any fit, a record that is not for this
+    dataset and revision, or that this runner cannot express: the authors' geometry is the
+    protocol's shape with the authors' two radii, the objective is least squares, the weights are
+    1/σ² or uniform, and the corrections are an empty list. `run_report` fits the authors'
+    analysis only in `reproduction` or `fallback` mode (the fallback always uses 1/σ²). The
+    margins come from the printed token of the hash-verified targets file, which must print the
+    target's value, or are 2p. P-2 and rank precedence apply on this track. Its disagreements
+    join the review keys, and its fits and discrepancies enter the local report and the
+    fit-values record. The scan requires roster-exact coverage of those values when present.
+  - **A5.** A disagreement counts as reviewed only when each key has one annex reference and one
+    receipt reference. The annex reference must reach an existing, current annex entry under
+    `datasets-local/`. The receipt reference must reach a local receipt that links the reviewed
+    public entry (outside `datasets-local/`) by path, SHA-256 and a heading line. Every file must
+    be bound to the key and reached through no link.
+
+  One gate test was corrected after the gate commit: the uniform-weights test required the
+  weighted and uniform estimates to differ by more than 1e-5, but they differ by 9.8e-6. The
+  bound is now 1e-6, which is still about 10⁵ times the test's 1e-9 relative tolerance, so the
+  test still distinguishes the weights.
+  Mutation testing then caught 24 of 26 mutants. Two tests were added or strengthened for the
+  survivors. First, a fit marked rank-unverified but still carrying an estimate must stay
+  `rank-unverified` on the reproduction track. Sol's round 83 survivor ("passed gated targets
+  and ignored rank") is caught in both parts. Second, the missing-heading mutant now refreshes
+  every receipt's public hash, so only the heading is wrong. All 26 mutants are then caught.
 
 ## 7. Exit matrix
 
