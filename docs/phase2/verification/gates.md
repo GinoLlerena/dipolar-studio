@@ -115,6 +115,7 @@ restricted-fit scan tier.
 | 2026-11-22T17:22Z | `31cd0fe992daba9e652d7d0fbdd52fa863c4db34` (commit `1382313`) | passed, not skipped | Claude |
 | 2026-11-22T20:32Z | `491ac4dfdaaebc5a916e135cf4a11381f387a1e8` (commit `5b219c4`) | passed, not skipped | Claude |
 | 2026-11-22T22:16Z | `21e153040a21075f1627543d70a9178cc2dbc0d9` (commit `0795f47`) | passed, not skipped | Claude |
+| 2026-11-22T22:33Z | `056b50b005c3c51025562a0f2e220781d154bb69` (commit `1654d64`) | passed, not skipped | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -154,6 +155,19 @@ row is appended here in the next commit.
     declaration do not depend on chlorine.
   No experimental coupling has been fitted. Every V1.5b test uses synthetic files under a
   temporary root.
+
+- **2026-11-23, V1.5b part 2 gates frozen (for review).** Before their implementation:
+  - **The restricted-fit scan tier** (`tests/test_v15_fit_tier.py`). Its source is the report
+    workflow's full-precision fit values in `datasets-local/verification/<dataset>.fit-values.json`.
+    The declared variants: each value as written and at 4–8 significant digits (half-up,
+    half-even, truncated) in any path, and at 3 significant digits in the Phase 2 and validation
+    docs. The §3 first-fit row decides when it is required: `pre-result` while that row is
+    `empty` and no local fit output exists, `results` after. Its problems are value-free. From
+    the implementation on, each scan row below records the tier's status.
+  - **The four-site-jump robot tutorial** (`packages/dipolar-app/tests/test_app_v15_jump4.py`).
+    Synthetic jump4 couplings with a known answer. The agent proposes, a human accepts, the robot
+    waits and reports the complete `run.get` result. A rejection or no decision ends it without
+    a fit.
 
 ## 7. Exit matrix
 
