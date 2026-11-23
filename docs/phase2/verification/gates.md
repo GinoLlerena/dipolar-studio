@@ -131,6 +131,7 @@ restricted-fit scan tier.
 | 2026-11-23T15:30Z | `0eda6177587680bb29bb4efc7bf4c0372eeda034` (commit `0ab5e5e`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-23T19:27Z | `9cfb4bdda7e45398ae2f3becc2c9bbe615020707` (commit `45f54a8`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-23T20:03Z | `3caa4572f249c978e7fc0dcf2dda65feedb58f4f` (commit `e74081d`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-23T20:12Z | `9e47637cf8d4f598b2556ae4f7350f38a1c438b1` (commit `35c0f9f`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -272,6 +273,62 @@ row is appended here in the next commit.
   `docs/validation/round84-v1.5b-review.md`. Under the review process the owner decides how to
   proceed before any merge. Until then PR #28 is not merged, and no fit is authorized: §10 has no
   `freeze approved` row.
+  - **Owner decision (2026-11-23T20:15Z, in chat): "Fix all six, scoped Sol check".** Session S6c
+    freezes regression tests for A1–A6, then fixes them per the dispositions. Then one more Sol
+    round (round 85) reviews only those six fixes. This round is an owner-authorized exception
+    to the two-round cap. PR #28 merges only if round 85 is READY; otherwise the owner decides
+    again.
+
+- **2026-11-23, round 84 gates frozen (A1–A6).** These tests xfail while
+  `tools/validation/fit_record.py` is absent.
+  - **A1.** `run_report` refuses with a `PermissionError`, before it reads or fits anything, when
+    the submission is not authorized. It checks against the first-fit log committed in its own
+    root, at the runner's clock. Refused cases:
+    - no committed ledger;
+    - logged in the working copy only;
+    - an agent runner;
+    - a submission at the freeze instant;
+    - a future time;
+    - another release.
+
+    The scan requires an output only for a submission in the committed (`HEAD`) log. The commit
+    that logs a submission therefore passes, and the next commit needs that submission's
+    output. An end-to-end test logs, commits, runs and reruns.
+
+    To test the runner's own check, each synthetic root that is fitted now holds a committed
+    synthetic ledger with its logged submissions (`Synthetic.logged`). The runner's clock is
+    fixed just after the synthetic submission time.
+  - **A2.** The fit-values record declares every cell of the frozen roster on both tracks: an
+    estimate and a discrepancy, each as a value or as the cell's pending reason. The roster is
+    the condition set of the hash-verified couplings, so the scan reads the couplings through
+    the preregistration copy. The record is refused for:
+    - an invented condition;
+    - any undeclared quantity;
+    - both or neither of a value and a reason;
+    - an unknown reason;
+    - a discrepancy value without an estimate value;
+    - an independent estimate declared undocumented;
+    - a reproduction track that is only partly pending.
+  - **A3.** The scan prints no unexpected file name, even one made only of safe characters, in
+    the tier's problems or on the command's output.
+  - **A4.** A rank-pending cell, on either track, is declared `rank-unverified` and passes the
+    scan.
+  - **A5.**
+    - An annex entry holds the plan's six fields (procedure 6): frame and convention, geometry,
+      vibrational corrections, sample context, numerical comparison, and cause. Each is a
+      non-empty text, not all the same, and no two cells share all six.
+    - Each receipt links its own Markdown heading. That heading appears once in the public file
+      and has a body.
+  - **A6.** The record carries each fit's provenance: the versions, the method and each
+    condition's fit provenance per track. Each record is also one run of a chain: its run
+    number, the SHA-256 of the record it replaced, and the SHA-256 of that run's local report,
+    kept as `reports/<dataset>.<run>.md`. The scan refuses a chain where a run's output or
+    report was deleted, edited or renumbered.
+
+  Existing tests were amended to the new record format (`_record`, `_reproduced`, the workflow
+  tests), to the new annex format (every test that uses `_evidence`), and to the A1 timing (two
+  staged-check tests). These now xfail on the round 84 marker.
+  No case that the gate rejected before is removed.
 
 ## 7. Exit matrix
 

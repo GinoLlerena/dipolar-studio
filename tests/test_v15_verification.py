@@ -28,6 +28,7 @@ import importlib
 import io
 import json
 import math
+import subprocess
 import sys
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
@@ -259,6 +260,79 @@ class Synthetic:
         record.update(changes)
         return record
 
+    def logged(self, **changes: Any) -> dict[str, Any]:
+        """The submission record, logged and committed in this root's first-fit log, so the
+        runner's own authorization check accepts it (round 84, A1)."""
+        record = self.submission(**changes)
+        self.log(record)
+        return record
+
+    def log(self, record: dict[str, Any]) -> None:
+        """Append the record to this root's synthetic first-fit log and commit the ledger. A record
+        the log cannot hold (an unknown runner, a time that is not a UTC minute) is not logged."""
+        at = record.get("at")
+        if not (
+            isinstance(at, datetime)
+            and at.utcoffset() is not None
+            and not (at.second or at.microsecond)
+            and record.get("runner") in ("owner", "participant", "agent")
+            and record.get("dataset") in (BENZENE, ODCB)
+        ):
+            return
+        row = (
+            f"| {at.astimezone(UTC).strftime('%Y-%m-%dT%H:%MZ')} | submission | {record['dataset']} | "
+            f"{record['runner']} | {record['release_or_commit']} | {record['protocol_sha256']} |"
+        )
+        rows = getattr(self, "_log_rows", [])
+        if row in rows:
+            return
+        self._log_rows = [*rows, row]
+        ledger = self.root / LEDGER_REL
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        ledger.write_text(SYNTHETIC_LEDGER + "".join(f"{r}\n" for r in self._log_rows), encoding="utf-8")
+        if not (self.root / ".git").exists():
+            _git(self.root, "init", "-q")
+        _git(self.root, "add", str(LEDGER_REL))
+        _git(self.root, "commit", "-q", "-m", "first-fit log")
+
+
+# Round 84 (A1): the runner checks the authorization itself, against the ledger committed in its
+# root. Each synthetic root that is fitted holds this minimal ledger (its §3 row and its §10
+# first-fit log, with every approval before a synthetic freeze) and its logged submissions. The
+# runner's clock is fixed just after the synthetic submission time.
+LEDGER_REL = Path("docs/phase2/verification/gates.md")
+NOW = datetime(2026, 11, 25, 12, 0, tzinfo=UTC)
+SYNTHETIC_LEDGER = (
+    "# Synthetic ledger (tests only)\n\n"
+    "## 3. Chronology (first-fit gate)\n\n"
+    "| Field | Value |\n|---|---|\n"
+    "| First experimental fit submission (UTC, release or commit, protocol revision, dataset, runner role) "
+    "| empty |\n\n"
+    "## 10. First-fit log\n\n"
+    "| UTC | Event | Dataset | Runner | Release or commit | Protocol revision |\n"
+    "|---|---|---|---|---|---|\n"
+    "| 2026-11-21T14:59Z | decisions approved | — | — | — | — |\n"
+    "| 2026-11-21T15:00Z | amendments approved | — | — | — | — |\n"
+    "| 2026-11-22T14:11Z | no-fit attestation | — | — | — | — |\n"
+    "| 2026-11-24T09:00Z | freeze approved | — | — | — | — |\n"
+)
+
+
+def _git(root: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "user.name=test", "-c", "user.email=test@invalid", *args],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The runner's clock (UTC), fixed after the synthetic submissions."""
+    if VERIFICATION_PY.is_file():
+        monkeypatch.setattr(importlib.import_module("verification"), "_now", lambda: NOW)
+
 
 # --------------------------------------------------------------------- registry clients
 @pytest.fixture
@@ -357,7 +431,7 @@ def test_a_changed_input_blocks_its_comparison(tmp_path: Path, dataset: str, whi
     problems = v.check_inputs(dataset, prereg=syn.prereg, root=tmp_path)
     assert problems and any(str(path.relative_to(tmp_path)) in p for p in problems)
     report = v.run_report(
-        dataset, call=_never, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=syn.receipt()
+        dataset, call=_never, prereg=syn.prereg, root=tmp_path, submission=syn.logged(), receipt=syn.receipt()
     )
     assert report["status"] == "blocked" and "tracks" not in report and "cells" not in report
     shared = v.shared_output(report)
@@ -372,7 +446,7 @@ def test_absent_local_files_are_reported_not_certified(tmp_path: Path, dataset: 
     path = syn.couplings_path if which == "couplings" else syn.targets_path
     path.unlink()
     report = v.run_report(
-        dataset, call=_never, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=syn.receipt()
+        dataset, call=_never, prereg=syn.prereg, root=tmp_path, submission=syn.logged(), receipt=syn.receipt()
     )
     assert report["status"] == "local evidence unavailable"
     assert report["missing"] == [str(path.relative_to(tmp_path))]
@@ -445,7 +519,7 @@ def test_the_couplings_must_bind_to_the_frozen_roster_and_orbits(tmp_path: Path,
     with pytest.raises(ValueError):
         v.read_couplings(dataset, prereg=syn.prereg, root=syn.root)
     report = v.run_report(
-        dataset, call=_never, prereg=syn.prereg, root=syn.root, submission=syn.submission(), receipt=syn.receipt()
+        dataset, call=_never, prereg=syn.prereg, root=syn.root, submission=syn.logged(), receipt=syn.receipt()
     )
     assert report["status"] == "blocked" and "tracks" not in report
 
@@ -656,7 +730,7 @@ def test_targets_are_withheld_until_the_spot_check_is_signed(tmp_path: Path, dat
     v = _v()
     syn = Synthetic(tmp_path, dataset)
     roster = PREREG["datasets"][dataset]["roster_cells"]
-    gated = v.run_report(dataset, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission())
+    gated = v.run_report(dataset, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.logged())
     assert gated["status"] == "complete"
     for track in ("independent", "reproduction"):
         full = gated["tracks"][track]["full"]
@@ -668,7 +742,7 @@ def test_targets_are_withheld_until_the_spot_check_is_signed(tmp_path: Path, dat
     assert "development data, no independent holdout" in gated["notes"]
 
     signed = v.run_report(
-        dataset, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=syn.receipt()
+        dataset, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.logged(), receipt=syn.receipt()
     )
     full = signed["tracks"]["independent"]["full"]
     assert (full.name, full.compared, full.agreeing) == ("experimentally supported", roster, roster)
@@ -693,7 +767,7 @@ def test_a_receipt_that_does_not_bind_withholds_the_targets(tmp_path: Path, call
     syn = Synthetic(tmp_path, BENZENE)
     receipt = {**syn.receipt(), **bad}
     report = v.run_report(
-        BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=receipt
+        BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.logged(), receipt=receipt
     )
     assert report["tracks"]["independent"]["full"].compared == 0
 
@@ -964,18 +1038,45 @@ def _ref(root: Path, path: Path, key: dict[str, str]) -> dict[str, str]:
     return {**key, "path": path.relative_to(root).as_posix(), "sha256": _sha(path)}
 
 
+# Round 84 (A5), amended before the fix: an annex entry holds the plan's fields (procedure 6:
+# frame and observable convention, geometry, vibrational corrections, solvent and sample context,
+# numerical comparison, and the likely cause or its limits), each its own non-empty text. Each
+# receipt links its own Markdown heading, present once, with a body.
+R84_PY = ROOT / "tools" / "validation" / "fit_record.py"
+ANNEX_TEXTS = (
+    "frame_and_convention",
+    "geometry",
+    "vibrational_corrections",
+    "sample_context",
+    "numerical_comparison",
+    "cause",
+)
+
+
+def _r84() -> Any:
+    """The round 84 fixes, or an xfail while (and only while) their marker module is absent."""
+    v = _v()
+    if not R84_PY.is_file():
+        pytest.xfail("round 84: the fixes are not written yet")
+    return v
+
+
+def _annex_texts(n: int) -> dict[str, str]:
+    return {f: f"synthetic {f.replace('_', ' ')} of discrepancy {n}" for f in ANNEX_TEXTS}
+
+
 def _evidence(root: Path, keys: list[dict[str, str]]) -> dict[str, list[dict[str, str]]]:
     """Synthetic review evidence for each key: a local annex entry, and a local review receipt
     linking a heading of a value-free public README; returns the references to both."""
     headings = [f"### Discrepancy review {n}" for n in range(1, len(keys) + 1)]
     public = root / PUBLIC_ENTRY
     public.parent.mkdir(parents=True, exist_ok=True)
-    body = "".join(f"\n{h}\n\nSynthetic, value-free context.\n" for h in headings)
+    body = "".join(f"\n{h}\n\nSynthetic, value-free context of review {n}.\n" for n, h in enumerate(headings, 1))
     public.write_text("# Synthetic README\n" + body, encoding="utf-8")
     annex, receipts = [], []
     for n, (key, heading) in enumerate(zip(keys, headings, strict=True), start=1):
         a = root / "datasets-local" / "reviews" / f"annex-{n}.json"
-        _write_json(a, {**key, "kind": "annex", "entry": "a synthetic numeric annex entry"})
+        _write_json(a, {**key, "kind": "annex", **_annex_texts(n)})
         r = root / "datasets-local" / "reviews" / f"receipt-{n}.json"
         _write_json(
             r,
@@ -995,7 +1096,7 @@ def test_complete_review_coverage_explains_the_discrepancy(tmp_path: Path, call:
     """One-to-one coverage of every disagreeing key by existing, current annex entries and review
     receipts sets the review flag: an explained discrepancy, which is not validation (crosswalk:
     unresolved failure, "explained, reviewed")."""
-    v = _r83b()
+    v = _r84()
     syn, keys = _disagreeing(tmp_path, conditions=("I/314", "II/306"))
     reviews = _evidence(tmp_path, keys)
     report = v.run_report(
@@ -1003,7 +1104,7 @@ def test_complete_review_coverage_explains_the_discrepancy(tmp_path: Path, call:
         call=call,
         prereg=syn.prereg,
         root=tmp_path,
-        submission=syn.submission(),
+        submission=syn.logged(),
         receipt=syn.receipt(),
         reviews=reviews,
     )
@@ -1024,7 +1125,7 @@ def test_matching_keys_alone_are_not_a_review(tmp_path: Path, call: Any) -> None
         call=call,
         prereg=syn.prereg,
         root=tmp_path,
-        submission=syn.submission(),
+        submission=syn.logged(),
         receipt=syn.receipt(),
         reviews={"annex": keys, "receipts": keys},
     )
@@ -1077,7 +1178,7 @@ def _coverage_mutant(name: str, root: Path, keys: list[dict[str, str]], protocol
     elif name == "an annex entry at another revision":
         _rewrite(root, annex[0], lambda r: r.update(protocol_sha256="2" * 64))
     elif name == "an empty annex entry":
-        _rewrite(root, annex[0], lambda r: r.update(entry=" "))
+        _rewrite(root, annex[0], lambda r: r.update(cause=" "))
     elif name == "an annex file that is not JSON":
         path = root / annex[0]["path"]
         path.write_text("{not json", encoding="utf-8")
@@ -1121,6 +1222,29 @@ def _coverage_mutant(name: str, root: Path, keys: list[dict[str, str]], protocol
         outside.write_bytes(path.read_bytes())
         path.unlink()
         path.symlink_to(outside)
+    # Round 84 (A5): placeholders and shared headings are not a review.
+    elif name == "an annex entry without the plan's fields":
+        _rewrite(root, annex[0], lambda r: [r.pop(f) for f in ANNEX_TEXTS] and r.update(entry="placeholder"))
+    elif name == "an annex entry with one text in every field":
+        _rewrite(root, annex[0], lambda r: r.update(dict.fromkeys(ANNEX_TEXTS, "placeholder")))
+    elif name == "an annex field that is not text":
+        _rewrite(root, annex[0], lambda r: r.update(cause=["placeholder"]))
+    elif name == "two cells with the same annex texts":
+        _rewrite(root, annex[1], lambda r: r.update(_annex_texts(1)))
+    elif name == "two receipts linking one heading":
+        _rewrite(root, receipts[1], lambda r: r["public_entry"].update(heading="### Discrepancy review 1"))
+    elif name in ("a heading with no body", "a heading that is not Markdown", "a heading given twice"):
+        text = public.read_text(encoding="utf-8")
+        if name == "a heading with no body":
+            text = text.replace("Synthetic, value-free context of review 1.\n", "")
+        elif name == "a heading that is not Markdown":
+            text = text.replace("### Discrepancy review 1\n", "Discrepancy review 1\n")
+            _rewrite(root, receipts[0], lambda r: r["public_entry"].update(heading="Discrepancy review 1"))
+        else:
+            text += "\n### Discrepancy review 1\n\nMore synthetic context.\n"
+        public.write_text(text, encoding="utf-8")
+        for ref in receipts:  # every receipt is current: only the heading is wrong
+            _rewrite(root, ref, lambda r: r["public_entry"].update(sha256=_sha(public)))
     return reviews
 
 
@@ -1155,13 +1279,22 @@ COVERAGE_MUTANTS = [
     "an annex entry outside datasets-local",
     "a path that leaves the checkout",
     "a linked annex entry",
+    # Round 84 (A5).
+    "an annex entry without the plan's fields",
+    "an annex entry with one text in every field",
+    "an annex field that is not text",
+    "two cells with the same annex texts",
+    "two receipts linking one heading",
+    "a heading with no body",
+    "a heading that is not Markdown",
+    "a heading given twice",
 ]
 
 
 @pytest.mark.parametrize("name", COVERAGE_MUTANTS)
 def test_incomplete_review_evidence_leaves_the_failure_unresolved(tmp_path: Path, call: Any, name: str) -> None:
     """Missing, duplicate, stale or unbound evidence is refused, and no cell is flagged reviewed."""
-    v = _r83b()
+    v = _r84()
     syn, keys = _disagreeing(tmp_path, conditions=("I/314", "II/306"))
     reviews = _coverage_mutant(name, tmp_path, keys, syn.protocol)
     report = v.run_report(
@@ -1169,7 +1302,7 @@ def test_incomplete_review_evidence_leaves_the_failure_unresolved(tmp_path: Path
         call=call,
         prereg=syn.prereg,
         root=tmp_path,
-        submission=syn.submission(),
+        submission=syn.logged(),
         receipt=syn.receipt(),
         reviews=reviews,
     )
@@ -1180,7 +1313,7 @@ def test_incomplete_review_evidence_leaves_the_failure_unresolved(tmp_path: Path
 
 
 def test_review_coverage_alone(tmp_path: Path) -> None:
-    v = _r83b()
+    v = _r84()
     keys = [_key(ODCB, "independent", "I/314", "S_zz", "a" * 64)]
     refs = _evidence(tmp_path, keys)
     assert v.review_coverage(keys, refs["annex"], refs["receipts"], root=tmp_path) == []
@@ -1196,7 +1329,7 @@ def test_a_label_that_hangs_on_one_dropped_condition_is_fragile(tmp_path: Path, 
     v = _v()
     syn, _ = _disagreeing(tmp_path, conditions=("II/300",))
     report = v.run_report(
-        ODCB, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=syn.receipt()
+        ODCB, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.logged(), receipt=syn.receipt()
     )
     track = report["tracks"]["independent"]
     assert track["full"].name == "unresolved failure"
@@ -1214,7 +1347,7 @@ def test_benzene_has_no_drop_one(tmp_path: Path, call: Any) -> None:
     v = _v()
     syn = Synthetic(tmp_path, BENZENE)
     report = v.run_report(
-        BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=syn.receipt()
+        BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.logged(), receipt=syn.receipt()
     )
     assert set(v.shared_output(report)["tracks"]["independent"]["labels"]) == {"full"}
 
@@ -1263,7 +1396,7 @@ def test_local_detail_is_written_only_under_datasets_local(tmp_path: Path, call:
     v = _v()
     syn = Synthetic(tmp_path, BENZENE)
     report = v.run_report(
-        BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=syn.receipt()
+        BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.logged(), receipt=syn.receipt()
     )
     for bad in ("docs/phase2/verification/x.md", "datasets-local/../docs/x.md", "/tmp/x.md", "datasets/x.md"):
         with pytest.raises(ValueError):
@@ -1281,7 +1414,7 @@ def test_the_local_cells_carry_target_fit_discrepancy_and_margin(tmp_path: Path,
     v = _v()
     syn = Synthetic(tmp_path, BENZENE)
     report = v.run_report(
-        BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=syn.receipt()
+        BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.logged(), receipt=syn.receipt()
     )
     cells = report["cells"]["independent"]
     assert len(cells) == 15
@@ -1297,7 +1430,7 @@ def test_the_shared_output_is_labels_counts_and_revision_only(tmp_path: Path, ca
     v = _v()
     syn = Synthetic(tmp_path, ODCB)
     report = v.run_report(
-        ODCB, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=syn.receipt()
+        ODCB, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.logged(), receipt=syn.receipt()
     )
     shared = v.shared_output(report)
     assert set(shared) == {
@@ -1325,7 +1458,7 @@ def test_the_page_lines_pass_the_page_gate(tmp_path: Path, dataset: str, call: A
     syn = Synthetic(tmp_path, dataset)
     for receipt in (None, syn.receipt()):
         report = v.run_report(
-            dataset, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), receipt=receipt
+            dataset, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.logged(), receipt=receipt
         )
         lines = v.page_lines(v.shared_output(report))
         assert len(lines) == 2 and lines[0].startswith("**Verification:** ") and lines[1].startswith("**V0.3 label:** ")
@@ -1368,7 +1501,7 @@ def test_no_fit_or_target_value_reaches_the_shared_output(tmp_path: Path, call: 
         call=call,
         prereg=syn.prereg,
         root=tmp_path,
-        submission=syn.submission(),
+        submission=syn.logged(),
         receipt=syn.receipt(),
         reviews=reviews,
     )
@@ -1430,7 +1563,7 @@ def _failure_messages(tmp_path: Path) -> Iterator[tuple[str, str]]:
             except ValueError as exc:
                 messages.append(str(exc))
         report = v.run_report(
-            BENZENE, call=_never, prereg=syn.prereg, root=syn.root, submission=syn.submission(), receipt=syn.receipt()
+            BENZENE, call=_never, prereg=syn.prereg, root=syn.root, submission=syn.logged(), receipt=syn.receipt()
         )
         yield name, "\n".join(messages) + "\n" + json.dumps(v.shared_output(report)) + json.dumps(report, default=str)
 
@@ -1537,7 +1670,7 @@ def test_an_invalid_protocol_is_never_fitted(tmp_path: Path, change: str) -> Non
         syn.prereg["note"] = "changed"
     else:
         syn.prereg["datasets"][BENZENE]["frame_map_matrix"] = [[1, 0, 0], [0, 1, 0], [0, 0, -1]]
-    report = v.run_report(BENZENE, call=_never, prereg=syn.prereg, root=tmp_path, submission=syn.submission())
+    report = v.run_report(BENZENE, call=_never, prereg=syn.prereg, root=tmp_path, submission=syn.logged())
     assert report["status"] == "blocked" and report["problems"]
 
 
@@ -1546,7 +1679,7 @@ def test_the_local_report_keeps_each_fits_provenance(tmp_path: Path, call: Any) 
     each fit, and the dataset's flags and the package versions, stay in the local report."""
     v = _r83()
     syn = Synthetic(tmp_path, BENZENE)
-    report = v.run_report(BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission())
+    report = v.run_report(BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.logged())
     d = PREREG["datasets"][BENZENE]
     for condition in report["conditions"].values():
         prov = condition["provenance"]
@@ -1659,7 +1792,7 @@ def test_the_documented_method_runs_the_reproduction(tmp_path: Path, call: Any) 
         call=counted,
         prereg=syn.prereg,
         root=tmp_path,
-        submission=syn.submission(),
+        submission=syn.logged(),
         receipt=syn.receipt(),
         method=_method(syn),
     )
@@ -1704,7 +1837,7 @@ def test_the_geometry_alone_runs_the_fallback_under_its_label(
         call=call,
         prereg=syn.prereg,
         root=tmp_path,
-        submission=syn.submission(),
+        submission=syn.logged(),
         receipt=syn.receipt(),
         method=method,
     )
@@ -1727,7 +1860,7 @@ def test_documented_uniform_weights_are_the_ones_applied(tmp_path: Path, call: A
         call=call,
         prereg=syn.prereg,
         root=tmp_path,
-        submission=syn.submission(),
+        submission=syn.logged(),
         receipt=syn.receipt(),
         method=_method(syn, weights="uniform"),
     )
@@ -1751,7 +1884,7 @@ def test_without_a_reproduction_or_fallback_the_track_stays_pending(
         call=counted,
         prereg=syn.prereg,
         root=tmp_path,
-        submission=syn.submission(),
+        submission=syn.logged(),
         receipt=syn.receipt(),
         method=None if documented is None else _method(syn, documented),
     )
@@ -1767,7 +1900,7 @@ def test_the_spot_check_gates_the_reproduction_track(tmp_path: Path, call: Any) 
     v = _r83b()
     syn, _, _ = _authors_benzene(tmp_path)
     report = v.run_report(
-        BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), method=_method(syn)
+        BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.logged(), method=_method(syn)
     )
     assert report["reproduction"]["mode"] == "reproduction"
     assert {(c["status"], c["reason"]) for c in report["cells"]["reproduction"]} == {("pending", "no-target")}
@@ -1788,7 +1921,7 @@ def test_an_unverified_rank_keeps_its_precedence_on_the_reproduction_track(
         call=_unverified_call(call),
         prereg=syn.prereg,
         root=tmp_path,
-        submission=syn.submission(),
+        submission=syn.logged(),
         receipt=syn.receipt() if signed else None,
         method=_method(syn),
     )
@@ -1808,7 +1941,7 @@ def _odcb_authors(root: Path, *, edges: dict[str, float]) -> Synthetic:
 def test_the_figure_margin_on_the_reproduction_track(tmp_path: Path, call: Any) -> None:
     """A digitized target's margin is 2p: just inside agrees, just outside disagrees, while the
     independent margin accepts both. The disagreement needs its own review on this track."""
-    v = _r83b()
+    v = _r84()  # amended for round 84 (A5): the evidence format
     syn = _odcb_authors(tmp_path, edges={"I/310": 0.0008 - 1e-6, "I/312": 0.0008 + 1e-6})
     g = PREREG["geometry"]
     method = _method(syn, geometry={"r_cc_angstrom": g["r_cc_angstrom"], "r_ch_angstrom": g["r_ch_angstrom"]})
@@ -1861,7 +1994,7 @@ def test_a_malformed_method_record_blocks_before_any_fit(tmp_path: Path, name: s
         call=_never,
         prereg=syn.prereg,
         root=tmp_path,
-        submission=syn.submission(),
+        submission=syn.logged(),
         receipt=syn.receipt(),
         method=METHOD_MUTANTS[name](syn),
     )
@@ -1897,7 +2030,7 @@ def test_a_token_without_its_sigma_has_no_precision(tmp_path: Path, call: Any) -
         call=call,
         prereg=syn.prereg,
         root=tmp_path,
-        submission=syn.submission(),
+        submission=syn.logged(),
         receipt=syn.receipt(),
         method=_method(syn),
     )
@@ -1916,7 +2049,7 @@ def test_reproduction_values_stay_local_and_reach_the_fit_tier(tmp_path: Path, c
         call=call,
         prereg=syn.prereg,
         root=tmp_path,
-        submission=syn.submission(),
+        submission=syn.logged(),
         receipt=syn.receipt(),
         method=_method(syn, ["geometry"]),
     )
@@ -1954,3 +2087,62 @@ def test_the_reproduction_track_reads_the_rank_flag_itself() -> None:
     for r in (receipt, None):
         cells = v.reproduction_cells(BENZENE, p, method, fits, targets, receipt=r)
         assert {(c.status, c.reason) for c in cells} == {("pending", "rank-unverified")}
+
+
+# ===================== round 84 (A1): the runner refuses an unauthorized submission itself, frozen
+# before the fix. ``run_report`` checks the submission against the first-fit log committed in its
+# own root (``authorize``, at the runner's clock) before it reads or fits anything, whoever calls
+# it; a refusal is a PermissionError with value-free reasons.
+def _unauthorized(name: str, syn: Synthetic) -> dict[str, Any]:
+    if name == "no committed ledger":
+        return syn.submission()
+    if name == "logged in the working copy only":
+        syn.logged(release_or_commit="v0.0.0-other")  # commits the log with another submission
+        record = syn.submission()
+        ledger = syn.root / LEDGER_REL
+        row = f"| 2026-11-25T10:00Z | submission | {syn.dataset} | owner | v0.2.0b1 | {syn.protocol} |\n"
+        ledger.write_text(ledger.read_text(encoding="utf-8") + row, encoding="utf-8")
+        return record
+    if name == "an agent runner":
+        return syn.logged(runner="agent")
+    if name == "a submission at the freeze instant":
+        return syn.logged(at=datetime(2026, 11, 24, 9, 0, tzinfo=UTC))
+    if name == "a submission in the future":
+        return syn.logged(at=datetime(2026, 11, 25, 13, 0, tzinfo=UTC))
+    if name == "logged with another release":
+        syn.logged(release_or_commit="v0.0.0-other")
+        return syn.submission()
+    raise AssertionError(name)
+
+
+UNAUTHORIZED = [
+    "no committed ledger",
+    "logged in the working copy only",
+    "an agent runner",
+    "a submission at the freeze instant",
+    "a submission in the future",
+    "logged with another release",
+]
+
+
+@pytest.mark.parametrize("name", UNAUTHORIZED)
+def test_the_runner_refuses_an_unauthorized_submission_whoever_calls_it(tmp_path: Path, call: Any, name: str) -> None:
+    """A1: calling ``run_report`` directly fits nothing for a submission the committed log does
+    not authorize."""
+    v = _r84()
+    syn = Synthetic(tmp_path, BENZENE)
+    record = _unauthorized(name, syn)
+    counted, seen = _counting(call)
+    with pytest.raises(PermissionError) as refused:
+        v.run_report(BENZENE, call=counted, prereg=syn.prereg, root=tmp_path, submission=record)
+    assert seen == [], name
+    assert not (tmp_path / "datasets-local" / "verification").exists()
+    assert syn.protocol not in str(refused.value) and "authoriz" in str(refused.value)
+
+
+def test_the_runner_fits_a_committed_authorized_submission(tmp_path: Path, call: Any) -> None:
+    v = _r84()
+    syn = Synthetic(tmp_path, BENZENE)
+    counted, seen = _counting(call)
+    report = v.run_report(BENZENE, call=counted, prereg=syn.prereg, root=tmp_path, submission=syn.logged())
+    assert report["status"] == "complete" and seen.count("fit.run") == 15

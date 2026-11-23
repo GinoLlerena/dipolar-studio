@@ -31,6 +31,13 @@ that drops a committed row; each logged submission needs its own retained output
 covering the roster exactly; diagnostics never repeat a key or file name; every scan receipt row
 is well formed, and the first one under the tier is pinned.
 
+**Amended in round 84** (A1–A4, A6), before the fixes: an output is required only for a
+submission in the committed log; the record declares every frozen roster cell (the conditions of
+the hash-verified couplings) on both tracks, a value or a pending reason each; unexpected file
+names are never printed; each record carries its fits' provenance and is one run of a hash-bound
+chain with its report. These xfail through ``_r84()`` while ``tools/validation/fit_record.py`` is
+absent.
+
 **Pending implementation.** While ``restricted_scan`` has no ``fit_tier`` (or ``verification``
 no ``write_fit_values``), these tests xfail through ``_rs()`` and ``_v()`` alone; once those
 names exist, any exception fails. The round 83 amendments xfail through ``_r83()`` while
@@ -39,6 +46,7 @@ names exist, any exception fails. The round 83 amendments xfail through ``_r83()
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import json
 import math
@@ -58,7 +66,18 @@ sys.path.insert(0, str(ROOT / "tools" / "validation"))
 
 import restricted_scan  # noqa: E402
 import test_v0_preregistration  # noqa: E402
-from test_v15_verification import BENZENE, ODCB, Synthetic, _condition_keys, _leaks  # noqa: E402
+from test_v15_verification import (  # noqa: E402
+    BENZENE,
+    FOUR,
+    ODCB,
+    Synthetic,
+    _authors_benzene,
+    _clock,  # noqa: F401  (autouse: the runner's clock)
+    _condition_keys,
+    _leaks,
+    _method,
+    _unverified_call,
+)
 
 LEDGER = ROOT / "docs" / "phase2" / "verification" / "gates.md"
 LEDGER_REL = Path("docs/phase2/verification/gates.md")
@@ -221,11 +240,23 @@ def test_an_unreadable_first_fit_record_is_refused(change: str) -> None:
 
 
 def _root(tmp_path: Path, *, logged: bool, protocol: str = PROTOCOL) -> Path:
+    """A checkout with the ledger (logging one benzene submission, or none) and a copy of the
+    preregistration bound to synthetic couplings for both datasets: the roster the scan reads
+    (round 84, A2)."""
     ledger = _ledger(_submission(protocol=protocol)) if logged else _ledger()
     (tmp_path / LEDGER_REL).parent.mkdir(parents=True, exist_ok=True)
     (tmp_path / LEDGER_REL).write_text(ledger, encoding="utf-8")
-    (tmp_path / PREREG_REL).write_bytes((ROOT / PREREG_REL).read_bytes())
+    prereg = json.loads((ROOT / PREREG_REL).read_text(encoding="utf-8"))
+    for dataset in (BENZENE, ODCB):
+        if not (tmp_path / prereg["datasets"][dataset]["couplings"]["path"]).is_file():
+            prereg["datasets"][dataset] = Synthetic(tmp_path, dataset).prereg["datasets"][dataset]
+    _write_prereg(tmp_path, prereg)
     return tmp_path
+
+
+def _write_prereg(root: Path, prereg: dict[str, Any]) -> None:
+    (root / PREREG_REL).parent.mkdir(parents=True, exist_ok=True)
+    (root / PREREG_REL).write_text(json.dumps(prereg, indent=1), encoding="utf-8")
 
 
 VALUES = [-0.48736829, 0.0612349871, 0.00123456]
@@ -239,21 +270,69 @@ def _estimands(dataset: str) -> list[str]:
     return list(json.loads((ROOT / PREREG_REL).read_text(encoding="utf-8"))["datasets"][dataset]["estimands"])
 
 
-def _record(dataset: str = BENZENE, values: list[float] = VALUES, protocol: str = PROTOCOL) -> dict[str, Any]:
-    """A complete record bound to the logged submission: one estimate for every roster cell (the
-    given values first, then fillers) and one discrepancy, the last given value."""
+# Round 84 (A2, A6), amended before the fix: the record declares every roster cell of the frozen
+# roster (the conditions of the hash-verified couplings) on both tracks, an estimate and a
+# discrepancy each, as a value or as the cell's pending reason; it carries each fit's provenance;
+# and it is one run of a chain: its run number, the SHA-256 of the record it replaced, and the
+# SHA-256 of that run's local report, kept as reports/<dataset>.<run>.md.
+R84_PY = ROOT / "tools" / "validation" / "fit_record.py"
+REPORT_TEXT = "# Verification report (local): synthetic\n"
+QUANTITIES = ("estimate", "discrepancy", "reproduction estimate", "reproduction discrepancy")
+
+
+def _r84() -> Any:
+    rs = _r83()
+    if not R84_PY.is_file():
+        pytest.xfail("round 84: the fixes are not written yet")
+    return rs
+
+
+def _declared(
+    condition: str, component: str, quantity: str, value: float | None, reason: str | None = None
+) -> dict[str, Any]:
+    return {"condition": condition, "component": component, "quantity": quantity, "value": value, "reason": reason}
+
+
+def _fit_provenance(n: int) -> dict[str, Any]:
+    return {"science_hash": f"{n:064x}", "fit_version": "synthetic", "model": {"kind": "fixed"}}
+
+
+def _record(
+    dataset: str = BENZENE,
+    values: list[float] = VALUES,
+    protocol: str = PROTOCOL,
+    *,
+    run: int = 1,
+    previous: str | None = None,
+) -> dict[str, Any]:
+    """A complete record bound to the logged submission: an estimate for every roster cell (the
+    given values first, then fillers), one discrepancy (the last given value; the other cells
+    declare no-target), and a pending authors'-analysis track."""
     *estimates, discrepancy = values
-    cells = [(f"c{i:02d}", e) for i in range(_conditions(dataset)) for e in _estimands(dataset)]
+    conditions = _condition_keys(dataset)
+    cells = [(c, e) for c in conditions for e in _estimands(dataset)]
     fill = [0.2 + 0.0731 * k for k in range(len(cells))]
-    entries = [
-        {"condition": c, "component": e, "quantity": "estimate", "value": (estimates + fill[len(estimates) :])[k]}
+    given = estimates + fill[len(estimates) :]
+    entries = [_declared(c, e, "estimate", given[k]) for k, (c, e) in enumerate(cells)]
+    entries += [
+        _declared(c, e, "discrepancy", discrepancy) if k == 0 else _declared(c, e, "discrepancy", None, "no-target")
         for k, (c, e) in enumerate(cells)
     ]
-    entries.append({**entries[0], "quantity": "discrepancy", "value": discrepancy})
+    for q in ("reproduction estimate", "reproduction discrepancy"):
+        entries += [_declared(c, e, q, None, "inputs-undocumented") for c, e in cells]
     return {
         "dataset": dataset,
         "protocol_sha256": protocol,
         "submission": _submission(dataset, protocol),
+        "run": run,
+        "previous_sha256": previous,
+        "report_sha256": hashlib.sha256(REPORT_TEXT.encode()).hexdigest(),
+        "provenance": {
+            "versions": {"dipolar-core": "synthetic", "dipolar-app": "synthetic"},
+            "flags": [],
+            "method": {"mode": "pending", "documented": [], "geometry": None, "weights": None, "sources": {}},
+            "fits": {"independent": {c: _fit_provenance(i) for i, c in enumerate(conditions)}, "reproduction": {}},
+        },
         "values": entries,
     }
 
@@ -263,10 +342,20 @@ def _count(dataset: str) -> int:
 
 
 def _fit_file(root: Path, record: Any, name: str = f"{BENZENE}.fit-values.json", raw: str | None = None) -> Path:
+    """Write a fit output, and the local report of its run when the record names one."""
     path = root / "datasets-local" / "verification" / name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(raw if raw is not None else json.dumps(record), encoding="utf-8")
+    if isinstance(record, dict) and isinstance(record.get("run"), int) and record.get("dataset") in (BENZENE, ODCB):
+        report = root / "datasets-local" / "verification" / "reports" / f"{record['dataset']}.{record['run']}.md"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        if not report.exists():
+            report.write_text(REPORT_TEXT, encoding="utf-8")
     return path
+
+
+def _sha_of(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _digits_free(texts: list[str], values: list[float] = VALUES) -> bool:
@@ -287,7 +376,7 @@ def test_before_any_result_the_status_is_pre_result(tmp_path: Path) -> None:
 
 
 def test_after_a_logged_fit_the_local_outputs_are_scanned(tmp_path: Path) -> None:
-    rs = _r83()
+    rs = _r84()
     root = _root(tmp_path, logged=True)
     _fit_file(root, _record())
     fit = rs.fit_tier(root)
@@ -301,7 +390,7 @@ def test_after_a_logged_fit_the_local_outputs_are_scanned(tmp_path: Path) -> Non
 def test_each_logged_submission_needs_its_own_output(tmp_path: Path) -> None:
     """A2: logging two datasets and supplying one leaves the other missing; an output of an
     unlogged dataset satisfies nothing."""
-    rs = _r83()
+    rs = _r84()
     ledger = _ledger(_submission(BENZENE), _submission(ODCB))
     (tmp_path / LEDGER_REL).parent.mkdir(parents=True)
     (tmp_path / LEDGER_REL).write_text(ledger, encoding="utf-8")
@@ -334,7 +423,7 @@ def test_a_filled_section_3_row_without_a_logged_submission_is_a_problem(tmp_pat
 
 
 def test_local_outputs_without_a_logged_fit_are_a_first_fit_gate_problem(tmp_path: Path) -> None:
-    rs = _r83()
+    rs = _r84()
     root = _root(tmp_path, logged=False)
     _fit_file(root, _record())
     fit = rs.fit_tier(root)
@@ -348,6 +437,9 @@ def test_a_missing_ledger_is_a_problem(tmp_path: Path) -> None:
     fit = rs.fit_tier(tmp_path)
     assert fit.status == "results"  # unknown: required
     assert fit.problems and any("gates.md" in p for p in fit.problems)
+
+
+C0 = _condition_keys(BENZENE)[0]
 
 
 def _entry(**changes: Any) -> dict[str, Any]:
@@ -372,12 +464,37 @@ def _extra_entry(entry: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
+def _without(quantity: str) -> dict[str, Any]:
+    """One roster cell's declaration of ``quantity`` removed (round 84, A2)."""
+    record = _record()
+    k = next(i for i, e in enumerate(record["values"]) if e["quantity"] == quantity and e["condition"] != C0)
+    del record["values"][k]
+    return record
+
+
+def _renamed(condition: str) -> dict[str, Any]:
+    """A frozen condition replaced by an invented one everywhere in the record (round 84, A2)."""
+    record = _record()
+    for e in record["values"]:
+        if e["condition"] == C0:
+            e["condition"] = condition
+    fits = record["provenance"]["fits"]["independent"]
+    fits[condition] = fits.pop(C0)
+    return record
+
+
+def _changed(change: Any) -> dict[str, Any]:
+    record = _record()
+    change(record)
+    return record
+
+
 MALFORMED: dict[str, Any] = {
     "not JSON": "{0.4873683",
     "a list": [0.48736829],
     "no values": {k: v for k, v in _record().items() if k != "values"},
     "no entries": _with(values=[]),
-    "an entry without its value": _with(values=[{"condition": "c00", "component": "S_zz", "quantity": "estimate"}]),
+    "an entry without its value": _with(values=[{"condition": C0, "component": "S_zz", "quantity": "estimate"}]),
     "a value as text": _entry(value="0.48736829"),
     "a non-finite value": _entry(value=math.nan),
     "a boolean value": _entry(value=True),
@@ -393,19 +510,51 @@ MALFORMED: dict[str, Any] = {
     "another protocol revision": _record(protocol="0" * 64),
     "a missing cell": _without_cell(),
     "a repeated cell": _extra_entry({**_record()["values"][1]}),
-    "an extra condition": _extra_entry({"condition": "c99", "component": "S_zz", "quantity": "estimate", "value": 0.3}),
-    "an unknown component": _extra_entry(
-        {"condition": "c00", "component": "S_xy", "quantity": "estimate", "value": 0.3}
+    "an extra condition": _extra_entry(_declared("c99", "S_zz", "estimate", 0.3)),
+    "an unknown component": _extra_entry(_declared(C0, "S_xy", "estimate", 0.3)),
+    "a discrepancy without its estimate": _extra_entry(_declared("c98", "S_zz", "discrepancy", 0.3)),
+    # Round 84, A2: the frozen roster's own keys, every cell declared on both tracks.
+    "an invented condition": _renamed("9/s99"),
+    "an estimate undeclared": _without("estimate"),
+    "a discrepancy undeclared": _without("discrepancy"),
+    "a reproduction estimate undeclared": _without("reproduction estimate"),
+    "a reproduction discrepancy undeclared": _without("reproduction discrepancy"),
+    "a value and a reason": _entry(reason="rank-unverified"),
+    "neither a value nor a reason": _entry(value=None),
+    "an unknown reason": _changed(lambda r: r["values"][-1].update(reason="not wanted")),
+    "a discrepancy value without an estimate value": _changed(
+        lambda r: r["values"][0].update(value=None, reason="rank-unverified")
     ),
-    "a discrepancy without its estimate": _extra_entry(
-        {"condition": "c98", "component": "S_zz", "quantity": "discrepancy", "value": 0.3}
+    "an independent estimate declared undocumented": _changed(
+        lambda r: r["values"][3].update(value=None, reason="inputs-undocumented")
     ),
+    "a reproduction track pending in part": _changed(
+        lambda r: next(e for e in r["values"] if e["quantity"] == "reproduction estimate").update(
+            reason="rank-unverified"
+        )
+    ),
+    # Round 84, A6: each fit's provenance, and the run's place in its chain.
+    "no provenance": {k: v for k, v in _record().items() if k != "provenance"},
+    "a fit without its provenance": _changed(lambda r: r["provenance"]["fits"]["independent"].pop(C0)),
+    "a fit without its science hash": _changed(
+        lambda r: r["provenance"]["fits"]["independent"][C0].pop("science_hash")
+    ),
+    "a provenance without its versions": _changed(lambda r: r["provenance"].pop("versions")),
+    "a provenance without its method": _changed(lambda r: r["provenance"].pop("method")),
+    "authors' fits on a pending track": _changed(
+        lambda r: r["provenance"]["fits"].update(reproduction={C0: _fit_provenance(0)})
+    ),
+    "no run number": {k: v for k, v in _record().items() if k != "run"},
+    "a run number that is not a count": _with(run=0),
+    "a first run with a predecessor": _with(previous_sha256="1" * 64),
+    "no report hash": _with(report_sha256=None),
+    "a report hash that is not its report's": _with(report_sha256="2" * 64),
 }
 
 
 @pytest.mark.parametrize("name", list(MALFORMED))
 def test_a_malformed_fit_output_is_a_value_free_problem(tmp_path: Path, name: str) -> None:
-    rs = _r83()
+    rs = _r84()
     root = _root(tmp_path, logged=True)
     bad = MALFORMED[name]
     path = _fit_file(root, bad, raw=bad if isinstance(bad, str) else None)
@@ -416,9 +565,9 @@ def test_a_malformed_fit_output_is_a_value_free_problem(tmp_path: Path, name: st
 
 
 def test_the_well_formed_entries_of_a_damaged_file_are_still_scanned(tmp_path: Path) -> None:
-    rs = _r83()
+    rs = _r84()
     root = _root(tmp_path, logged=True)
-    _fit_file(root, _extra_entry({"condition": "c00", "component": "S_zz", "quantity": "estimate", "value": "x"}))
+    _fit_file(root, _extra_entry({**_declared(C0, "S_zz", "estimate", None), "value": "x"}))
     fit = rs.fit_tier(root)
     assert fit.problems and fit.values == _count(BENZENE)
     assert rs.scan([("notes.md", b"0.4874\n")], fit.tiers, frozenset()) == ["notes.md:1"]
@@ -426,7 +575,7 @@ def test_the_well_formed_entries_of_a_damaged_file_are_still_scanned(tmp_path: P
 
 def test_an_unexpected_file_name_is_not_printed(tmp_path: Path) -> None:
     """A3: a file name can carry a value; the diagnostic does not repeat it."""
-    rs = _r83()
+    rs = _r84()
     root = _root(tmp_path, logged=True)
     _fit_file(root, _record())
     _fit_file(root, _record(), name="benzene 0.48736829.fit-values.json")
@@ -434,17 +583,100 @@ def test_an_unexpected_file_name_is_not_printed(tmp_path: Path) -> None:
     assert fit.problems and _digits_free(fit.problems)
 
 
-def test_a_rerun_keeps_the_earlier_output(tmp_path: Path) -> None:
-    """A2: a retained output still binds its submission and is still scanned."""
-    rs = _r83()
+@pytest.mark.parametrize(
+    "name",
+    [
+        "benzene-0.48736829.fit-values.json",
+        "retained/benzene-taggar2006.0.48736829.fit-values.json",
+        "retained/0.4873683.fit-values.json",
+    ],
+)
+def test_no_unexpected_file_name_is_printed_by_the_scan(
+    tmp_path: Path, name: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Round 84 (A3): a name of safe characters that the scan does not expect is not printed
+    either, by the tier or by the command."""
+    rs = _r84()
     root = _root(tmp_path, logged=True)
-    _fit_file(root, _record(), name=f"retained/{BENZENE}.1.fit-values.json")
+    _fit_file(root, _record())
+    _fit_file(root, _record(), name=name)
+    fit = rs.fit_tier(root)
+    assert fit.problems and _digits_free(fit.problems)
+    _git(root, "init", "-q")
+    _git(root, "add", str(LEDGER_REL))
+    assert rs.main(["--root", str(root)]) == 1
+    out = capsys.readouterr()
+    assert _digits_free([out.out, out.err]) and "0.487" not in out.out + out.err
+
+
+def _chain(root: Path, runs: int, dataset: str = BENZENE) -> list[Path]:
+    """``runs`` runs of one submission: retained/<dataset>.<n> for the earlier ones, each bound to
+    its predecessor by hash, and the current output."""
+    paths, previous = [], None
+    for n in range(1, runs + 1):
+        name = f"{dataset}.fit-values.json" if n == runs else f"retained/{dataset}.{n}.fit-values.json"
+        values = [VALUES[0] + 0.0101 * n, *VALUES[1:]]
+        path = _fit_file(root, _record(dataset, values, run=n, previous=previous), name=name)
+        previous = _sha_of(path)
+        paths.append(path)
+    return paths
+
+
+def test_a_rerun_keeps_the_earlier_output(tmp_path: Path) -> None:
+    """A2 (round 83), amended for round 84 (A6): a retained output still binds its submission and
+    is still scanned, and the chain of runs is whole."""
+    rs = _r84()
+    root = _root(tmp_path, logged=True)
+    _chain(root, 1)
     fit = rs.fit_tier(root)
     assert (fit.problems, fit.files, fit.values) == ([], 1, _count(BENZENE))
-    _fit_file(root, _record(BENZENE, [0.3333777, 0.25, 0.0011]))
+    for p in (root / "datasets-local" / "verification").rglob("*.json"):
+        p.unlink()
+    _chain(root, 3)
     both = rs.fit_tier(root)
-    assert (both.problems, both.files) == ([], 2)
-    assert rs.scan([("notes.md", b"0.4874\n")], both.tiers, frozenset()) == ["notes.md:1"]  # the earlier run
+    assert (both.problems, both.files) == ([], 3)
+    assert rs.scan([("notes.md", b"0.4773\n")], both.tiers, frozenset()) == ["notes.md:1"]  # the first run
+
+
+CHAIN_BREAKS = [
+    "a retained output deleted",
+    "the last retained output deleted",
+    "the current output deleted",
+    "a retained output edited",
+    "a run's report deleted",
+    "a run's report edited",
+    "a retained output renumbered",
+    "a run number out of place",
+]
+
+
+@pytest.mark.parametrize("name", CHAIN_BREAKS)
+def test_a_broken_chain_of_runs_is_a_problem(tmp_path: Path, name: str) -> None:
+    """Round 84 (A6): deleting, editing or renumbering any run's output or report is found."""
+    rs = _r84()
+    root = _root(tmp_path, logged=True)
+    first, second, current = _chain(root, 3)
+    reports = root / "datasets-local" / "verification" / "reports"
+    if name == "a retained output deleted":
+        first.unlink()
+    elif name == "the last retained output deleted":
+        second.unlink()
+    elif name == "the current output deleted":
+        current.unlink()
+    elif name == "a retained output edited":
+        first.write_text(first.read_text(encoding="utf-8").replace("synthetic", "edited"), encoding="utf-8")
+    elif name == "a run's report deleted":
+        (reports / f"{BENZENE}.1.md").unlink()
+    elif name == "a run's report edited":
+        (reports / f"{BENZENE}.2.md").write_text(REPORT_TEXT + "edited\n", encoding="utf-8")
+    elif name == "a retained output renumbered":
+        second.rename(second.with_name(f"{BENZENE}.3.fit-values.json"))
+    else:
+        record = json.loads(current.read_text(encoding="utf-8"))
+        current.write_text(json.dumps({**record, "run": 4}), encoding="utf-8")
+    fit = rs.fit_tier(root)
+    assert fit.problems, name
+    assert _digits_free([*fit.problems, rs.status_line(fit)]), fit.problems
 
 
 # ================================================================ the staged-index entry
@@ -477,7 +709,7 @@ def _repo(tmp_path: Path, *, logged: bool, staged: str) -> Path:
 
 
 def test_the_staged_index_check_includes_the_fit_tier(tmp_path: Path) -> None:
-    rs = _r83()
+    rs = _r84()
     root = _repo(tmp_path, logged=True, staged="clean\nthe fit was 0.4874\n")
     _fit_file(root, _record())
     assert rs.check_staged(root) == ["notes.md:2"]
@@ -496,25 +728,93 @@ def test_before_any_result_the_check_has_no_fit_source(tmp_path: Path) -> None:
 
 
 def test_the_staged_index_check_fails_on_a_tier_problem(tmp_path: Path) -> None:
+    """Amended for round 84 (A1): the submission is committed, and its output is missing."""
     rs = _r83()
-    root = _repo(tmp_path, logged=True, staged="clean\n")  # logged, but no local fit output
+    root = _repo(tmp_path, logged=True, staged="clean\n")
+    _git(root, "commit", "-q", "-m", "a logged fit")  # logged and committed, but no local fit output
     problems = rs.check_staged(root)
     assert problems and any("datasets-local/verification" in p for p in problems)
 
 
 def test_the_staged_check_reads_the_staged_ledger(tmp_path: Path) -> None:
-    """A1: the receipt binds the ledger that is staged, not the working copy's."""
-    rs = _r83()
+    """A1: the receipt binds the ledger that is staged, not the working copy's. Amended for round
+    84: an output bound to the staged submission is not an output without a submission."""
+    rs = _r84()
     root = _repo(tmp_path, logged=True, staged="clean\n")  # the staged ledger logs a fit
+    _fit_file(root, _record())
     (root / LEDGER_REL).write_text(_ledger(), encoding="utf-8")  # the working copy does not
-    problems = rs.check_staged(root)
-    assert any("datasets-local/verification" in p for p in problems)
+    assert rs.check_staged(root) == []
+
+
+def test_a_staged_submission_needs_its_output_only_once_committed(tmp_path: Path) -> None:
+    """Round 84 (A1): the commit that logs a submission passes before its fit is run (the runner
+    fits only a committed submission); from then on, its output is required."""
+    rs = _r84()
+    root = _repo(tmp_path, logged=False, staged="clean\n")
+    _git(root, "commit", "-q", "-m", "the ledger before the submission")
+    (root / LEDGER_REL).write_text(_ledger(_submission()), encoding="utf-8")
+    _git(root, "add", str(LEDGER_REL))
+    assert rs.check_staged(root) == []
+    assert rs.main(["--root", str(root)]) == 0
+    _git(root, "commit", "-q", "-m", "log the submission")
+    assert any("datasets-local/verification" in p for p in rs.check_staged(root))
+    assert rs.main(["--root", str(root)]) == 1
+    _fit_file(root, _record())
+    assert rs.check_staged(root) == []
+
+
+def test_the_owner_logs_commits_runs_and_reruns_in_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Round 84 (A1, A2, A6), end to end: the logging commit passes, the runner then fits the
+    committed submission, and every later commit passes with its outputs, across a rerun with
+    another method; each run keeps its record, provenance and report."""
+    v = _v()
+    rs = _r84()
+    root = _repo(tmp_path, logged=False, staged="clean\n")
+    syn, _, _ = _authors_benzene(root)
+    _write_prereg(root, syn.prereg)
+    _git(root, "commit", "-q", "-m", "the ledger before the submission")
+    (root / LEDGER_REL).write_text(_ledger(_submission(protocol=syn.protocol)), encoding="utf-8")
+    _git(root, "add", str(LEDGER_REL))
+    assert rs.check_staged(root) == []
+    _git(root, "commit", "-q", "-m", "log the submission")
+
+    monkeypatch.setattr(v.pr, "ROOT", root)
+    monkeypatch.setattr(v.pr, "load", lambda: syn.prereg)
+    submission = {**syn.submission(), "at": syn.submission()["at"].isoformat()}
+    (root / "submission.json").write_text(json.dumps(submission), encoding="utf-8")
+    (root / "receipt.json").write_text(json.dumps(syn.receipt()), encoding="utf-8")
+    for n, documented in enumerate((FOUR, ["geometry"]), start=1):
+        (root / "method.json").write_text(json.dumps(_method(syn, documented)), encoding="utf-8")
+        args = ["--dataset", BENZENE, "--submission", str(root / "submission.json")]
+        args += ["--receipt", str(root / "receipt.json"), "--method", str(root / "method.json")]
+        assert v.main([*args, "--out", "datasets-local/verification/benzene-report.md"]) == 0, n
+        assert rs.check_staged(root) == [], n
+    capsys.readouterr()
+
+    folder = root / rs.FIT_DIR
+    first = json.loads((folder / "retained" / f"{BENZENE}{'.1'}{rs.FIT_SUFFIX}").read_text(encoding="utf-8"))
+    second = json.loads((folder / f"{BENZENE}{rs.FIT_SUFFIX}").read_text(encoding="utf-8"))
+    assert (first["run"], second["run"]) == (1, 2)
+    assert first["previous_sha256"] is None
+    assert second["previous_sha256"] == _sha_of(folder / "retained" / f"{BENZENE}.1{rs.FIT_SUFFIX}")
+    assert [r["provenance"]["method"]["mode"] for r in (first, second)] == ["reproduction", "fallback"]
+    for r in (first, second):
+        report = folder / "reports" / f"{BENZENE}.{r['run']}.md"
+        assert _sha_of(report) == r["report_sha256"]
+        assert r["provenance"]["method"]["mode"] in report.read_text(encoding="utf-8")
+        fits = r["provenance"]["fits"]
+        assert set(fits["independent"]) == set(fits["reproduction"]) == set(_condition_keys(BENZENE))
+        assert all(f["science_hash"] for t in fits.values() for f in t.values())
+    (folder / "retained" / f"{BENZENE}.1{rs.FIT_SUFFIX}").unlink()
+    assert rs.check_staged(root)  # a deleted retained output is found
 
 
 def test_the_staged_log_must_extend_the_committed_one(tmp_path: Path) -> None:
     """A1: once a submission is committed, removing it from the log is refused, whatever the
     local outputs are."""
-    rs = _r83()
+    rs = _r84()
     root = _repo(tmp_path, logged=True, staged="clean\n")
     _fit_file(root, _record())
     _git(root, "commit", "-q", "-m", "a logged fit")
@@ -528,7 +828,7 @@ def test_the_staged_log_must_extend_the_committed_one(tmp_path: Path) -> None:
 def test_an_edited_committed_log_row_is_refused(tmp_path: Path) -> None:
     """A1 (added for a surviving mutant): an edited row, with every submission and output intact,
     is refused by the extension check alone."""
-    rs = _r83()
+    rs = _r84()
     root = _repo(tmp_path, logged=True, staged="clean\n")
     _fit_file(root, _record())
     _git(root, "commit", "-q", "-m", "a logged fit")
@@ -541,7 +841,7 @@ def test_an_edited_committed_log_row_is_refused(tmp_path: Path) -> None:
 def test_a_record_at_another_revision_than_its_submission_is_refused(tmp_path: Path) -> None:
     """A2 (added for a surviving mutant): the logged submission is bound, but the record's own
     revision differs."""
-    rs = _r83()
+    rs = _r84()
     root = _root(tmp_path, logged=True)
     _fit_file(root, {**_record(), "protocol_sha256": "0" * 64})
     assert rs.fit_tier(root).problems
@@ -613,7 +913,7 @@ def _sentinel_report(tmp_path: Path, v: Any) -> tuple[dict[str, Any], Synthetic]
         call=v.local_call(),
         prereg=syn.prereg,
         root=tmp_path,
-        submission=syn.submission(),
+        submission=syn.logged(),
         receipt=syn.receipt(),
     )
     assert report["status"] == "complete"
@@ -621,8 +921,10 @@ def _sentinel_report(tmp_path: Path, v: Any) -> tuple[dict[str, Any], Synthetic]
 
 
 def test_the_workflow_writes_every_fit_value_at_full_precision(tmp_path: Path) -> None:
+    """Amended for round 84 (A2, A6): the record declares every roster cell on both tracks, and
+    the written record adds its run, its predecessor's hash and its report's hash."""
     v = _v()
-    rs = _r83()
+    rs = _r84()
     report, syn = _sentinel_report(tmp_path, v)
     record = v.fit_values(report)
     assert (record["dataset"], record["protocol_sha256"]) == (BENZENE, report["protocol_sha256"])
@@ -640,25 +942,89 @@ def test_the_workflow_writes_every_fit_value_at_full_precision(tmp_path: Path) -
     }
     assert len(estimates) == 15 and len(discrepancies) == 15
     got = {(e["condition"], e["component"], e["quantity"]): e["value"] for e in record["values"]}
-    assert got == {**estimates, **discrepancies}  # exact floats: full precision
+    assert {k: x for k, x in got.items() if x is not None} == {**estimates, **discrepancies}  # exact floats
+    roster = {(c, "S_zz") for c in _condition_keys(BENZENE)}
+    for q in QUANTITIES:
+        assert sorted((e["condition"], e["component"]) for e in record["values"] if e["quantity"] == q) == sorted(
+            roster
+        ), q
+    pending = [e for e in record["values"] if e["quantity"].startswith("reproduction")]
+    assert {(e["value"], e["reason"]) for e in pending} == {(None, "inputs-undocumented")}
+    assert record["provenance"]["fits"]["independent"] == {c: f["provenance"] for c, f in report["conditions"].items()}
+    assert record["provenance"]["versions"] == report["provenance"]["versions"]
+    assert record["provenance"]["method"] == report["reproduction"]
 
     path = v.write_fit_values(report, root=tmp_path)
     assert path == tmp_path / rs.FIT_DIR / f"{BENZENE}{rs.FIT_SUFFIX}"
-    assert json.loads(path.read_text(encoding="utf-8")) == record
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written == {
+        **record,
+        "run": 1,
+        "previous_sha256": None,
+        "report_sha256": _sha_of(tmp_path / rs.FIT_DIR / "reports" / f"{BENZENE}.1.md"),
+    }
 
     _root(tmp_path, logged=True, protocol=syn.protocol)
+    _write_prereg(tmp_path, syn.prereg)
     fit = rs.fit_tier(tmp_path)
     assert (fit.status, fit.problems, fit.files, fit.values) == ("results", [], 1, 30)
     some = next(iter(estimates.values()))
     rounded = f"{Decimal(repr(some)).quantize(Decimal('0.000001')):f}"  # six decimals: five significant digits
     assert rs.scan([("notes.md", f"S = {rounded}\n".encode())], fit.tiers, frozenset()) == ["notes.md:1"]
 
-    # A2: a rerun retains the earlier output beside the new one.
+    # A2 (round 83): a rerun retains the earlier output beside the new one; A6: bound by hash.
     again = v.write_fit_values(report, root=tmp_path)
     assert again == path
     retained = sorted((tmp_path / rs.FIT_DIR / "retained").glob(f"*{rs.FIT_SUFFIX}"))
     assert [p.name for p in retained] == [f"{BENZENE}.1{rs.FIT_SUFFIX}"]
-    assert rs.fit_tier(tmp_path).files == 2
+    assert json.loads(retained[0].read_text(encoding="utf-8")) == written
+    assert json.loads(path.read_text(encoding="utf-8"))["previous_sha256"] == _sha_of(retained[0])
+    second = rs.fit_tier(tmp_path)
+    assert (second.problems, second.files) == ([], 2)
+
+
+def test_a_rank_pending_cell_is_declared_and_passes_the_scan(tmp_path: Path) -> None:
+    """Round 84 (A4): a fit whose rank is not verified estimates no named component; the record
+    declares its cells rank-unverified, on either track, and the scan accepts it."""
+    v = _v()
+    rs = _r84()
+    syn, _, _ = _authors_benzene(tmp_path)
+    for independent in (False, True):
+        call = v.local_call()
+        report = v.run_report(
+            BENZENE,
+            call=_unverified_call(call) if independent else _AuthorsUnverified(call),
+            prereg=syn.prereg,
+            root=tmp_path,
+            submission=syn.logged(),
+            receipt=syn.receipt(),
+            method=_method(syn),
+        )
+        track = "independent" if independent else "reproduction"
+        assert {(c["status"], c["reason"]) for c in report["cells"][track]} == {("pending", "rank-unverified")}
+        record = v.fit_values(report)
+        prefix = "" if independent else "reproduction "
+        mine = [e for e in record["values"] if e["quantity"] in (prefix + "estimate", prefix + "discrepancy")]
+        assert len(mine) == 30 and {(e["value"], e["reason"]) for e in mine} == {(None, "rank-unverified")}
+        v.write_fit_values(report, root=tmp_path)
+    _root(tmp_path, logged=True, protocol=syn.protocol)
+    _write_prereg(tmp_path, syn.prereg)
+    fit = rs.fit_tier(tmp_path)
+    assert (fit.problems, fit.files) == ([], 2)
+
+
+class _AuthorsUnverified:
+    """A registry client whose second fit of each condition (the authors' analysis, which
+    ``run_report`` runs after every independent fit) has an unverified rank."""
+
+    def __init__(self, call: Any) -> None:
+        self.call, self.wrapped, self.fits = call, _unverified_call(call), 0
+
+    def __call__(self, name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+        if name == "fit.run":
+            self.fits += 1
+        out: dict[str, Any] = (self.wrapped if self.fits > 15 else self.call)(name, args)
+        return out
 
 
 @pytest.mark.parametrize("status", ["local evidence unavailable", "blocked"])
@@ -702,7 +1068,7 @@ def test_the_command_writes_the_fit_values_and_shares_none(
     shared = capsys.readouterr().out
     assert code == 0
     path = tmp_path / rs.FIT_DIR / f"{BENZENE}{rs.FIT_SUFFIX}"
-    values = [e["value"] for e in json.loads(path.read_text(encoding="utf-8"))["values"]]
+    values = [e["value"] for e in json.loads(path.read_text(encoding="utf-8"))["values"] if e["value"] is not None]
     assert len(values) == 30
     assert _leaks(shared, values) == []
 
@@ -722,20 +1088,37 @@ def _r83b() -> Any:
 
 
 def _reproduced(drop: int | None = None, orphan: bool = False) -> dict[str, Any]:
+    """Amended for round 84 (A2): the authors'-analysis track run in the fallback mode, every
+    roster cell declared, one discrepancy given and the others pending for no target."""
     record = _record()
+    record["values"] = [e for e in record["values"] if not e["quantity"].startswith("reproduction")]
     estimates = [e for e in record["values"] if e["quantity"] == "estimate"]
     extra = [{**e, "quantity": "reproduction estimate", "value": e["value"] + 0.0101} for e in estimates]
-    extra.append({**extra[0], "quantity": "reproduction discrepancy", "value": 0.00277341})
+    extra += [
+        _declared(e["condition"], e["component"], "reproduction discrepancy", 0.00277341)
+        if k == 0
+        else _declared(e["condition"], e["component"], "reproduction discrepancy", None, "no-target")
+        for k, e in enumerate(estimates)
+    ]
     if drop is not None:
         del extra[drop]
     if orphan:
-        extra.append({"condition": "c97", "component": "S_zz", "quantity": "reproduction discrepancy", "value": 0.3})
+        extra.append(_declared("c97", "S_zz", "reproduction discrepancy", 0.3))
     record["values"] += extra
+    conditions = _condition_keys(BENZENE)
+    record["provenance"]["method"] = {
+        "mode": "fallback",
+        "documented": ["geometry"],
+        "geometry": {"r_cc_angstrom": 1.397, "r_ch_angstrom": 1.089},
+        "weights": "1/sigma^2",
+        "sources": {"geometry": "synthetic"},
+    }
+    record["provenance"]["fits"]["reproduction"] = {c: _fit_provenance(100 + i) for i, c in enumerate(conditions)}
     return record
 
 
 def test_reproduction_values_are_part_of_the_fit_tier(tmp_path: Path) -> None:
-    rs = _r83b()
+    rs = _r84()
     root = _root(tmp_path, logged=True)
     _fit_file(root, _reproduced())
     fit = rs.fit_tier(root)
@@ -745,9 +1128,24 @@ def test_reproduction_values_are_part_of_the_fit_tier(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("name", ["a missing reproduction cell", "a reproduction discrepancy without its estimate"])
 def test_reproduction_values_must_cover_the_roster(tmp_path: Path, name: str) -> None:
-    rs = _r83b()
+    rs = _r84()
     root = _root(tmp_path, logged=True)
     path = _fit_file(root, _reproduced(drop=3) if name.startswith("a missing") else _reproduced(orphan=True))
     fit = rs.fit_tier(root)
     assert fit.problems and any(path.name in p for p in fit.problems), name
     assert _digits_free([*fit.problems, rs.status_line(fit)])
+
+
+def test_a_removed_reproduction_discrepancy_is_a_problem_not_a_gap(tmp_path: Path) -> None:
+    """Round 84 (A2): Sol's probe. Without its declaration the record fails; with it, the value is
+    in the tier and found in a blob."""
+    rs = _r84()
+    root = _root(tmp_path, logged=True)
+    record = _reproduced()
+    _fit_file(root, record)
+    whole = rs.fit_tier(root)
+    assert whole.problems == []
+    assert rs.scan([("notes.md", b"0.002773\n")], whole.tiers, frozenset()) == ["notes.md:1"]
+    record["values"] = [e for e in record["values"] if e["value"] != 0.00277341]
+    _fit_file(root, record)
+    assert rs.fit_tier(root).problems
