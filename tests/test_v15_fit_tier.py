@@ -705,3 +705,49 @@ def test_the_command_writes_the_fit_values_and_shares_none(
     values = [e["value"] for e in json.loads(path.read_text(encoding="utf-8"))["values"]]
     assert len(values) == 30
     assert _leaks(shared, values) == []
+
+
+# ===================== round 83 (A4): the authors'-analysis values are scanned too, frozen before
+# the fix. A report that runs the reproduction track writes its estimates and discrepancies as
+# "reproduction estimate" and "reproduction discrepancy" entries. They cover the roster exactly
+# when present, and a reproduction discrepancy needs its reproduction estimate.
+R83B_PY = ROOT / "tools" / "validation" / "evidence.py"
+
+
+def _r83b() -> Any:
+    rs = _r83()
+    if not R83B_PY.is_file():
+        pytest.xfail("round 83 (A4, A5): the fixes are not written yet")
+    return rs
+
+
+def _reproduced(drop: int | None = None, orphan: bool = False) -> dict[str, Any]:
+    record = _record()
+    estimates = [e for e in record["values"] if e["quantity"] == "estimate"]
+    extra = [{**e, "quantity": "reproduction estimate", "value": e["value"] + 0.0101} for e in estimates]
+    extra.append({**extra[0], "quantity": "reproduction discrepancy", "value": 0.00277341})
+    if drop is not None:
+        del extra[drop]
+    if orphan:
+        extra.append({"condition": "c97", "component": "S_zz", "quantity": "reproduction discrepancy", "value": 0.3})
+    record["values"] += extra
+    return record
+
+
+def test_reproduction_values_are_part_of_the_fit_tier(tmp_path: Path) -> None:
+    rs = _r83b()
+    root = _root(tmp_path, logged=True)
+    _fit_file(root, _reproduced())
+    fit = rs.fit_tier(root)
+    assert (fit.status, fit.problems, fit.values) == ("results", [], 2 * _count(BENZENE))
+    assert rs.scan([("notes.md", b"d = 0.002773\n")], fit.tiers, frozenset()) == ["notes.md:1"]
+
+
+@pytest.mark.parametrize("name", ["a missing reproduction cell", "a reproduction discrepancy without its estimate"])
+def test_reproduction_values_must_cover_the_roster(tmp_path: Path, name: str) -> None:
+    rs = _r83b()
+    root = _root(tmp_path, logged=True)
+    path = _fit_file(root, _reproduced(drop=3) if name.startswith("a missing") else _reproduced(orphan=True))
+    fit = rs.fit_tier(root)
+    assert fit.problems and any(path.name in p for p in fit.problems), name
+    assert _digits_free([*fit.problems, rs.status_line(fit)])

@@ -123,6 +123,7 @@ restricted-fit scan tier.
 | 2026-11-23T14:32Z | `da39310621d06ad536cad92fea31b0bdd2acb195` (commit `b413038`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-23T14:44Z | `51a4b9b4c2188839586ec248106bd8a01312fe69` (commit `1ad0fd4`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-23T15:15Z | `0b79bdfebd5e1db1e3b91380b7188f0ce147c713` (commit `f2ef4d0`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-23T15:30Z | `0eda6177587680bb29bb4efc7bf4c0372eeda034` (commit `0ab5e5e`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -215,6 +216,23 @@ row is appended here in the next commit.
   redundant guards: another check raises the same problem. One read in the gate's own test file
   named no encoding (`tests/test_boundaries.py` caught it). It now names UTF-8. Findings A4 and
   A5 follow separately.
+
+- **2026-11-23, round 83 gates frozen (A4, A5), before the fixes.** Added at the end of
+  `tests/test_v15_verification.py`: the authors'-analysis track run from an owner-local
+  method-evidence record. All four inputs documented give a reproduction, fitted with the authors'
+  ring radii and the documented weights, with the printed token's table margin or the 2p figure
+  margin. The geometry without the objective or the weights gives the frozen fallback (1/σ²)
+  under its own label. Anything else stays pending, with no second fit. P-2 withholds this track's
+  targets until the spot-check is signed, and an unverified rank keeps its precedence, signed or
+  not. A malformed record, or a printed token that is not its target, blocks before any fit. This
+  track's disagreements need their own reviews. Its values stay local and enter the fit-values
+  record. Amended: review evidence is a reference (path and SHA-256) to an existing local annex
+  entry and to a local review receipt that links a reviewed public entry by path, SHA-256 and
+  heading. Each file is bound to the dataset, track, cell and protocol revision. Matching keys
+  alone, and missing, stale, unbound, linked or misplaced files, leave the failure unresolved.
+  Added to `tests/test_v15_fit_tier.py`: the scan covers the reproduction values, roster-exact.
+  These tests xfail while `tools/validation/evidence.py` is absent. The amendment strengthens the
+  frozen gate. It removes no case that the gate rejected before.
 
 ## 7. Exit matrix
 

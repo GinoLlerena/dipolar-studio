@@ -31,6 +31,7 @@ import math
 import sys
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -159,15 +160,18 @@ def _couplings_rows(dataset: str, truths: dict[str, dict[str, float]], *, offset
     return rows
 
 
-def _target_rows(dataset: str, targets: dict[tuple[str, str], tuple[float, float] | None]) -> list[dict[str, str]]:
+def _target_rows(
+    dataset: str,
+    targets: dict[tuple[str, str], tuple[float, float] | None],
+    tokens: dict[str, str] | None = None,
+) -> list[dict[str, str]]:
     rows = []
     for (key, comp), t in targets.items():
         a, b = key.split("/")
         if dataset == BENZENE:
             value, sigma = t if t is not None else (math.nan, math.nan)
-            rows.append(
-                {"run": a, "sample": b, "S_zz_token": f"{value}({sigma})", "S_zz": repr(value), "sigma": repr(sigma)}
-            )
+            token = (tokens or {}).get(key, f"{value}({sigma})")
+            rows.append({"run": a, "sample": b, "S_zz_token": token, "S_zz": repr(value), "sigma": repr(sigma)})
         else:
             rows.append(
                 {
@@ -215,6 +219,7 @@ class Synthetic:
         targets: dict[tuple[str, str], tuple[float, float] | None] | None = None,
         couplings_rows: list[dict[str, str]] | None = None,
         offsets: bool = True,
+        tokens: dict[str, str] | None = None,
     ) -> None:
         self.root, self.dataset = root, dataset
         self.truths = truths or {k: _truth(dataset, i) for i, k in enumerate(_condition_keys(dataset))}
@@ -224,7 +229,7 @@ class Synthetic:
         self.couplings_path = root / d["couplings"]["path"]
         self.targets_path = root / d["targets"]["path"]
         _write_csv(self.couplings_path, couplings_rows or _couplings_rows(dataset, self.truths, offsets=offsets))
-        _write_csv(self.targets_path, _target_rows(dataset, self.targets))
+        _write_csv(self.targets_path, _target_rows(dataset, self.targets, tokens))
         d["couplings"]["sha256"] = _sha(self.couplings_path)
         d["targets"]["sha256"] = _sha(self.targets_path)
         assert prereg.validate(self.prereg) == []
@@ -932,13 +937,67 @@ def _disagreeing(tmp_path: Path, *, conditions: tuple[str, ...]) -> tuple[Synthe
     return syn, keys
 
 
-def test_complete_review_coverage_explains_the_discrepancy(tmp_path: Path, call: Any) -> None:
-    """One-to-one coverage of every disagreeing key across the annex and the public receipts sets
-    the review flag: an explained discrepancy, which is not validation (crosswalk: unresolved
-    failure, "explained, reviewed")."""
+# Round 83 (A5), amended before the fix: matching keys alone no longer stand in for a completed
+# review. Each disagreeing key needs a reference (path and SHA-256) to an existing local annex entry
+# and to an existing local review receipt that links a reviewed public entry by path, SHA-256 and
+# heading; each file binds the same dataset, track, cell and protocol revision.
+R83B_PY = ROOT / "tools" / "validation" / "evidence.py"
+
+
+def _r83b() -> Any:
+    """The round 83 A4/A5 fixes, or an xfail while (and only while) their module is absent."""
     v = _v()
+    if not R83B_PY.is_file():
+        pytest.xfail("round 83 (A4, A5): the fixes are not written yet")
+    return v
+
+
+PUBLIC_ENTRY = "datasets/odcb-chandrakumar1993/README.md"
+
+
+def _write_json(path: Path, record: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
+
+
+def _ref(root: Path, path: Path, key: dict[str, str]) -> dict[str, str]:
+    return {**key, "path": path.relative_to(root).as_posix(), "sha256": _sha(path)}
+
+
+def _evidence(root: Path, keys: list[dict[str, str]]) -> dict[str, list[dict[str, str]]]:
+    """Synthetic review evidence for each key: a local annex entry, and a local review receipt
+    linking a heading of a value-free public README; returns the references to both."""
+    headings = [f"### Discrepancy review {n}" for n in range(1, len(keys) + 1)]
+    public = root / PUBLIC_ENTRY
+    public.parent.mkdir(parents=True, exist_ok=True)
+    body = "".join(f"\n{h}\n\nSynthetic, value-free context.\n" for h in headings)
+    public.write_text("# Synthetic README\n" + body, encoding="utf-8")
+    annex, receipts = [], []
+    for n, (key, heading) in enumerate(zip(keys, headings, strict=True), start=1):
+        a = root / "datasets-local" / "reviews" / f"annex-{n}.json"
+        _write_json(a, {**key, "kind": "annex", "entry": "a synthetic numeric annex entry"})
+        r = root / "datasets-local" / "reviews" / f"receipt-{n}.json"
+        _write_json(
+            r,
+            {
+                **key,
+                "kind": "review receipt",
+                "reviewer": "a synthetic second reviewer",
+                "public_entry": {"path": PUBLIC_ENTRY, "sha256": _sha(public), "heading": heading},
+            },
+        )
+        annex.append(_ref(root, a, key))
+        receipts.append(_ref(root, r, key))
+    return {"annex": annex, "receipts": receipts}
+
+
+def test_complete_review_coverage_explains_the_discrepancy(tmp_path: Path, call: Any) -> None:
+    """One-to-one coverage of every disagreeing key by existing, current annex entries and review
+    receipts sets the review flag: an explained discrepancy, which is not validation (crosswalk:
+    unresolved failure, "explained, reviewed")."""
+    v = _r83b()
     syn, keys = _disagreeing(tmp_path, conditions=("I/314", "II/306"))
-    reviews = {"annex": keys, "receipts": keys}
+    reviews = _evidence(tmp_path, keys)
     report = v.run_report(
         ODCB,
         call=call,
@@ -955,8 +1014,37 @@ def test_complete_review_coverage_explains_the_discrepancy(tmp_path: Path, call:
     assert (shared["verification"], shared["annotation"]) == ("unresolved failure", "explained, reviewed")
 
 
-def _coverage_mutant(name: str, keys: list[dict[str, str]], protocol: str) -> dict[str, list[dict[str, str]]]:
-    annex, receipts = [dict(k) for k in keys], [dict(k) for k in keys]
+def test_matching_keys_alone_are_not_a_review(tmp_path: Path, call: Any) -> None:
+    """A5: the keys copied into both lists, with no annex entry or reviewed public entry behind
+    them, leave the failure unresolved."""
+    v = _r83b()
+    syn, keys = _disagreeing(tmp_path, conditions=("I/314", "II/306"))
+    report = v.run_report(
+        ODCB,
+        call=call,
+        prereg=syn.prereg,
+        root=tmp_path,
+        submission=syn.submission(),
+        receipt=syn.receipt(),
+        reviews={"annex": keys, "receipts": keys},
+    )
+    assert report["review_problems"]
+    assert report["tracks"]["independent"]["full"].name == "unresolved failure"
+
+
+def _rewrite(root: Path, ref: dict[str, str], change: Callable[[dict[str, Any]], None]) -> None:
+    """Change a referenced file and refresh the reference's hash, so only the change is wrong."""
+    path = root / ref["path"]
+    record = json.loads(path.read_text(encoding="utf-8"))
+    change(record)
+    _write_json(path, record)
+    ref["sha256"] = _sha(path)
+
+
+def _coverage_mutant(name: str, root: Path, keys: list[dict[str, str]], protocol: str) -> dict[str, Any]:
+    reviews = _evidence(root, keys)
+    annex, receipts = reviews["annex"], reviews["receipts"]
+    public = root / PUBLIC_ENTRY
     if name == "an annex entry missing":
         annex.pop()
     elif name == "a receipt missing":
@@ -974,14 +1062,65 @@ def _coverage_mutant(name: str, keys: list[dict[str, str]], protocol: str) -> di
     elif name == "the wrong dataset":
         annex[0]["dataset"] = BENZENE
     elif name == "an entry for an agreeing cell":
-        extra = _key(ODCB, "independent", "II/290", "S_zz", protocol)
-        annex.append(extra)
-        receipts.append(dict(extra))
+        return _evidence(root, [*keys, _key(ODCB, "independent", "II/290", "S_zz", protocol)])
     elif name == "an unknown field":
         receipts[0]["reviewer"] = "someone"
     elif name == "no receipts at all":
-        receipts = []
-    return {"annex": annex, "receipts": receipts}
+        receipts.clear()
+    elif name == "an annex file missing":
+        (root / annex[0]["path"]).unlink()
+    elif name == "a stale annex entry":
+        path = root / annex[0]["path"]
+        path.write_text(path.read_text(encoding="utf-8").replace("synthetic", "edited"), encoding="utf-8")
+    elif name == "an annex entry of another cell":
+        _rewrite(root, annex[0], lambda r: r.update(condition="II/290"))
+    elif name == "an annex entry at another revision":
+        _rewrite(root, annex[0], lambda r: r.update(protocol_sha256="2" * 64))
+    elif name == "an empty annex entry":
+        _rewrite(root, annex[0], lambda r: r.update(entry=" "))
+    elif name == "an annex file that is not JSON":
+        path = root / annex[0]["path"]
+        path.write_text("{not json", encoding="utf-8")
+        annex[0]["sha256"] = _sha(path)
+    elif name == "an annex file with another field":
+        _rewrite(root, annex[0], lambda r: r.update(note="extra"))
+    elif name == "a receipt standing in for the annex":
+        annex[0] = dict(receipts[0])
+    elif name == "a receipt file missing":
+        (root / receipts[0]["path"]).unlink()
+    elif name == "a stale receipt":
+        path = root / receipts[0]["path"]
+        path.write_text(path.read_text(encoding="utf-8").replace("synthetic", "edited"), encoding="utf-8")
+    elif name == "a receipt with no reviewer":
+        _rewrite(root, receipts[0], lambda r: r.update(reviewer=""))
+    elif name == "the reviewed public entry missing":
+        public.unlink()
+    elif name == "a stale public entry":
+        public.write_text(public.read_text(encoding="utf-8") + "\nEdited after review.\n", encoding="utf-8")
+    elif name == "a public entry without its heading":
+        text = public.read_text(encoding="utf-8").replace("### Discrepancy review 1\n", "")
+        public.write_text(text, encoding="utf-8")
+        _rewrite(root, receipts[0], lambda r: r["public_entry"].update(sha256=_sha(public)))
+    elif name == "a public entry that is local":
+        local = root / "datasets-local" / "public.md"
+        local.write_bytes(public.read_bytes())
+        _rewrite(root, receipts[0], lambda r: r["public_entry"].update(path="datasets-local/public.md"))
+    elif name == "an annex entry outside datasets-local":
+        moved = root / "docs" / "annex-1.json"
+        moved.parent.mkdir(parents=True, exist_ok=True)
+        (root / annex[0]["path"]).rename(moved)
+        annex[0]["path"] = "docs/annex-1.json"
+    elif name == "a path that leaves the checkout":
+        outside = root.parent / f"{root.name}-annex.json"
+        outside.write_bytes((root / annex[0]["path"]).read_bytes())
+        annex[0]["path"] = f"datasets-local/../../{outside.name}"
+    elif name == "a linked annex entry":
+        path = root / annex[0]["path"]
+        outside = root.parent / f"{root.name}-linked.json"
+        outside.write_bytes(path.read_bytes())
+        path.unlink()
+        path.symlink_to(outside)
+    return reviews
 
 
 COVERAGE_MUTANTS = [
@@ -996,15 +1135,34 @@ COVERAGE_MUTANTS = [
     "an entry for an agreeing cell",
     "an unknown field",
     "no receipts at all",
+    # Round 83 (A5): the references must reach existing, current, bound evidence.
+    "an annex file missing",
+    "a stale annex entry",
+    "an annex entry of another cell",
+    "an annex entry at another revision",
+    "an empty annex entry",
+    "an annex file that is not JSON",
+    "an annex file with another field",
+    "a receipt standing in for the annex",
+    "a receipt file missing",
+    "a stale receipt",
+    "a receipt with no reviewer",
+    "the reviewed public entry missing",
+    "a stale public entry",
+    "a public entry without its heading",
+    "a public entry that is local",
+    "an annex entry outside datasets-local",
+    "a path that leaves the checkout",
+    "a linked annex entry",
 ]
 
 
 @pytest.mark.parametrize("name", COVERAGE_MUTANTS)
 def test_incomplete_review_evidence_leaves_the_failure_unresolved(tmp_path: Path, call: Any, name: str) -> None:
-    """Missing, duplicate or stale entries are refused, and no cell is flagged reviewed."""
-    v = _v()
+    """Missing, duplicate, stale or unbound evidence is refused, and no cell is flagged reviewed."""
+    v = _r83b()
     syn, keys = _disagreeing(tmp_path, conditions=("I/314", "II/306"))
-    reviews = _coverage_mutant(name, keys, syn.protocol)
+    reviews = _coverage_mutant(name, tmp_path, keys, syn.protocol)
     report = v.run_report(
         ODCB,
         call=call,
@@ -1017,14 +1175,17 @@ def test_incomplete_review_evidence_leaves_the_failure_unresolved(tmp_path: Path
     assert report["review_problems"], name
     assert report["tracks"]["independent"]["full"].name == "unresolved failure"
     assert not any(c["reviewed"] for c in report["cells"]["independent"])
+    assert not any("synthetic" in p or "edited" in p for p in report["review_problems"])  # no file content
 
 
-def test_review_coverage_alone() -> None:
-    v = _v()
+def test_review_coverage_alone(tmp_path: Path) -> None:
+    v = _r83b()
     keys = [_key(ODCB, "independent", "I/314", "S_zz", "a" * 64)]
-    assert v.review_coverage(keys, keys, keys) == []
-    assert v.review_coverage(keys, [], keys)
-    assert v.review_coverage([], keys, keys)
+    refs = _evidence(tmp_path, keys)
+    assert v.review_coverage(keys, refs["annex"], refs["receipts"], root=tmp_path) == []
+    assert v.review_coverage(keys, [], refs["receipts"], root=tmp_path)
+    assert v.review_coverage([], refs["annex"], refs["receipts"], root=tmp_path)
+    assert v.review_coverage(keys, keys, keys, root=tmp_path)  # keys without evidence
 
 
 # =================================================================== drop-one sensitivity
@@ -1399,3 +1560,380 @@ def test_the_local_report_keeps_each_fits_provenance(tmp_path: Path, call: Any) 
     local = v.write_local(report, Path("datasets-local/report.md"), root=tmp_path).read_text(encoding="utf-8")
     assert "fit_version" in local and "science_hash" in local
     assert "provenance" not in json.dumps(v.shared_output(report))
+
+
+# ================================== round 83 regressions (A4): the authors' analysis track, frozen
+# before the fix. The owner's local method-evidence record says which of the four inputs the
+# source documents, and gives them: the authors' ring radii, the objective, the weights and the
+# corrections. All four give a reproduction; the geometry without the objective or the weights
+# gives the frozen fallback under its own label; anything else leaves the track pending. P-2 and
+# rank precedence apply on this track as on the other.
+FOUR = ["geometry", "objective", "weights", "corrections"]
+AUTHORS = {"r_cc_angstrom": 1.397, "r_ch_angstrom": 1.089}  # a synthetic authors' geometry
+
+
+def _lam(geometry: dict[str, float] = AUTHORS) -> float:
+    """The authors' ring radius over the declared one: every H–H distance scales by it."""
+    g = PREREG["geometry"]
+    return float((geometry["r_cc_angstrom"] + geometry["r_ch_angstrom"]) / (g["r_cc_angstrom"] + g["r_ch_angstrom"]))
+
+
+def _method(syn: Synthetic, documented: list[str] = FOUR, **changes: Any) -> dict[str, Any]:
+    record: dict[str, Any] = {
+        "dataset": syn.dataset,
+        "protocol_sha256": syn.protocol,
+        "documented": list(documented),
+        "geometry": dict(AUTHORS) if "geometry" in documented else None,
+        "objective": "least squares" if "objective" in documented else None,
+        "weights": "1/sigma^2" if "weights" in documented else None,
+        "corrections": [] if "corrections" in documented else None,
+        "sources": {k: f"where the source documents the {k} (synthetic)" for k in documented},
+    }
+    record.update(changes)
+    return record
+
+
+def _authors_benzene_fit(truths: dict[str, dict[str, float]], key: str, *, weighted: bool) -> float:
+    """S_zz from the scalar law with the authors' radii, independently of the engine: an in-plane
+    pair gives D = −K·S_zz/(2r³); least squares with weights 1/σ² or uniform."""
+    h = _protons(BENZENE)
+    a, y, w = [], [], []
+    for r in _couplings_rows(BENZENE, truths):
+        if f"{r['run']}/{r['sample']}" != key:
+            continue
+        dist = float(np.linalg.norm(h[r["spin_b"]] - h[r["spin_a"]])) * _lam()
+        a.append(-K / (2 * dist**3))
+        y.append(float(r["D_obs_Hz"]))
+        w.append(1 / float(r["sigma_Hz"]) ** 2 if weighted else 1.0)
+    av, yv, wv = np.array(a), np.array(y), np.array(w)
+    return float((wv * av * yv).sum() / (wv * av * av).sum())
+
+
+def _tokened(x: float) -> tuple[str, tuple[float, float]]:
+    """A printed table token at four decimals with σ = 4 in the last place, and its target."""
+    value = Decimal(repr(x)).quantize(Decimal("0.0001"))
+    return f"{value}(4)", (float(value), 0.0004)
+
+
+def _authors_benzene(
+    root: Path, *, weighted: bool = True, offsets: dict[str, float] | None = None
+) -> tuple[Synthetic, dict[str, float], dict[str, str]]:
+    """Benzene whose printed targets are the authors' synthetic estimates at four decimals."""
+    truths = {k: _truth(BENZENE, i) for i, k in enumerate(_condition_keys(BENZENE))}
+    est = {k: _authors_benzene_fit(truths, k, weighted=weighted) for k in truths}
+    tokens: dict[str, str] = {}
+    targets: dict[tuple[str, str], tuple[float, float] | None] = {}
+    for k, x in est.items():
+        tokens[k], targets[(k, "S_zz")] = _tokened(x + (offsets or {}).get(k, 0.0))
+    return Synthetic(root, BENZENE, truths=truths, targets=targets, tokens=tokens), est, tokens
+
+
+def _counting(call: Any) -> tuple[Any, list[str]]:
+    seen: list[str] = []
+
+    def wrapped(name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+        seen.append(name)
+        out: dict[str, Any] = call(name, args)
+        return out
+
+    return wrapped, seen
+
+
+def _unverified_call(call: Any) -> Any:
+    def wrapped(name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+        out: dict[str, Any] = call(name, args)
+        return {**out, "result": _unverified(out["result"])} if name == "run.get" else out
+
+    return wrapped
+
+
+def test_the_documented_method_runs_the_reproduction(tmp_path: Path, call: Any) -> None:
+    """All four inputs documented: the fit uses the authors' geometry, the cell margin is the
+    printed token's, and the track carries the reproduction label."""
+    v = _r83b()
+    syn, est, tokens = _authors_benzene(tmp_path)
+    counted, seen = _counting(call)
+    report = v.run_report(
+        BENZENE,
+        call=counted,
+        prereg=syn.prereg,
+        root=tmp_path,
+        submission=syn.submission(),
+        receipt=syn.receipt(),
+        method=_method(syn),
+    )
+    assert report["status"] == "complete"
+    assert seen.count("fit.run") == 2 * 15  # the independent fit and the authors' analysis
+    assert report["reproduction"]["mode"] == "reproduction"
+    assert report["track_labels"]["reproduction"] == pl.REPRODUCTION_LABEL
+    full = report["tracks"]["reproduction"]["full"]
+    assert (full.name, full.compared, full.agreeing, full.pending) == ("experimentally supported", 15, 15, 0)
+    for c in report["cells"]["reproduction"]:
+        k = c["condition"]
+        assert c["fit"] == pytest.approx(est[k], rel=1e-9)
+        assert c["target"] == float(tokens[k].split("(")[0])
+        assert c["margin"] == pl.table_margin(tokens[k]) == pytest.approx(0.0004)
+        assert c["discrepancy"] == pytest.approx(c["fit"] - c["target"], abs=1e-15)
+    for k, f in report["conditions"].items():  # the independent track kept the declared geometry
+        assert f["estimates"]["S_zz"] * _lam() ** 3 == pytest.approx(est[k], rel=1e-9)
+    for f in report["reproduction_conditions"].values():
+        assert f["rank_verified"] and f["provenance"]["model"]["kind"] == "fixed"
+    assert v.shared_output(report)["tracks"]["reproduction"]["label"] == pl.REPRODUCTION_LABEL
+
+
+@pytest.mark.parametrize(
+    ("documented", "weights"),
+    [
+        (["geometry"], None),
+        (["geometry", "corrections"], None),
+        (["geometry", "weights", "corrections"], "uniform"),  # the objective unknown: the frozen fallback
+        (["geometry", "objective", "corrections"], None),
+    ],
+)
+def test_the_geometry_alone_runs_the_fallback_under_its_label(
+    tmp_path: Path, call: Any, documented: list[str], weights: str | None
+) -> None:
+    """V0.3 §6: weighted least squares with 1/σ², the authors' geometry, and the fallback label on
+    every outcome, whatever weights the record names."""
+    v = _r83b()
+    syn, est, _ = _authors_benzene(tmp_path, weighted=True)
+    method = _method(syn, documented, **({"weights": weights} if weights else {}))
+    report = v.run_report(
+        BENZENE,
+        call=call,
+        prereg=syn.prereg,
+        root=tmp_path,
+        submission=syn.submission(),
+        receipt=syn.receipt(),
+        method=method,
+    )
+    assert report["reproduction"]["mode"] == "fallback"
+    assert report["track_labels"]["reproduction"] == pl.FALLBACK_LABEL
+    assert v.shared_output(report)["tracks"]["reproduction"]["label"] == pl.FALLBACK_LABEL
+    for c in report["cells"]["reproduction"]:
+        assert c["fit"] == pytest.approx(est[c["condition"]], rel=1e-9)
+    assert report["tracks"]["reproduction"]["full"].compared == 15
+
+
+def test_documented_uniform_weights_are_the_ones_applied(tmp_path: Path, call: Any) -> None:
+    v = _r83b()
+    syn, est, _ = _authors_benzene(tmp_path, weighted=False)
+    truths = {k: _truth(BENZENE, i) for i, k in enumerate(_condition_keys(BENZENE))}
+    weighted = {k: _authors_benzene_fit(truths, k, weighted=True) for k in truths}
+    assert all(abs(est[k] - weighted[k]) > 1e-5 for k in est)  # the weights matter here
+    report = v.run_report(
+        BENZENE,
+        call=call,
+        prereg=syn.prereg,
+        root=tmp_path,
+        submission=syn.submission(),
+        receipt=syn.receipt(),
+        method=_method(syn, weights="uniform"),
+    )
+    assert report["reproduction"]["mode"] == "reproduction"
+    for c in report["cells"]["reproduction"]:
+        assert c["fit"] == pytest.approx(est[c["condition"]], rel=1e-9)
+    assert report["tracks"]["reproduction"]["full"].agreeing == 15
+
+
+@pytest.mark.parametrize("documented", [None, ["geometry", "objective", "weights"], ["objective", "weights"], []])
+def test_without_a_reproduction_or_fallback_the_track_stays_pending(
+    tmp_path: Path, call: Any, documented: list[str] | None
+) -> None:
+    """No record, undocumented corrections with a known objective and weights, or no geometry:
+    pending (inputs-undocumented), and no second fit."""
+    v = _r83b()
+    syn, _, _ = _authors_benzene(tmp_path)
+    counted, seen = _counting(call)
+    report = v.run_report(
+        BENZENE,
+        call=counted,
+        prereg=syn.prereg,
+        root=tmp_path,
+        submission=syn.submission(),
+        receipt=syn.receipt(),
+        method=None if documented is None else _method(syn, documented),
+    )
+    assert seen.count("fit.run") == 15
+    assert report["reproduction"]["mode"] == "pending"
+    assert report["reproduction_conditions"] == {}
+    assert {(c["status"], c["reason"]) for c in report["cells"]["reproduction"]} == {("pending", "inputs-undocumented")}
+    assert all(c["fit"] is None and c["target"] is None for c in report["cells"]["reproduction"])
+
+
+def test_the_spot_check_gates_the_reproduction_track(tmp_path: Path, call: Any) -> None:
+    """P-2 on this track too: until the receipt is signed, the targets are withheld (no-target)."""
+    v = _r83b()
+    syn, _, _ = _authors_benzene(tmp_path)
+    report = v.run_report(
+        BENZENE, call=call, prereg=syn.prereg, root=tmp_path, submission=syn.submission(), method=_method(syn)
+    )
+    assert report["reproduction"]["mode"] == "reproduction"
+    assert {(c["status"], c["reason"]) for c in report["cells"]["reproduction"]} == {("pending", "no-target")}
+    for c in report["cells"]["reproduction"]:
+        assert c["fit"] is not None
+        assert (c["target"], c["margin"], c["discrepancy"]) == (None, None, None)
+    assert report["tracks"]["reproduction"]["full"].compared == 0
+
+
+@pytest.mark.parametrize("signed", [True, False])
+def test_an_unverified_rank_keeps_its_precedence_on_the_reproduction_track(
+    tmp_path: Path, call: Any, signed: bool
+) -> None:
+    v = _r83b()
+    syn, _, _ = _authors_benzene(tmp_path)
+    report = v.run_report(
+        BENZENE,
+        call=_unverified_call(call),
+        prereg=syn.prereg,
+        root=tmp_path,
+        submission=syn.submission(),
+        receipt=syn.receipt() if signed else None,
+        method=_method(syn),
+    )
+    assert {(c["status"], c["reason"]) for c in report["cells"]["reproduction"]} == {("pending", "rank-unverified")}
+    assert report["tracks"]["reproduction"]["full"].compared == 0
+
+
+def _odcb_authors(root: Path, *, edges: dict[str, float]) -> Synthetic:
+    """o-DCB with exact couplings; each named condition's S_zz target is moved by the given amount."""
+    truths = {k: _truth(ODCB, i) for i, k in enumerate(_condition_keys(ODCB))}
+    targets: dict[tuple[str, str], tuple[float, float] | None] = dict(_default_targets(ODCB, truths))
+    for k, delta in edges.items():
+        targets[(k, "S_zz")] = (truths[k]["S_zz"] + delta, 0.0004)
+    return Synthetic(root, ODCB, truths=truths, targets=targets, offsets=False)
+
+
+def test_the_figure_margin_on_the_reproduction_track(tmp_path: Path, call: Any) -> None:
+    """A digitized target's margin is 2p: just inside agrees, just outside disagrees, while the
+    independent margin accepts both. The disagreement needs its own review on this track."""
+    v = _r83b()
+    syn = _odcb_authors(tmp_path, edges={"I/310": 0.0008 - 1e-6, "I/312": 0.0008 + 1e-6})
+    g = PREREG["geometry"]
+    method = _method(syn, geometry={"r_cc_angstrom": g["r_cc_angstrom"], "r_ch_angstrom": g["r_ch_angstrom"]})
+    kw = {"call": call, "prereg": syn.prereg, "root": tmp_path, "submission": syn.submission()}
+    report = v.run_report(ODCB, **kw, receipt=syn.receipt(), method=method)
+    cells = {(c["condition"], c["component"]): c for c in report["cells"]["reproduction"]}
+    assert all(c["margin"] == pytest.approx(0.0008) for c in cells.values())
+    assert cells[("I/310", "S_zz")]["status"] == "agrees"
+    assert cells[("I/312", "S_zz")]["status"] == "disagrees"
+    assert report["tracks"]["independent"]["full"].name == "experimentally supported"
+    full = report["tracks"]["reproduction"]["full"]
+    assert (full.name, full.disagreeing, full.agreeing) == ("unresolved failure", 1, 43)
+    assert any("reproduction" in p for p in report["review_problems"])
+
+    key = _key(ODCB, "reproduction", "I/312", "S_zz", syn.protocol)
+    reviewed = v.run_report(ODCB, **kw, receipt=syn.receipt(), method=method, reviews=_evidence(tmp_path, [key]))
+    assert reviewed["review_problems"] == []
+    assert reviewed["tracks"]["reproduction"]["full"].name == "explained discrepancy"
+    assert reviewed["tracks"]["independent"]["full"].name == "experimentally supported"
+
+
+METHOD_MUTANTS: dict[str, Callable[[Synthetic], Any]] = {
+    "not a record": lambda syn: FOUR,
+    "another dataset": lambda syn: _method(syn, dataset=ODCB),
+    "another protocol revision": lambda syn: _method(syn, protocol_sha256="0" * 64),
+    "an unknown field": lambda syn: _method(syn, note="extra"),
+    "a missing field": lambda syn: {k: x for k, x in _method(syn).items() if k != "sources"},
+    "an unknown input": lambda syn: _method(syn, documented=[*FOUR, "vibrations"]),
+    "a repeated input": lambda syn: _method(syn, documented=["geometry", "geometry"]),
+    "a documented geometry that is absent": lambda syn: _method(syn, geometry=None),
+    "an undocumented geometry that is given": lambda syn: _method(syn, ["objective"], geometry=dict(AUTHORS)),
+    "a non-positive distance": lambda syn: _method(syn, geometry={**AUTHORS, "r_ch_angstrom": 0.0}),
+    "a distance as text": lambda syn: _method(syn, geometry={**AUTHORS, "r_cc_angstrom": "1.397"}),
+    "a geometry with another field": lambda syn: _method(syn, geometry={**AUTHORS, "shape": "distorted"}),
+    "an objective the fitter does not implement": lambda syn: _method(syn, objective="maximum entropy"),
+    "weights the fitter does not implement": lambda syn: _method(syn, weights="1/sigma"),
+    "a documented correction": lambda syn: _method(syn, corrections=["vibrational"]),
+    "an undocumented objective that is given": lambda syn: _method(syn, ["geometry"], objective="least squares"),
+    "no source for a documented input": lambda syn: _method(syn, sources={"geometry": "x"}),
+    "an empty source": lambda syn: _method(syn, sources={k: " " for k in FOUR}),
+}
+
+
+@pytest.mark.parametrize("name", list(METHOD_MUTANTS))
+def test_a_malformed_method_record_blocks_before_any_fit(tmp_path: Path, name: str) -> None:
+    v = _r83b()
+    syn, _, _ = _authors_benzene(tmp_path)
+    report = v.run_report(
+        BENZENE,
+        call=_never,
+        prereg=syn.prereg,
+        root=tmp_path,
+        submission=syn.submission(),
+        receipt=syn.receipt(),
+        method=METHOD_MUTANTS[name](syn),
+    )
+    assert report["status"] == "blocked" and report["problems"], name
+    assert not any("1.397" in p or "1.089" in p for p in report["problems"])
+
+
+def test_a_printed_token_that_is_not_its_target_blocks(tmp_path: Path) -> None:
+    """The table margin comes from the hash-verified printed token; a token whose value is not the
+    target's is a corrupt input, before any fit."""
+    v = _r83b()
+    truths = {k: _truth(BENZENE, i) for i, k in enumerate(_condition_keys(BENZENE))}
+    targets: dict[tuple[str, str], tuple[float, float] | None] = {
+        (k, "S_zz"): (-0.0612, 0.0004) for k in _condition_keys(BENZENE)
+    }
+    tokens = {k: "-0.0612(4)" for k in _condition_keys(BENZENE)}
+    tokens[_condition_keys(BENZENE)[3]] = "-0.0613(4)"
+    syn = Synthetic(tmp_path, BENZENE, truths=truths, targets=targets, tokens=tokens)
+    kw = {"prereg": syn.prereg, "root": tmp_path, "submission": syn.submission(), "receipt": syn.receipt()}
+    report = v.run_report(BENZENE, call=_never, **kw, method=_method(syn))
+    assert report["status"] == "blocked" and report["problems"]
+    assert not any("0.061" in p for p in report["problems"])
+
+
+def test_a_token_without_its_sigma_has_no_precision(tmp_path: Path, call: Any) -> None:
+    v = _r83b()
+    syn0, _, tokens = _authors_benzene(tmp_path / "first")
+    k = _condition_keys(BENZENE)[2]
+    tokens = {**tokens, k: tokens[k].split("(")[0]}
+    syn = Synthetic(tmp_path, BENZENE, truths=syn0.truths, targets=dict(syn0.targets), tokens=tokens)
+    report = v.run_report(
+        BENZENE,
+        call=call,
+        prereg=syn.prereg,
+        root=tmp_path,
+        submission=syn.submission(),
+        receipt=syn.receipt(),
+        method=_method(syn),
+    )
+    reasons = {c["condition"]: (c["status"], c["reason"]) for c in report["cells"]["reproduction"]}
+    assert reasons[k] == ("pending", "no-precision")
+    assert sum(r == ("agrees", "") for r in reasons.values()) == 14
+
+
+def test_reproduction_values_stay_local_and_reach_the_fit_tier(tmp_path: Path, call: Any) -> None:
+    """The authors'-analysis fits and discrepancies are in the local report and the fit-values
+    record (for the scan), and none reaches the shared output."""
+    v = _r83b()
+    syn, _, _ = _authors_benzene(tmp_path, offsets={_condition_keys(BENZENE)[0]: 0.0123})
+    report = v.run_report(
+        BENZENE,
+        call=call,
+        prereg=syn.prereg,
+        root=tmp_path,
+        submission=syn.submission(),
+        receipt=syn.receipt(),
+        method=_method(syn, ["geometry"]),
+    )
+    secret: list[float] = []
+    for c in report["cells"]["reproduction"]:
+        secret += [c["fit"], c["target"], c["discrepancy"], c["margin"]]
+    for f in report["reproduction_conditions"].values():
+        secret += [f["chi2"], *f["se"].values()]
+    shared = v.shared_output(report)
+    assert _leaks(json.dumps(shared, ensure_ascii=False) + "\n".join(v.page_lines(shared)), secret) == []
+    local = v.write_local(report, Path("datasets-local/report.md"), root=tmp_path).read_text(encoding="utf-8")
+    assert "## Cells (" + pl.FALLBACK_LABEL + ")" in local
+    assert _leaks(local, [c["fit"] for c in report["cells"]["reproduction"]])
+
+    record = v.fit_values(report)
+    got = {(e["condition"], e["component"], e["quantity"]): e["value"] for e in record["values"]}
+    for c in report["cells"]["reproduction"]:
+        assert got[(c["condition"], c["component"], "reproduction estimate")] == c["fit"]
+        if c["discrepancy"] is not None:
+            assert got[(c["condition"], c["component"], "reproduction discrepancy")] == c["discrepancy"]
+    assert sum(q == "reproduction discrepancy" for _, _, q in got) == 15
