@@ -74,8 +74,10 @@ from test_v15_verification import (  # noqa: E402
     _authors_benzene,
     _clock,  # noqa: F401  (autouse: the runner's clock)
     _condition_keys,
+    _default_targets,
     _leaks,
     _method,
+    _truth,
     _unverified_call,
 )
 
@@ -306,18 +308,17 @@ def _record(
     previous: str | None = None,
 ) -> dict[str, Any]:
     """A complete record bound to the logged submission: an estimate for every roster cell (the
-    given values first, then fillers), one discrepancy (the last given value; the other cells
-    declare no-target), and a pending authors'-analysis track."""
+    given values first, then fillers), a discrepancy for every cell (the last given value first,
+    then fillers: a signed run with every target present; amended in round 85, when a no-target
+    declaration became checkable), and a pending authors'-analysis track."""
     *estimates, discrepancy = values
     conditions = _condition_keys(dataset)
     cells = [(c, e) for c in conditions for e in _estimands(dataset)]
     fill = [0.2 + 0.0731 * k for k in range(len(cells))]
     given = estimates + fill[len(estimates) :]
     entries = [_declared(c, e, "estimate", given[k]) for k, (c, e) in enumerate(cells)]
-    entries += [
-        _declared(c, e, "discrepancy", discrepancy) if k == 0 else _declared(c, e, "discrepancy", None, "no-target")
-        for k, (c, e) in enumerate(cells)
-    ]
+    gaps = [discrepancy] + [0.0013 + 0.000173 * k for k in range(1, len(cells))]
+    entries += [_declared(c, e, "discrepancy", gaps[k]) for k, (c, e) in enumerate(cells)]
     for q in ("reproduction estimate", "reproduction discrepancy"):
         entries += [_declared(c, e, q, None, "inputs-undocumented") for c, e in cells]
     return {
@@ -338,7 +339,7 @@ def _record(
 
 
 def _count(dataset: str) -> int:
-    return _conditions(dataset) * len(_estimands(dataset)) + 1
+    return 2 * _conditions(dataset) * len(_estimands(dataset))
 
 
 def _fit_file(root: Path, record: Any, name: str = f"{BENZENE}.fit-values.json", raw: str | None = None) -> Path:
@@ -524,7 +525,7 @@ MALFORMED: dict[str, Any] = {
     "neither a value nor a reason": _entry(value=None),
     "an unknown reason": _changed(lambda r: r["values"][-1].update(reason="not wanted")),
     "an unknown reason for a discrepancy": _changed(  # added for a surviving mutant
-        lambda r: next(e for e in r["values"] if e["reason"] == "no-target").update(reason="not wanted")
+        lambda r: next(e for e in r["values"] if e["quantity"] == "discrepancy").update(value=None, reason="not wanted")
     ),
     "a discrepancy value without an estimate value": _changed(
         lambda r: r["values"][0].update(value=None, reason="rank-unverified")
@@ -875,9 +876,11 @@ def test_the_decision_11_entry_point_runs_the_full_check() -> None:
 
 
 # ============================================================================ receipts
+#: Round 85: a results receipt records how many fit outputs each dataset had (the rollback anchor).
+RESULTS_STATUS = r"results \(files: benzene-taggar2006 \d+, odcb-chandrakumar1993 \d+\)"
 RECEIPT = re.compile(
     r"\| (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z) \| `[0-9a-f]{40}` \(commit `[0-9a-f]{7}`\) "
-    r"\| (passed, not skipped(?:; fit tier: (?:pre-result|results))?) \| Claude \|"
+    r"\| (passed, not skipped(?:; fit tier: (?:pre-result|" + RESULTS_STATUS + r"))?) \| Claude \|"
 )
 
 
@@ -905,7 +908,7 @@ def test_scan_receipts_record_the_fit_tier_status() -> None:
     assert rs.FIT_TIER_SINCE <= "2026-11-23T14:32Z"
     for at, scan in rows:
         if at >= rs.FIT_TIER_SINCE:
-            assert re.fullmatch(r"passed, not skipped; fit tier: (pre-result|results)", scan), (at, scan)
+            assert re.fullmatch(r"passed, not skipped; fit tier: (pre-result|" + RESULTS_STATUS + ")", scan), (at, scan)
         else:
             assert scan == "passed, not skipped", (at, scan)
 
@@ -1108,15 +1111,13 @@ def _r83b() -> Any:
 
 def _reproduced(drop: int | None = None, orphan: bool = False) -> dict[str, Any]:
     """Amended for round 84 (A2): the authors'-analysis track run in the fallback mode, every
-    roster cell declared, one discrepancy given and the others pending for no target."""
+    roster cell declared with its discrepancy (amended in round 85: every target present)."""
     record = _record()
     record["values"] = [e for e in record["values"] if not e["quantity"].startswith("reproduction")]
     estimates = [e for e in record["values"] if e["quantity"] == "estimate"]
     extra = [{**e, "quantity": "reproduction estimate", "value": e["value"] + 0.0101} for e in estimates]
     extra += [
-        _declared(e["condition"], e["component"], "reproduction discrepancy", 0.00277341)
-        if k == 0
-        else _declared(e["condition"], e["component"], "reproduction discrepancy", None, "no-target")
+        _declared(e["condition"], e["component"], "reproduction discrepancy", 0.00277341 + 0.000191 * k)
         for k, e in enumerate(estimates)
     ]
     if drop is not None:
@@ -1168,3 +1169,206 @@ def test_a_removed_reproduction_discrepancy_is_a_problem_not_a_gap(tmp_path: Pat
     record["values"] = [e for e in record["values"] if e["value"] != 0.00277341]
     _fit_file(root, record)
     assert rs.fit_tier(root).problems
+
+
+# ====================== round 85: two holes found by the first, interrupted round 85 attempt, frozen
+# before the fix. (1) A false pending declaration: a discrepancy value declared ``no-target`` leaves
+# the tier. A cell's discrepancy is pending only for its estimate's own reason, or for no target;
+# no target means either every target withheld (the spot-check unsigned, P-2) or exactly the
+# cells whose target the hash-verified targets file marks pending. (2) A rollback: an earlier,
+# self-consistent chain restored. Each results receipt in §6 records every dataset's number of fit
+# outputs, and a later scan with fewer is a problem.
+def _r85() -> Any:
+    rs = _r84()
+    import fit_record
+
+    if not hasattr(fit_record, "pending_targets"):
+        pytest.xfail("round 85: the fixes are not written yet")
+    return rs
+
+
+def _discrepancies(record: dict[str, Any], quantity: str = "discrepancy") -> list[dict[str, Any]]:
+    return [e for e in record["values"] if e["quantity"] == quantity]
+
+
+def _hidden() -> dict[str, Any]:
+    record = _record()
+    _discrepancies(record)[2].update(value=None, reason="no-target")
+    return record
+
+
+def _withheld(record: dict[str, Any], *quantities: str) -> dict[str, Any]:
+    for q in quantities:
+        for e in _discrepancies(record, q):
+            e.update(value=None, reason="no-target")
+    return record
+
+
+def _rank_pending(record: dict[str, Any], condition: str, components: list[str], reason: str) -> dict[str, Any]:
+    for e in record["values"]:
+        if e["condition"] == condition and e["component"] in components and e["quantity"] == "estimate":
+            e.update(value=None, reason="rank-unverified")
+        if e["condition"] == condition and e["component"] in components and e["quantity"] == "discrepancy":
+            e.update(value=None, reason=reason)
+    return record
+
+
+O0 = _condition_keys(ODCB)[0]
+FALSE_PENDING: dict[str, Any] = {
+    "a discrepancy value declared no-target": (BENZENE, _hidden),
+    "a discrepancy pending for rank beside an estimate value": (
+        BENZENE,
+        lambda: _changed(lambda r: _discrepancies(r)[1].update(value=None, reason="rank-unverified")),
+    ),
+    "a rank-pending estimate with a discrepancy pending for no target": (
+        BENZENE,
+        lambda: _rank_pending(_record(), C0, ["S_zz"], "no-target"),
+    ),
+    "a condition rank-pending for one component only": (
+        ODCB,
+        lambda: _rank_pending(_record(ODCB), O0, ["S_zz"], "rank-unverified"),
+    ),
+    "one track withheld, the other not": (BENZENE, lambda: _withheld(_reproduced(), "reproduction discrepancy")),
+}
+
+
+@pytest.mark.parametrize("name", list(FALSE_PENDING))
+def test_a_false_pending_declaration_is_a_problem(tmp_path: Path, name: str) -> None:
+    rs = _r85()
+    dataset, make = FALSE_PENDING[name]
+    root = _root(tmp_path, logged=False)
+    (root / LEDGER_REL).write_text(_ledger(_submission(dataset)), encoding="utf-8")
+    path = _fit_file(root, make(), name=f"{dataset}.fit-values.json")
+    fit = rs.fit_tier(root)
+    assert any(path.name in p for p in fit.problems), (name, fit.problems)
+    assert _digits_free([*fit.problems, rs.status_line(fit)]), fit.problems
+
+
+def test_withheld_targets_and_rank_pending_conditions_are_accepted(tmp_path: Path) -> None:
+    """The consistent pending declarations pass: every target withheld on both tracks, and a whole
+    condition rank-pending with its discrepancies pending for the same reason."""
+    rs = _r85()
+    root = _root(tmp_path, logged=True)
+    _fit_file(root, _withheld(_reproduced(), "discrepancy", "reproduction discrepancy"))
+    assert rs.fit_tier(root).problems == []
+    _fit_file(root, _rank_pending(_record(), C0, ["S_zz"], "rank-unverified"))
+    assert rs.fit_tier(root).problems == []
+
+
+def _odcb_root(tmp_path: Path, pending: list[tuple[str, str]]) -> tuple[Path, Synthetic]:
+    """A checkout whose o-DCB targets file marks the given cells pending, with its submission logged."""
+    root = _root(tmp_path, logged=False)
+    truths = {k: _truth(ODCB, i) for i, k in enumerate(_condition_keys(ODCB))}
+    targets: dict[tuple[str, str], tuple[float, float] | None] = dict(_default_targets(ODCB, truths))
+    for cell in pending:
+        targets[cell] = None
+    syn = Synthetic(root, ODCB, truths=truths, targets=targets)
+    prereg = json.loads((root / PREREG_REL).read_text(encoding="utf-8"))
+    prereg["datasets"][ODCB] = syn.prereg["datasets"][ODCB]
+    _write_prereg(root, prereg)
+    (root / LEDGER_REL).write_text(_ledger(_submission(ODCB, syn.protocol)), encoding="utf-8")
+    return root, syn
+
+
+def test_no_target_is_exactly_the_targets_files_pending_cells(tmp_path: Path) -> None:
+    """A signed run declares no-target for exactly the cells the targets file marks pending."""
+    rs = _r85()
+    anisotropy = _estimands(ODCB)[1]
+    o1 = _condition_keys(ODCB)[1]
+    pending = [(O0, "S_zz"), (o1, anisotropy)]
+    root, syn = _odcb_root(tmp_path, pending)
+    record = _record(ODCB, protocol=syn.protocol)
+    for e in _discrepancies(record):
+        if (e["condition"], e["component"]) in pending:
+            e.update(value=None, reason="no-target")
+    path = _fit_file(root, record, name=f"{ODCB}.fit-values.json")
+    assert rs.fit_tier(root).problems == []
+    for change in ("a pending target with a discrepancy", "another cell without a target"):
+        bad = json.loads(json.dumps(record))
+        for e in _discrepancies(bad):
+            cell = (e["condition"], e["component"])
+            if change.startswith("a pending") and cell == pending[0]:
+                e.update(value=0.0011, reason=None)
+            if change.startswith("another") and cell == (o1, "S_zz"):
+                e.update(value=None, reason="no-target")
+        _fit_file(root, bad, name=f"{ODCB}.fit-values.json")
+        fit = rs.fit_tier(root)
+        assert any(path.name in p for p in fit.problems), change
+        assert _digits_free(fit.problems)
+    (
+        root / json.loads((root / PREREG_REL).read_text(encoding="utf-8"))["datasets"][ODCB]["targets"]["path"]
+    ).write_text("edited\n", encoding="utf-8")
+    _fit_file(root, record, name=f"{ODCB}.fit-values.json")
+    assert any("target" in p for p in rs.fit_tier(root).problems)  # the pending cells cannot be read
+
+
+def test_the_workflow_declares_pending_targets_the_scan_accepts(tmp_path: Path) -> None:
+    """End to end, on o-DCB with a pending S_zz target (its anisotropy then waits for it) and a
+    pending anisotropy target: signed and unsigned runs both pass the scan."""
+    v = _v()
+    rs = _r85()
+    anisotropy = _estimands(ODCB)[1]
+    o1 = _condition_keys(ODCB)[1]
+    root, syn = _odcb_root(tmp_path, [(O0, "S_zz"), (o1, anisotropy)])
+    ledger = (root / LEDGER_REL).read_text(encoding="utf-8")
+    for receipt in (syn.receipt(), None):
+        report = v.run_report(
+            ODCB, call=v.local_call(), prereg=syn.prereg, root=root, submission=syn.logged(), receipt=receipt
+        )
+        reasons = {(c["condition"], c["component"]): c["reason"] for c in report["cells"]["independent"]}
+        if receipt is not None:
+            assert reasons[(O0, "S_zz")] == "no-target" and reasons[(O0, anisotropy)] == "s_zz-target-pending"
+        v.write_fit_values(report, root=root)
+    (root / LEDGER_REL).write_text(ledger, encoding="utf-8")
+    fit = rs.fit_tier(root)
+    assert (fit.problems, fit.files) == ([], 2)
+
+
+def _with_receipt(text: str, benzene: int, odcb: int) -> str:
+    """The ledger with a results scan receipt appended to §6, recording the outputs' numbers."""
+    row = (
+        f"| 2026-11-25T11:00Z | `{'a' * 40}` (commit `aaaaaaa`) | passed, not skipped; fit tier: results "
+        f"(files: {BENZENE} {benzene}, {ODCB} {odcb}) | Claude |"
+    )
+    marker = "\n\nEach receipt is first recorded"
+    assert text.count(marker) == 1
+    return text.replace(marker, "\n" + row + marker)
+
+
+def test_the_receipt_records_each_datasets_outputs(tmp_path: Path) -> None:
+    rs = _r85()
+    root = _root(tmp_path, logged=True)
+    assert rs.receipt_status(rs.fit_tier(_root(tmp_path / "none", logged=False))) == "fit tier: pre-result"
+    _chain(root, 3)
+    status = rs.receipt_status(rs.fit_tier(root))
+    assert status == f"fit tier: results (files: {BENZENE} 3, {ODCB} 0)"
+    assert re.fullmatch(RESULTS_STATUS, status.removeprefix("fit tier: "))
+    text = _with_receipt(_ledger(_submission()), 3, 0)
+    assert _scan_rows(text)[-1][1] == f"passed, not skipped; {status}"
+
+
+ROLLBACKS = ["an earlier run restored", "an earlier run restored beside a new o-DCB run", "the outputs removed"]
+
+
+@pytest.mark.parametrize("name", ROLLBACKS)
+def test_a_rollback_below_the_last_receipt_is_a_problem(tmp_path: Path, name: str) -> None:
+    """A chain that checks out on its own, but holds fewer outputs than the last receipt
+    recorded, is a problem; the same chain before any such receipt is not."""
+    rs = _r85()
+    root = _root(tmp_path, logged=True)
+    first, second, current = _chain(root, 3)
+    (root / LEDGER_REL).write_text(_with_receipt(_ledger(_submission(), _submission(ODCB)), 3, 0), encoding="utf-8")
+    fit = rs.fit_tier(root)
+    assert not any("receipt" in p for p in fit.problems), fit.problems
+    reports = root / "datasets-local" / "verification" / "reports"
+    record = first.read_text(encoding="utf-8")
+    for path in (second, current, first, reports / f"{BENZENE}.2.md", reports / f"{BENZENE}.3.md"):
+        path.unlink()
+    if name != "the outputs removed":
+        current.write_text(record, encoding="utf-8")  # run 1 again: a whole, consistent chain
+    if name.endswith("new o-DCB run"):
+        _chain(root, 1, ODCB)
+    fit = rs.fit_tier(root)
+    assert not any("chain" in p or "previous" in p for p in fit.problems) or name == "the outputs removed"
+    assert any("receipt" in p for p in fit.problems), (name, fit.problems)
+    assert _digits_free(fit.problems)

@@ -137,6 +137,7 @@ restricted-fit scan tier.
 | 2026-11-23T20:03Z | `3caa4572f249c978e7fc0dcf2dda65feedb58f4f` (commit `e74081d`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-23T20:12Z | `9e47637cf8d4f598b2556ae4f7350f38a1c438b1` (commit `35c0f9f`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-23T22:24Z | `41319233761248908f7c133c7377f2889bc609a7` (commit `46a1f2c`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-23T22:56Z | `613fbb884214948378ef3b6a29b265c53d939655` (commit `9ca2803`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -377,6 +378,42 @@ row is appended here in the next commit.
     - couplings changed after the freeze.
 
     All 28 mutants are then caught.
+
+- **2026-11-23, round 85 (first attempt): no report.** The scoped Sol review of `9ca2803` stopped
+  partway: the provider's safety filter flagged the run. It delivered no verdict, so the attempt
+  does not count as the authorized round. Its last message named two cases the scan accepted,
+  and both were confirmed by reading the code:
+  - **A false pending declaration.** A record could declare a real discrepancy as `no-target`.
+    That discrepancy then dropped out of the fit tier.
+  - **A rollback.** An earlier chain, restored whole, checked out, because nothing tracked in
+    git recorded how many runs there had been.
+
+  The orphaned test run was stopped and the reviewer's worktree removed.
+  - **Owner decision (2026-11-24T23:15Z, in chat): "Fix both, then rerun 85".** Tests first,
+    then fixes for both cases. Round 85 is then rerun as the same scoped review, with a reworded
+    brief, and still counts as round 85.
+
+- **2026-11-24, round 85 gates frozen (the two cases).** These tests xfail while
+  `fit_record` has no `pending_targets`.
+  - **The false pending declaration.** The rules:
+    - A cell's discrepancy is pending only for its estimate's own reason or, beside an estimate
+      value, for `no-target`.
+    - A rank-pending condition is pending for every component.
+    - On each track, the `no-target` cells are either every estimated cell (all targets
+      withheld: the spot-check is unsigned, P-2) or exactly the estimated cells whose target
+      the hash-verified targets file marks pending. Both tracks make the same choice.
+  - **The rollback.** A results receipt in §6 now records each dataset's number of fit outputs:
+    `fit tier: results (files: benzene-taggar2006 <n>, odcb-chandrakumar1993 <n>)`. The scan
+    command prints it (`receipt_status`). The scan then refuses fewer outputs for a dataset
+    than the latest receipt recorded. No results row existed before, so no recorded row
+    changes.
+  - **Amendments.** The synthetic records `_record` and `_reproduced` now give every
+    discrepancy, as a signed run with every target present does. The receipt row pattern
+    accepts the new results form.
+
+  An o-DCB workflow test covers a pending S_zz target, whose anisotropy waits with its
+  discrepancy (`s_zz-target-pending`), and a pending anisotropy target, signed and unsigned. No
+  case that the gate rejected before is removed.
 
 ## 7. Exit matrix
 
