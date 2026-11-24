@@ -138,6 +138,7 @@ restricted-fit scan tier.
 | 2026-11-23T20:12Z | `9e47637cf8d4f598b2556ae4f7350f38a1c438b1` (commit `35c0f9f`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-23T22:24Z | `41319233761248908f7c133c7377f2889bc609a7` (commit `46a1f2c`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-23T22:56Z | `613fbb884214948378ef3b6a29b265c53d939655` (commit `9ca2803`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-24T23:18Z | `e60d96ce98144c189fa14940b24f81087cb32f7d` (commit `0fac7e8`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -414,6 +415,29 @@ row is appended here in the next commit.
   An o-DCB workflow test covers a pending S_zz target, whose anisotropy waits with its
   discrepancy (`s_zz-target-pending`), and a pending anisotropy target, signed and unsigned. No
   case that the gate rejected before is removed.
+
+- **2026-11-24, round 85 fixes (the two cases).**
+  - **False pending declarations.** `fit_record.consistency` checks the pending reasons against
+    each other. `fit_record.pending_targets` reads the targets file's pending cells: the file is
+    verified against its frozen SHA-256 first, and only its keys and `status` column are read.
+    When those cells cannot be read, the record's own problem names it.
+  - **Rollback.** `restricted_scan.receipt_status` gives the results status with each dataset's
+    number of fit outputs, and the scan command prints it as `receipt: …`. The scan then refuses
+    fewer outputs for a dataset than any results receipt in the judged ledger recorded.
+
+  Gate corrections after the gate commit:
+  - `_repo` writes stand-ins for the restricted files over two synthetic inputs, so it now binds
+    the preregistration copy to those stand-ins again. Four staged-check tests needed that once
+    the targets file's hash was read.
+  - Mutation testing caught 9 of 11 round 85 mutants. The two survivors (the targets hash not
+    checked; unreadable pending cells accepted) were both masked by one test, which replaced the
+    targets file with unparseable text. The test now appends a blank line, which keeps the
+    parsed content and changes the hash.
+  - Rerunning 12 round 84 scan mutants showed three now masked by the round 85 rules: an
+    unknown reason, an estimate reason the track cannot have, and an authors' track pending
+    only in part. One case was added for each, refused by its own check alone.
+
+  All 11 round 85 mutants and the 12 rerun round 84 mutants are then caught.
 
 ## 7. Exit matrix
 

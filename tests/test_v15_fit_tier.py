@@ -722,6 +722,14 @@ def _restricted_inputs(root: Path) -> None:
 def _repo(tmp_path: Path, *, logged: bool, staged: str) -> Path:
     root = _root(tmp_path, logged=logged)
     _restricted_inputs(root)
+    # The stand-ins replace synthetic inputs: bind the preregistration copy to them again (corrected
+    # after the round 85 gate, which reads the targets file's hash).
+    prereg = json.loads((root / PREREG_REL).read_text(encoding="utf-8"))
+    for d in prereg["datasets"].values():
+        for which in ("couplings", "targets"):
+            if (root / d[which]["path"]).is_file():
+                d[which]["sha256"] = _sha_of(root / d[which]["path"])
+    _write_prereg(root, prereg)
     _git(root, "init", "-q")
     (root / "notes.md").write_text(staged, encoding="utf-8")
     _git(root, "add", "notes.md", str(LEDGER_REL))
@@ -1295,11 +1303,15 @@ def test_no_target_is_exactly_the_targets_files_pending_cells(tmp_path: Path) ->
         fit = rs.fit_tier(root)
         assert any(path.name in p for p in fit.problems), change
         assert _digits_free(fit.problems)
-    (
-        root / json.loads((root / PREREG_REL).read_text(encoding="utf-8"))["datasets"][ODCB]["targets"]["path"]
-    ).write_text("edited\n", encoding="utf-8")
+    # A targets file changed after the freeze, even with the same pending cells (a blank line
+    # appended), gives no pending cells: that record's no-target cells cannot be checked
+    # (strengthened for two surviving mutants).
+    targets = root / json.loads((root / PREREG_REL).read_text(encoding="utf-8"))["datasets"][ODCB]["targets"]["path"]
+    targets.write_text(targets.read_text(encoding="utf-8") + "\n", encoding="utf-8")
     _fit_file(root, record, name=f"{ODCB}.fit-values.json")
-    assert any("target" in p for p in rs.fit_tier(root).problems)  # the pending cells cannot be read
+    problems = rs.fit_tier(root).problems
+    assert any(path.name in p and "target" in p for p in problems), problems
+    assert any("SHA-256" in p for p in problems) and _digits_free(problems)
 
 
 def test_the_workflow_declares_pending_targets_the_scan_accepts(tmp_path: Path) -> None:
@@ -1372,3 +1384,44 @@ def test_a_rollback_below_the_last_receipt_is_a_problem(tmp_path: Path, name: st
     assert not any("chain" in p or "previous" in p for p in fit.problems) or name == "the outputs removed"
     assert any("receipt" in p for p in fit.problems), (name, fit.problems)
     assert _digits_free(fit.problems)
+
+
+# Added after the round 85 fixes, for three round 84 checks that the round 85 rules now mask:
+# each case below is refused by its own check alone.
+def _both(record: dict[str, Any], quantities: tuple[str, str], index: int, reason: str) -> dict[str, Any]:
+    estimate = quantities[0]
+    cell = next((e["condition"], e["component"]) for k, e in enumerate(_discrepancies(record, estimate)) if k == index)
+    for e in record["values"]:
+        if (e["condition"], e["component"]) == cell and e["quantity"] in quantities:
+            e.update(value=None, reason=reason)
+    return record
+
+
+MASKED: dict[str, Any] = {
+    "an independent cell declared undocumented throughout": lambda: _both(
+        _record(), ("estimate", "discrepancy"), 3, "inputs-undocumented"
+    ),
+    "one rank-pending cell on an undocumented authors' track": lambda: _both(
+        _record(), ("reproduction estimate", "reproduction discrepancy"), 3, "rank-unverified"
+    ),
+}
+
+
+@pytest.mark.parametrize("name", list(MASKED))
+def test_a_pending_reason_the_track_cannot_have_is_refused(tmp_path: Path, name: str) -> None:
+    rs = _r85()
+    root = _root(tmp_path, logged=True)
+    path = _fit_file(root, MASKED[name]())
+    fit = rs.fit_tier(root)
+    assert any(path.name in p for p in fit.problems), (name, fit.problems)
+    assert _digits_free(fit.problems)
+
+
+def test_a_declaration_names_a_known_reason() -> None:
+    _r85()
+    import fit_record
+
+    entry = {"condition": C0, "component": "S_zz", "quantity": "discrepancy", "value": None, "reason": "no-target"}
+    assert fit_record.entry_problem(entry) is None
+    assert fit_record.entry_problem({**entry, "reason": "not wanted"})
+    assert fit_record.entry_problem({**entry, "reason": "s_zz-target-pending"})  # never declared: it has a value

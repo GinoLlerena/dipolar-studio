@@ -35,6 +35,12 @@ carries its fits' provenance (A2, A4, A6; ``tools/validation/fit_record.py``), a
 records and reports form one hash-bound chain of runs (A6). A file name the scan does not expect
 is never printed, whatever its characters (A3).
 
+Round 85: a record's pending reasons must hold together, and its no-target cells must be either
+every estimated cell (targets withheld) or exactly the cells the hash-verified targets file marks
+pending (``fit_record.consistency``). A results scan receipt records each dataset's number of fit
+outputs (``receipt_status``), and a later scan with fewer is a problem, so an earlier run restored
+in place of later ones is found.
+
 **What it does not find** (documented limits): values rounded below the tier's digits outside the
 Phase 2 and validation docs; values spelled in words, split across lines or in images, PDFs or
 compressed files; a value recoverable by arithmetic from other numbers (a fit from its target and
@@ -299,6 +305,32 @@ class FitTier:
     problems: list[str] = field(default_factory=list)
     files: int = 0
     values: int = 0
+    outputs: dict[str, int] = field(default_factory=dict)  # per dataset (round 85: the receipt)
+
+
+#: A results receipt's record of each dataset's number of fit outputs (round 85, the rollback anchor).
+_RESULTS_RECEIPT = re.compile(
+    r"\| passed, not skipped; fit tier: results \(files: "
+    + ", ".join(rf"{re.escape(d)} (\d+)" for d in FIT_DATASETS)
+    + r"\) \|"
+)
+
+
+def receipt_status(fit: FitTier) -> str:
+    """The fit tier's status as a §6 scan receipt records it: for results, each dataset's number of
+    fit outputs (round 85). Counts only, never a value."""
+    if fit.status == PRE_RESULT:
+        return "fit tier: pre-result"
+    return "fit tier: results (files: " + ", ".join(f"{d} {fit.outputs.get(d, 0)}" for d in FIT_DATASETS) + ")"
+
+
+def _receipted(ledger: str) -> dict[str, int]:
+    """The largest number of each dataset's fit outputs that a §6 scan receipt recorded."""
+    floor = dict.fromkeys(FIT_DATASETS, 0)
+    for m in _RESULTS_RECEIPT.finditer(ledger):
+        for dataset, n in zip(FIT_DATASETS, m.groups(), strict=True):
+            floor[dataset] = max(floor[dataset], int(n))
+    return floor
 
 
 _STAMP = "%Y-%m-%dT%H:%MZ"
@@ -328,12 +360,22 @@ def _expected_name(name: str, retained: bool) -> tuple[str, int] | None:
 
 
 class _Rosters:
-    """Each dataset's frozen roster, read once when an output of it is checked."""
+    """Each dataset's frozen roster and pending targets, read once when an output of it is checked."""
 
     def __init__(self, root: Path) -> None:
         self.root = root
         self.read: dict[str, fr.Roster | None] = {}
+        self.pending: dict[str, frozenset[tuple[str, str]] | None] = {}
         self.problems: list[str] = []
+
+    def targets(self, dataset: str) -> frozenset[tuple[str, str]] | None:
+        if dataset not in self.pending:
+            try:
+                self.pending[dataset] = fr.pending_targets(self.root, dataset)
+            except ValueError as exc:
+                self.pending[dataset] = None
+                self.problems.append(str(exc))
+        return self.pending[dataset]
 
     def __call__(self, dataset: str | None) -> fr.Roster | None:
         if dataset is None:
@@ -400,7 +442,10 @@ def _fit_entries(
     frozen = rosters(dataset) if dataset == record.get("dataset") else None
     if dataset is not None and frozen is None and dataset == record.get("dataset"):
         problems.append(f"{rel}: the frozen roster cannot be read, so its declarations cannot be checked")
-    problems += [f"{rel}: {p}" for p in fr.check(record, good, frozen)]
+    pending = rosters.targets(dataset) if frozen is not None and dataset is not None else None
+    if frozen is not None and pending is None:
+        problems.append(f"{rel}: the targets file's pending cells cannot be read, so its no-target cells cannot be checked")
+    problems += [f"{rel}: {p}" for p in fr.check(record, good, frozen, pending)]
     return values, problems, (submission if bound and not problems else None), record
 
 
@@ -420,8 +465,10 @@ def fit_tier(root: Path, ledger: str | None = None, committed: str | None = None
     submissions need an output; by default those of ``ledger``."""
     problems: list[str] = []
     logged_entries: list[ffl.Entry] = []
+    ledger_text: str | None = None
     try:
         text = (root / LEDGER).read_text(encoding="utf-8") if ledger is None else ledger
+        ledger_text = text
         section3 = _section3_logged(text)
         logged_entries = ffl.submissions(ffl.parse(text))
         logged = section3 or bool(logged_entries)
@@ -464,6 +511,14 @@ def fit_tier(root: Path, ledger: str | None = None, committed: str | None = None
                 current[expected[0]] = read
     for dataset in sorted(set(current) | set(retained)):
         problems += fr.chain(root, dataset, current.get(dataset), retained.get(dataset, {}))
+    outputs = {d: (d in current) + len(retained.get(d, {})) for d in FIT_DATASETS}
+    if ledger_text is not None:
+        for dataset, floor in _receipted(ledger_text).items():
+            if outputs[dataset] < floor:
+                problems.append(
+                    f"{FIT_DIR}: fewer {dataset} fit outputs than the latest scan receipt (§6) recorded: an output "
+                    "was removed or an earlier run restored"
+                )
     problems += rosters.problems
     for n, record in enumerate(required, start=1):
         if record not in satisfied:
@@ -477,7 +532,7 @@ def fit_tier(root: Path, ledger: str | None = None, committed: str | None = None
         problems.append(f"{FIT_DIR}/ holds fit outputs but the first-fit log ({LEDGER} §10) has no submission")
     status = RESULTS if logged or found else PRE_RESULT
     tiers = fit_tiers(values) if values else []
-    return FitTier(status, tiers, problems, len(found), len(values))
+    return FitTier(status, tiers, problems, len(found), len(values), outputs)
 
 
 def status_line(fit: FitTier) -> str:
@@ -522,6 +577,7 @@ def main(argv: list[str] | None = None) -> int:
     # The staged ledger, as receipted; outputs are required for the committed submissions (A1).
     fit = fit_tier(ns.root, ledger=_git_show(ns.root, f":{LEDGER}"), committed=_git_show(ns.root, f"HEAD:{LEDGER}") or "")
     print(status_line(fit))
+    print(f"receipt: {receipt_status(fit)}")
     for problem in fit.problems:
         print(f"- {problem}")
     return 1 if fit.problems else 0

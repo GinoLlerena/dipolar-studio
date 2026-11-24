@@ -14,6 +14,12 @@ repeated cell, a value with a reason or neither, an unknown reason, or a discrep
 estimate is a problem. A rank-pending cell is declared ``rank-unverified``, and a pending
 authors'-analysis track ``inputs-undocumented`` throughout.
 
+**Pending reasons that hold (round 85).** A discrepancy is pending only for its estimate's own
+reason or, beside an estimate value, for ``no-target``; a rank-pending condition is pending for
+every component; and on each track the ``no-target`` cells are either every estimated cell (all
+targets withheld: P-2, the spot-check unsigned) or exactly the estimated cells whose target the
+hash-verified targets file marks pending (``pending_targets``), the same choice on both tracks.
+
 **The provenance (A6).** The package versions, the protocol flags, the method of the authors'
 analysis, and each fitted condition's fit provenance per track (its science hash among them).
 
@@ -98,6 +104,30 @@ def roster(root: Path, dataset: str) -> Roster:
     return conditions, estimands
 
 
+def pending_targets(root: Path, dataset: str) -> frozenset[tuple[str, str]]:
+    """The cells whose target the dataset's targets file marks pending, read after its SHA-256 is
+    verified against the preregistration at ``root`` (round 85). Only the keys and the status
+    column are read. A printed table has no pending target. Raises ValueError (value-free)."""
+    try:
+        d = json.loads((root / PREREG).read_text(encoding="utf-8"))["datasets"][dataset]
+        rel, frozen, form = d["targets"]["path"], d["targets"]["sha256"], d["targets"]["form"]
+    except (OSError, ValueError, KeyError, TypeError):
+        raise ValueError(f"{PREREG}: the targets of {dataset} cannot be read") from None
+    path = root / rel
+    if not path.is_file() or path.is_symlink():
+        raise ValueError(f"{dataset}: the targets file is absent, so its pending targets cannot be read")
+    data = path.read_bytes()
+    if hashlib.sha256(data).hexdigest() != frozen:
+        raise ValueError(f"{dataset}: the targets file is not at its frozen SHA-256")
+    if form == "table":
+        return frozenset()
+    try:
+        rows = list(csv.DictReader(io.StringIO(data.decode("utf-8"))))
+        return frozenset((f"{r['table']}/{r['T_K']}", r["component"]) for r in rows if r["status"] == "pending")
+    except (UnicodeDecodeError, KeyError, TypeError, csv.Error):
+        raise ValueError(f"{dataset}: the targets file's pending targets cannot be read") from None
+
+
 def _value(x: object) -> bool:
     return isinstance(x, int | float) and not isinstance(x, bool) and math.isfinite(x)
 
@@ -151,6 +181,45 @@ def declarations(entries: Sequence[Mapping[str, Any]], frozen: Roster) -> list[s
     return problems
 
 
+def consistency(entries: Sequence[Mapping[str, Any]], pending: frozenset[tuple[str, str]] | None) -> list[str]:
+    """Value-free problems of pending reasons that cannot hold together (round 85). ``pending``:
+    the targets file's pending cells, or None when they cannot be read (that rule is skipped; the
+    reader's problem is reported)."""
+    problems = []
+    withheld, signed = [], []
+    for estimate, discrepancy in TRACKS.values():
+        est = {(e["condition"], e["component"]): e for e in entries if e["quantity"] == estimate}
+        gap = {(e["condition"], e["component"]): e for e in entries if e["quantity"] == discrepancy}
+        for cell, e in est.items():
+            d = gap.get(cell)
+            if d is None or d["value"] is not None:
+                continue
+            if e["value"] is None and d["reason"] != e["reason"]:
+                problems.append(f"a {discrepancy} is pending for another reason than its {estimate}")
+                break
+            if e["value"] is not None and d["reason"] != "no-target":
+                problems.append(
+                    f"a {discrepancy} beside a {estimate} value is pending for a reason other than no target"
+                )
+                break
+        ranked: dict[str, set[bool]] = {}
+        for (condition, _), e in est.items():
+            ranked.setdefault(condition, set()).add(e["reason"] == "rank-unverified")
+        if any(len(flags) > 1 for flags in ranked.values()):
+            problems.append(f"a condition's {estimate} is rank-pending for some components only")
+        estimated = {cell for cell, e in est.items() if e["value"] is not None}
+        none = {cell for cell in estimated if cell in gap and gap[cell]["reason"] == "no-target"}
+        if estimated:
+            withheld.append(none == estimated)
+            signed.append(pending is not None and none == estimated & pending)
+    if pending is not None and withheld and not (all(withheld) or all(signed)):
+        problems.append(
+            "the no-target declarations are neither every target withheld nor exactly the targets file's "
+            "pending cells, on both tracks alike"
+        )
+    return problems
+
+
 def _fitted(entries: Sequence[Mapping[str, Any]]) -> bool:
     """Whether the authors' analysis was fitted (its track is not pending for its inputs)."""
     return not any(e["quantity"] == "reproduction estimate" and e["reason"] == "inputs-undocumented" for e in entries)
@@ -189,9 +258,15 @@ def provenance(record: Mapping[str, Any], entries: Sequence[Mapping[str, Any]], 
     return problems
 
 
-def check(record: Mapping[str, Any], entries: Sequence[Mapping[str, Any]], frozen: Roster | None) -> list[str]:
+def check(
+    record: Mapping[str, Any],
+    entries: Sequence[Mapping[str, Any]],
+    frozen: Roster | None,
+    pending: frozenset[tuple[str, str]] | None = None,
+) -> list[str]:
     """Value-free problems of a record whose fields and entries were read (``entries``: its
-    well-formed declarations): the run fields, the declarations and the provenance."""
+    well-formed declarations): the run fields, the declarations, their pending reasons (against
+    the targets file's ``pending`` cells) and the provenance."""
     problems = []
     run = record.get("run")
     if isinstance(run, bool) or not isinstance(run, int) or run < 1:
@@ -208,6 +283,7 @@ def check(record: Mapping[str, Any], entries: Sequence[Mapping[str, Any]], froze
         problems.append("no SHA-256 of its run's local report")
     if frozen is not None:
         problems += declarations(entries, frozen)
+        problems += consistency(entries, pending)
         problems += provenance(record, entries, frozen)
     return problems
 
