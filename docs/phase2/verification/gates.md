@@ -139,6 +139,7 @@ restricted-fit scan tier.
 | 2026-11-23T22:24Z | `41319233761248908f7c133c7377f2889bc609a7` (commit `46a1f2c`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-23T22:56Z | `613fbb884214948378ef3b6a29b265c53d939655` (commit `9ca2803`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-24T23:18Z | `e60d96ce98144c189fa14940b24f81087cb32f7d` (commit `0fac7e8`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-24T23:41Z | `0cc589221cbcada2a2cd68da921bad9b9df90a1a` (commit `a435803`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -438,6 +439,12 @@ row is appended here in the next commit.
     only in part. One case was added for each, refused by its own check alone.
 
   All 11 round 85 mutants and the 12 rerun round 84 mutants are then caught.
+
+- **2026-11-24, round 85 (scoped Sol round, rerun on `a435803`): NOT READY (6 A, 2 B).** Record:
+  `docs/validation/round85-v1.5b-review.md`. A1 and A4 are resolved. Still open: A2, A3, A5, A6,
+  the false pending declaration and the rollback. Under the review process the owner decides how
+  to proceed before any merge. Until then PR #28 is not merged, and no fit is authorized: §10 has
+  no `freeze approved` row.
 
 ## 7. Exit matrix
 
