@@ -63,8 +63,6 @@ WHEELS = (f"dipolar_core-{VERSION}-py3-none-any.whl", f"dipolar_app-{VERSION}-py
 #: The 0.1.0b1 release notes as tagged: the historical release text is not edited (decision 7A).
 NOTES_0_1_SHA256 = "7f5f169654962d63113e7914f4058011722bccd93a85dea7c43da1aede0b6bd3"
 
-_v15c = pytest.mark.xfail(strict=True, reason="V1.5c: the candidate does not meet this gate yet")
-
 
 def _text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -126,7 +124,6 @@ def _lock_version(package: str) -> str:
     return str(entry["version"])
 
 
-@_v15c
 def test_both_packages_the_lockfile_and_the_modules_are_the_candidate() -> None:
     for package in ("dipolar-core", "dipolar-app"):
         assert _pyproject_version(package) == VERSION
@@ -148,7 +145,6 @@ def test_the_cli_names_both_packages_and_the_contract() -> None:
 
 
 # ============================================================================= release notes
-@_v15c
 def test_the_release_notes_state_what_the_plan_requires() -> None:
     from dipolar_app.registry import CONTRACT_VERSION
 
@@ -168,7 +164,6 @@ def test_the_release_notes_state_what_the_plan_requires() -> None:
     assert re.search(r"sole author of Dipolar Studio", text)
 
 
-@_v15c
 def test_the_release_notes_print_each_pages_verification_field() -> None:
     """Each report page's current field, as the page prints it (decision 4): the notes may not
     claim more than the pages."""
@@ -185,7 +180,6 @@ def test_the_release_notes_print_each_pages_verification_field() -> None:
         assert f"`{field.group(1)}`" in rows[0], page.name
 
 
-@_v15c
 def test_the_release_notes_links_are_absolute_and_pinned_to_the_tag() -> None:
     """The notes are the GitHub release text (release.yml): a relative link breaks there, and a
     link to ``main`` would follow later changes."""
@@ -201,7 +195,6 @@ def test_the_release_notes_links_are_absolute_and_pinned_to_the_tag() -> None:
             assert (ROOT / path.split("#")[0]).exists(), link
 
 
-@_v15c
 def test_the_install_instructions_name_the_candidate_wheels() -> None:
     for path in (ROOT / "README.md", ROOT / "docs" / "user" / "getting-started.md"):
         assert f"pip install {WHEELS[0]} {WHEELS[1]}" in _text(path), path.name
@@ -213,7 +206,6 @@ def test_the_0_1_release_notes_are_unchanged() -> None:
     assert hashlib.sha256(notes).hexdigest() == NOTES_0_1_SHA256
 
 
-@_v15c
 def test_the_testers_guide_stays_pinned_to_0_1() -> None:
     """The 8CB testers use ``v0.1.0b1`` and its guide: every link into the repository is pinned
     to that tag, so updating ``main`` for 0.2 does not change what a 0.1 tester reads."""
@@ -235,7 +227,6 @@ def _guide() -> str:
     return _text(GUIDE)
 
 
-@_v15c
 def test_the_guide_checks_the_source_bytes() -> None:
     """Decision 10: the original SI bytes, checked by SHA-256 before anything is parsed."""
     (si,) = [s for s in SOURCES["obtained"] if s["local_filename"] == "jp052592j_si_001.txt"]
@@ -249,7 +240,6 @@ def test_the_guide_checks_the_source_bytes() -> None:
     assert "stop" in mismatch.lower() and "do not parse or fit" in mismatch.lower()
 
 
-@_v15c
 def test_the_guide_gives_the_frozen_geometry_and_symmetry() -> None:
     text = _guide()
     g = PREREG["geometry"]
@@ -262,7 +252,6 @@ def test_the_guide_gives_the_frozen_geometry_and_symmetry() -> None:
     assert [[float(v) for v in axes[k].split()] for k in ("x′", "y′", "z′")] == BENZENE["frame_map_matrix"]
 
 
-@_v15c
 def test_the_guide_states_the_copy_probe() -> None:
     probe = _section(_guide(), "What counts as copying")
     for phrase in (
@@ -276,7 +265,6 @@ def test_the_guide_states_the_copy_probe() -> None:
         assert phrase in probe, phrase
 
 
-@_v15c
 def test_the_guide_lists_the_full_roster_and_the_orbits() -> None:
     text = _guide()
     rows = re.findall(r"^\| ([12]) \| `([^`]+)` \| +\|", _section(text, "The 15 conditions"), flags=re.M)
@@ -291,7 +279,6 @@ def test_the_guide_lists_the_full_roster_and_the_orbits() -> None:
     assert "a fresh project directory for each condition" in text
 
 
-@_v15c
 def test_the_guides_token_example_is_decoded_right_and_is_not_from_the_corpus() -> None:
     """σ is the printed uncertainty in the last printed digits. The example is invented: the guide
     quotes no corpus value (a prepared value counts as copying)."""
@@ -308,14 +295,12 @@ def test_the_guides_token_example_is_decoded_right_and_is_not_from_the_corpus() 
         assert row["D_obs_Hz"].lstrip("-") not in text
 
 
-@_v15c
 def test_the_guide_states_the_precision_rule() -> None:
     rule = _section(_guide(), "Coordinate precision")
     for phrase in ("12 or more decimal places", "8 to 11 decimal places", "fewer than 8", "1e-8", "input XYZ frame"):
         assert phrase in rule, phrase
 
 
-@_v15c
 def test_the_guide_names_the_release_and_its_versions() -> None:
     from dipolar_app.registry import CONTRACT_VERSION
 
@@ -327,7 +312,6 @@ def test_the_guide_names_the_release_and_its_versions() -> None:
     assert "fresh Python 3.12" in text
 
 
-@_v15c
 def test_the_guide_saves_run_get_and_reads_szz() -> None:
     (block,) = [b for b in re.findall(r"```python\n(.*?)```", _guide(), flags=re.S) if "Studio.connect" in b]
     code = [line for line in block.splitlines() if line.strip() and not line.lstrip().startswith("#")]
@@ -337,7 +321,6 @@ def test_the_guide_saves_run_get_and_reads_szz() -> None:
         assert needle in block, needle
 
 
-@_v15c
 def test_the_guide_states_eligibility_order_and_disclosure() -> None:
     text = _guide()
     who = _section(text, "Who can take part")
@@ -353,7 +336,6 @@ def test_the_guide_states_eligibility_order_and_disclosure() -> None:
     assert "do not post" in text.lower()
 
 
-@_v15c
 def test_the_guides_relative_links_resolve_and_link_the_worksheet() -> None:
     links = _links(_guide())
     assert "reproduce-benzene-worksheet.md" in links
@@ -378,11 +360,11 @@ def _rows(text: str) -> list[list[str]]:
     ]
 
 
-@_v15c
 def test_the_worksheet_carries_the_closed_record_fields() -> None:
     text = _worksheet()
-    for key in sorted(verification._RECORD_FIELDS | verification._COUNT_FIELDS):
-        assert f"`{key}`" in text, key
+    keyed = {r[1] for r in _rows(text) if len(r) >= 3}
+    for key in sorted(verification._RECORD_FIELDS - {"conditions", "counts"} | verification._COUNT_FIELDS):
+        assert f"`{key}`" in keyed, key  # a row of its own, not only a mention (gate correction)
     for heading in (
         "Source",
         "Release",
@@ -396,7 +378,6 @@ def test_the_worksheet_carries_the_closed_record_fields() -> None:
         assert re.search(rf"^## {heading}", text, flags=re.M), heading
 
 
-@_v15c
 def test_the_worksheet_is_blank_and_asks_for_nothing_personal() -> None:
     text = _worksheet()
     rows = _rows(text)
@@ -452,14 +433,12 @@ def test_the_archive_check_covers_every_export_ignored_path() -> None:
     assert ignored <= alternatives and "datasets-local/" in alternatives
 
 
-@_v15c
 def test_the_release_workflow_checks_the_installed_version_literally() -> None:
     runs = _runs(RELEASE, "draft")
     installed = 'test "$("$RUNNER_TEMP/pkg/bin/dipolar" --version)"'
     assert f'{installed} = "dipolar $VERSION (dipolar-core $VERSION, contract $contract)"' in runs
 
 
-@_v15c
 @pytest.mark.parametrize(("path", "job"), [(RELEASE, "draft"), (CI, "packaged")])
 def test_the_d6h_rehearsal_runs_on_the_installed_wheels_outside_the_checkout(path: Path, job: str) -> None:
     (step,) = [s for s in _steps(path, job) if "rehearse_d6h.py" in str(s.get("run", ""))]
@@ -470,7 +449,6 @@ def test_the_d6h_rehearsal_runs_on_the_installed_wheels_outside_the_checkout(pat
     assert '--prereg "$GITHUB_WORKSPACE/docs/phase2/v0.3-preregistration.json"' in run
 
 
-@_v15c
 def test_the_build_checks_every_wheels_manifest() -> None:
     assert "python3 tools/package/check_wheels.py dist/packages/*.whl" in _text(ROOT / "tools" / "package" / "build.sh")
 
@@ -494,7 +472,6 @@ def test_the_source_archive_leaves_out_third_party_and_local_data() -> None:
 CHECK_WHEELS = ROOT / "tools" / "package" / "check_wheels.py"
 
 
-@_v15c
 @pytest.mark.parametrize(
     "name",
     [
@@ -518,7 +495,6 @@ def test_the_wheel_check_refuses_excluded_data(name: str) -> None:
 REHEARSAL = ROOT / "tools" / "package" / "rehearse_d6h.py"
 
 
-@_v15c
 def test_the_rehearsal_geometry_follows_the_guide() -> None:
     r = _module(REHEARSAL)
     big = PREREG["geometry"]["r_cc_angstrom"] + PREREG["geometry"]["r_ch_angstrom"]
@@ -533,13 +509,11 @@ def test_the_rehearsal_geometry_follows_the_guide() -> None:
         assert all(re.fullmatch(r"-?\d+\.\d{12}", v) for v in line.split()[1:]), line
 
 
-@_v15c
 def test_the_rehearsal_match_rule_is_the_ledgers() -> None:
     r = _module(REHEARSAL)
     assert r.matches(0.1, 0.1 + 1e-8 * 0.99) and not r.matches(0.1, 0.1 + 2e-8)
 
 
-@_v15c
 def test_the_rehearsal_passes_from_outside_the_checkout(tmp_path: Path) -> None:
     """The synthetic D6h fit through ``dipolar serve`` and the guide's own ``run.get`` snippet,
     run with ``-I`` from a directory outside the checkout (the CI packaged job and the release

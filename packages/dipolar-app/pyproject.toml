@@ -1,6 +1,6 @@
 [project]
 name = "dipolar-app"
-version = "0.1.0b1"
+version = "0.2.0b1"
 description = "Headless application layer of Dipolar Studio: operation registry, session, event log, view state"
 readme = "README.md"
 license = "BSD-3-Clause"

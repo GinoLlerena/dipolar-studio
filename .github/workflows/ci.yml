@@ -136,6 +136,12 @@ jobs:
       - name: The user's path against the installed package (the guide's example, dipolar serve)
         run: |
           "$RUNNER_TEMP/pkg/bin/python" -I tools/package/smoke.py --guide docs/user/getting-started.md
+      - name: A synthetic D6h fit on the installed wheels, from outside the checkout (V1.5c)
+        run: |
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/pkg/bin/python" -I "$GITHUB_WORKSPACE/tools/package/rehearse_d6h.py" \
+            --guide "$GITHUB_WORKSPACE/docs/phase2/reproduce-benzene.md" \
+            --prereg "$GITHUB_WORKSPACE/docs/phase2/v0.3-preregistration.json"
       - name: D10 spike against the installed package
         run: |
           uv sync --locked

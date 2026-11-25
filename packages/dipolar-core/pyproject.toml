@@ -1,6 +1,6 @@
 [project]
 name = "dipolar-core"
-version = "0.1.0b1"
+version = "0.2.0b1"
 description = "Pure scientific core of Dipolar Studio: geometry, dipolar physics and inference (no I/O, no UI)"
 readme = "README.md"
 license = "BSD-3-Clause"

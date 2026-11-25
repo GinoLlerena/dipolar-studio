@@ -55,7 +55,7 @@ under c2z or c1 on imported coordinates, where those pairs are no longer equival
 does hold for your geometry and order model is accepted. When unsure, give each measured coupling
 for one pair: that is always accepted.
 
-**Fixed-geometry fits** (a rigid molecule with a declared symmetry; after 0.1) key each row
+**Fixed-geometry fits** (a rigid molecule with a declared symmetry; since 0.2) key each row
 by its **pair orbit**: the pairs the declared point group makes equivalent. One measured value per
 orbit is accepted; two rows in one orbit are refused (repeat measurements of an orbit are not
 accepted in this release). Leave `multiplicity` and `equivalent_pairs` empty and they are filled in

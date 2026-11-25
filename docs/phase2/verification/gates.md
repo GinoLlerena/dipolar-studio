@@ -147,6 +147,7 @@ restricted-fit scan tier.
 | 2026-11-25T02:56Z | `482947faba10adb3a000bd9b719c73b020f7fe20` (commit `da89862`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T03:38Z | `fb59e5658f0f89bfd06e83585f5b534f41c0e894` (commit `1456a88`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T03:58Z | `7a2be32f97a487d5c203670d2d5df93b5b1348fa` (commit `31f7f21`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T15:21Z | `6a20fe40992e47ba585631c82c7dc37ac5c8dcd0` (commit `b5063db`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -638,6 +639,31 @@ row is appended here in the next commit.
     - a synthetic D6h rehearsal (`tools/package/rehearse_d6h.py`) runs on the installed wheels
       with `-I` from outside the checkout, in the release workflow and the CI packaged job;
   - **exclusion:** the `git archive` of `HEAD` has no third-party or local data.
+
+- **2026-11-25, V1.5c implementation.** Every `_v15c` marker is removed, and all 37 gates pass.
+  - **Release trigger.** `release.yml` now triggers only on the three package-shaped tag filters.
+    `tests/test_v15_gates.py::test_the_release_workflow_uses_exactly_the_approved_trigger` passes,
+    and no longer xfails.
+  - **Gate correction.** The worksheet gate accepted a record key that was only mentioned in the
+    worksheet's text. Each closed key (except `conditions` and `counts`, which are its two
+    tables) must now be a table row of its own.
+  - **Mutation check.** 28 mutants of the guide, the worksheet, the release notes, the testers'
+    guide, both workflows, `build.sh`, both package scripts and a module version were applied
+    one at a time. The V1.5c gates caught every one.
+  - **Local rehearsal** (macOS, from `tools/package/build.sh`). Both wheels report no excluded
+    data (40 and 16 entries).
+    - SHA-256 of `dipolar_app-0.2.0b1-py3-none-any.whl`:
+      `95402564bbaf7db570da424d1075fe88b679fda878ccfb857c8bb50c00781187`.
+    - SHA-256 of `dipolar_core-0.2.0b1-py3-none-any.whl`:
+      `f84a937494014771acb0ef84f87541548b15649662c4a78fa18222b349d75fd0`.
+    - In a fresh virtual environment, run from a directory outside the checkout:
+      - `dipolar --version` printed `dipolar 0.2.0b1 (dipolar-core 0.2.0b1, contract 0.12.0)`,
+        and the workflow's literal version check passed;
+      - `rehearse_d6h.py` recovered the synthetic S_zz within 1e-8 (off by 4.4e-11), through
+        `dipolar serve` and the guide's own `run.get` snippet;
+      - `smoke.py` passed.
+
+    These are local wheels. The draft's own assets are checked after the tag is pushed.
 
 ## 7. Exit matrix
 
