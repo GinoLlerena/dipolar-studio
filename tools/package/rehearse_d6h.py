@@ -95,10 +95,11 @@ def the_guides_snippet(guide: Path, project_dir: Path, out: Path) -> str:
     ]
     if len(blocks) != 1:
         raise SystemExit("the guide has no single run.get snippet")
-    code, n1 = re.subn(
-        r'^PROJECT_DIR = "[^"]+"', f"PROJECT_DIR = {json.dumps(str(project_dir))}", blocks[0], flags=re.M
-    )
-    code, n2 = re.subn(r'^OUT = "[^"]+"', f"OUT = {json.dumps(str(out))}", code, flags=re.M)
+    # A function, not a template: a Windows path's backslashes must not be read as escapes.
+    project_line = f"PROJECT_DIR = {json.dumps(str(project_dir))}"
+    code, n1 = re.subn(r'^PROJECT_DIR = "[^"]+"', lambda _: project_line, blocks[0], flags=re.M)
+    out_line = f"OUT = {json.dumps(str(out))}"
+    code, n2 = re.subn(r'^OUT = "[^"]+"', lambda _: out_line, code, flags=re.M)
     if (n1, n2) != (1, 1):
         raise SystemExit("the guide's snippet does not start with PROJECT_DIR and OUT")
     return code

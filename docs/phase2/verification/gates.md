@@ -148,6 +148,7 @@ restricted-fit scan tier.
 | 2026-11-25T03:38Z | `fb59e5658f0f89bfd06e83585f5b534f41c0e894` (commit `1456a88`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T03:58Z | `7a2be32f97a487d5c203670d2d5df93b5b1348fa` (commit `31f7f21`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T15:21Z | `6a20fe40992e47ba585631c82c7dc37ac5c8dcd0` (commit `b5063db`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T16:25Z | `402cf62abbe34edad653bd1877e561561cf7e2cd` (commit `f89f13e`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -664,6 +665,15 @@ row is appended here in the next commit.
       - `smoke.py` passed.
 
     These are local wheels. The draft's own assets are checked after the tag is pushed.
+
+- **2026-11-25, Windows CI on `f89f13e`.** The rehearsal test failed on Windows only. The
+  rehearsal rewrites the guide snippet's two path lines with `re.subn`, and the replacement
+  was a template string. Its backslashes were read as escapes, so a Windows path in the
+  `json.dumps` literal lost its doubled backslashes, and the snippet no longer compiled. The
+  guide itself was right. A platform-independent regression test came first
+  (`test_the_rehearsal_keeps_a_windows_path_in_the_guides_snippet`, failing on macOS before the
+  fix). The replacement is now a function. The release workflow runs on Linux, where the paths
+  have no backslashes.
 
 ## 7. Exit matrix
 

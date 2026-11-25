@@ -537,3 +537,15 @@ def test_the_rehearsal_passes_from_outside_the_checkout(tmp_path: Path) -> None:
     )
     assert out.returncode == 0, out.stdout + out.stderr
     assert "ok  synthetic D6h: S_zz recovered" in out.stdout
+
+
+def test_the_rehearsal_keeps_a_windows_path_in_the_guides_snippet(tmp_path: Path) -> None:
+    """Windows CI (f89f13e): the snippet's two path lines are replaced with the rehearsal's own
+    paths. A backslash in a replacement must survive as written, so the snippet still compiles
+    and names that path."""
+    r = _module(REHEARSAL)
+    project, out = Path(r"C:\Users\RUNNER~1\AppData\Local\Temp\tmp\benzene-synthetic"), Path(r"C:\Temp\x\run.json")
+    code = r.the_guides_snippet(GUIDE, project, out)
+    names: dict[str, Any] = {}
+    exec(compile("\n".join(code.splitlines()[:2]), "<snippet>", "exec"), names)
+    assert names["PROJECT_DIR"] == str(project) and names["OUT"] == str(out)
