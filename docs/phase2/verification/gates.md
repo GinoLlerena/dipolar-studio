@@ -142,6 +142,7 @@ restricted-fit scan tier.
 | 2026-11-24T23:41Z | `0cc589221cbcada2a2cd68da921bad9b9df90a1a` (commit `a435803`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-24T23:50Z | `6db1cd031d218206c4916b7c711ad422d1b6c240` (commit `f424cdc`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T00:55Z | `fd1544e417525969927ccebf5009fc498667fde1` (commit `8156758`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T01:32Z | `869ca8628d5604a5d22aae0b25c589bc7dfbbd2c` (commit `eda54e8`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -508,6 +509,13 @@ row is appended here in the next commit.
   All 16 mutants are then caught, including one added for the signed rule's pending cells. The
   11 round 85 mutants were rerun: 9 are caught, and the remaining 2 belonged to the rule that
   was removed.
+
+- **2026-11-25, round 86 (scoped Sol round on `eda54e8`): NOT READY (6 A, 0 B).** Record:
+  `docs/validation/round86-v1.5b-review.md`. Round 85's findings 4 and 5 are resolved; 1, 2, 3
+  and 6 remain open in narrower forms. There is also a regression: a signed run kept from
+  before a target amendment is judged by the amended pending targets. Under the review process
+  the owner decides how to proceed before any merge. Until then PR #28 is not merged, and no fit
+  is authorized: §10 has no `freeze approved` row.
 
 ## 7. Exit matrix
 
