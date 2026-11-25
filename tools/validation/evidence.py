@@ -148,6 +148,8 @@ def _file(root: Path, rel: object, *, local: bool) -> Path | None:
     if not isinstance(rel, str) or not rel or "\\" in rel:
         return None
     pure = PurePosixPath(rel)
+    if str(pure) != rel:  # round 86: one file, one spelling (no "./", "//" or trailing "/")
+        return None
     if pure.is_absolute() or any(part in ("", ".", "..") for part in pure.parts):
         return None
     if (pure.parts[0] == LOCAL) != local:
@@ -207,18 +209,23 @@ def _annex_texts(root: Path, ref: Mapping[str, Any]) -> tuple[str, ...] | None:
 _HEADING = re.compile(r"(#{1,6}) \S.*")
 
 
+_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+
+
 def _section_has_body(lines: list[str], heading: str) -> bool:
     """Whether the heading's section (up to the next heading of its level or above) holds a
-    line that is not blank and not a heading."""
+    line that is not blank and not a heading, once HTML comments are removed (round 86: a
+    comment does not render, so it is not a body)."""
     level = len(heading) - len(heading.lstrip("#"))
     at = lines.index(heading)
+    section = []
     for line in lines[at + 1 :]:
         m = _HEADING.fullmatch(line)
         if m and len(m.group(1)) <= level:
-            return False
-        if line.strip() and not m:
-            return True
-    return False
+            break
+        section.append(line)
+    rendered = _COMMENT.sub("", "\n".join(section))
+    return any(line.strip() and not _HEADING.fullmatch(line) for line in rendered.splitlines())
 
 
 def check_receipt(root: Path, ref: Mapping[str, Any]) -> str | None:

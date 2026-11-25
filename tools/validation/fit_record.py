@@ -19,6 +19,8 @@ reason or, beside an estimate value, for ``no-target``; a rank-pending condition
 every component; and on each track the ``no-target`` cells are either every estimated cell (all
 targets withheld: P-2, the spot-check unsigned) or exactly the estimated cells whose target the
 hash-verified targets file marks pending (``pending_targets``), the same choice on both tracks.
+Round 86: the record declares that choice (``spot_check_signed``, as its report states): signed,
+exactly the pending cells; unsigned, every target withheld.
 
 **The provenance (A6).** The package versions, the protocol flags, the method of the authors'
 analysis, and each fitted condition's fit provenance per track (its science hash among them).
@@ -64,8 +66,22 @@ ESTIMATE_REASONS = {"independent": ("rank-unverified",), "reproduction": ("input
 MODES = ("reproduction", "fallback", "pending")
 
 RECORD_FIELDS = frozenset(
-    {"dataset", "protocol_sha256", "submission", "run", "previous_sha256", "report_sha256", "provenance", "values"}
+    {
+        "dataset",
+        "protocol_sha256",
+        "submission",
+        "run",
+        "previous_sha256",
+        "report_sha256",
+        "spot_check_signed",
+        "provenance",
+        "values",
+    }
 )
+#: The local report's line that states the run's spot-check state (round 86); the record's
+#: ``spot_check_signed`` must match it.
+SIGNED_LINE = "- Spot-check signed: "
+UNEXPECTED = "(a file with an unexpected name)"
 ENTRY_FIELDS = frozenset({"condition", "component", "quantity", "value", "reason"})
 PROVENANCE_FIELDS = frozenset({"versions", "flags", "method", "fits"})
 _SHA = re.compile(r"[0-9a-f]{64}")
@@ -77,12 +93,18 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def roster(root: Path, dataset: str) -> Roster:
+def _dataset(root: Path, dataset: str, prereg: Mapping[str, Any] | None) -> Any:
+    p = json.loads((root / PREREG).read_text(encoding="utf-8")) if prereg is None else prereg
+    return p["datasets"][dataset]
+
+
+def roster(root: Path, dataset: str, prereg: Mapping[str, Any] | None = None) -> Roster:
     """The frozen roster of ``dataset``: the conditions of its couplings file, read after its
-    SHA-256 is verified against the preregistration at ``root``, and its estimands. Raises
-    ValueError (value-free) when either cannot be read or does not verify."""
+    SHA-256 is verified against the preregistration (``prereg``: the staged one, for a receipt;
+    round 86), by default the one at ``root``, and its estimands. Raises ValueError (value-free)
+    when either cannot be read or does not verify."""
     try:
-        d = json.loads((root / PREREG).read_text(encoding="utf-8"))["datasets"][dataset]
+        d = _dataset(root, dataset, prereg)
         rel, frozen = d["couplings"]["path"], d["couplings"]["sha256"]
         count, estimands = int(d["conditions"]), tuple(str(e) for e in d["estimands"])
     except (OSError, ValueError, KeyError, TypeError):
@@ -104,12 +126,13 @@ def roster(root: Path, dataset: str) -> Roster:
     return conditions, estimands
 
 
-def pending_targets(root: Path, dataset: str) -> frozenset[tuple[str, str]]:
+def pending_targets(root: Path, dataset: str, prereg: Mapping[str, Any] | None = None) -> frozenset[tuple[str, str]]:
     """The cells whose target the dataset's targets file marks pending, read after its SHA-256 is
-    verified against the preregistration at ``root`` (round 85). Only the keys and the status
-    column are read. A printed table has no pending target. Raises ValueError (value-free)."""
+    verified against the preregistration (as for ``roster``; round 85). Only the keys and the
+    status column are read. A printed table has no pending target. Raises ValueError
+    (value-free)."""
     try:
-        d = json.loads((root / PREREG).read_text(encoding="utf-8"))["datasets"][dataset]
+        d = _dataset(root, dataset, prereg)
         rel, frozen, form = d["targets"]["path"], d["targets"]["sha256"], d["targets"]["form"]
     except (OSError, ValueError, KeyError, TypeError):
         raise ValueError(f"{PREREG}: the targets of {dataset} cannot be read") from None
@@ -181,12 +204,19 @@ def declarations(entries: Sequence[Mapping[str, Any]], frozen: Roster) -> list[s
     return problems
 
 
-def consistency(entries: Sequence[Mapping[str, Any]], pending: frozenset[tuple[str, str]] | None) -> list[str]:
+def consistency(
+    entries: Sequence[Mapping[str, Any]],
+    pending: frozenset[tuple[str, str]] | None,
+    signed: object = None,
+) -> list[str]:
     """Value-free problems of pending reasons that cannot hold together (round 85). ``pending``:
     the targets file's pending cells, or None when they cannot be read (that rule is skipped; the
-    reader's problem is reported)."""
+    reader's problem is reported). ``signed``: the record's declared spot-check state (round 86):
+    signed, the no-target cells are exactly the pending ones; unsigned, every target is withheld."""
     problems = []
-    withheld, signed = [], []
+    declared = signed
+    withheld: list[bool] = []
+    exact: list[bool] = []
     for estimate, discrepancy in TRACKS.values():
         est = {(e["condition"], e["component"]): e for e in entries if e["quantity"] == estimate}
         gap = {(e["condition"], e["component"]): e for e in entries if e["quantity"] == discrepancy}
@@ -211,12 +241,13 @@ def consistency(entries: Sequence[Mapping[str, Any]], pending: frozenset[tuple[s
         none = {cell for cell in estimated if cell in gap and gap[cell]["reason"] == "no-target"}
         if estimated:
             withheld.append(none == estimated)
-            signed.append(pending is not None and none == estimated & pending)
-    if pending is not None and withheld and not (all(withheld) or all(signed)):
-        problems.append(
-            "the no-target declarations are neither every target withheld nor exactly the targets file's "
-            "pending cells, on both tracks alike"
-        )
+            exact.append(pending is not None and none == estimated & pending)
+    # Round 86: the declared state decides, for both tracks alike (it replaces round 85's rule of
+    # "withheld or exactly the pending cells", which the declaration makes stricter).
+    if withheld and declared is True and pending is not None and not all(exact):
+        problems.append("a signed run's no-target declarations are not exactly the targets file's pending cells")
+    elif withheld and declared is False and not all(withheld):
+        problems.append("a run before the spot-check was signed does not withhold every target")
     return problems
 
 
@@ -281,9 +312,11 @@ def check(
     report = record.get("report_sha256")
     if not (isinstance(report, str) and _SHA.fullmatch(report)):
         problems.append("no SHA-256 of its run's local report")
+    if not isinstance(record.get("spot_check_signed"), bool):
+        problems.append("no declared spot-check state (true or false)")
     if frozen is not None:
         problems += declarations(entries, frozen)
-        problems += consistency(entries, pending)
+        problems += consistency(entries, pending, record.get("spot_check_signed"))
         problems += provenance(record, entries, frozen)
     return problems
 
@@ -297,12 +330,14 @@ def chain(
     read from retained/<dataset>.<n> and that file's SHA-256."""
     problems = []
     n = max(retained, default=0)
+    count = len(retained)  # round 86: a number above the count is outside the sequence, never printed
     if sorted(retained) != list(range(1, n + 1)):
-        problems.append(f"{DIR}/{RETAINED}: the retained {dataset} outputs are not numbered 1 to {n} without a gap")
+        problems.append(f"{DIR}/{RETAINED}: the retained {dataset} outputs are not numbered from 1 without a gap")
     if retained and current is None:
         problems.append(f"{DIR}: retained {dataset} outputs but no current one")
     runs: list[tuple[str, Mapping[str, Any], int]] = [
-        (f"{DIR}/{RETAINED}/{dataset}.{k}{SUFFIX}", r, k) for k, (r, _) in sorted(retained.items())
+        (f"{DIR}/{RETAINED}/{dataset}.{k}{SUFFIX}" if k <= count else f"{DIR}/{RETAINED}/{UNEXPECTED}", r, k)
+        for k, (r, _) in sorted(retained.items())
     ]
     if current is not None:
         runs.append((f"{DIR}/{dataset}{SUFFIX}", current, n + 1))
@@ -320,4 +355,16 @@ def chain(
                 problems.append(f"{place}: its run's local report is missing")
             elif sha256(report) != record.get("report_sha256"):
                 problems.append(f"{place}: its run's local report is changed")
+            elif _signed_line(report) != record.get("spot_check_signed"):
+                problems.append(f"{place}: its declared spot-check signed state is not its report's")
     return problems
+
+
+def _signed_line(report: Path) -> bool | None:
+    """The spot-check state the report states on its one ``SIGNED_LINE``, or None."""
+    try:
+        lines = [x for x in report.read_text(encoding="utf-8").splitlines() if x.startswith(SIGNED_LINE)]
+    except UnicodeDecodeError:
+        return None
+    states = {"True": True, "False": False}
+    return states.get(lines[0][len(SIGNED_LINE) :]) if len(lines) == 1 else None

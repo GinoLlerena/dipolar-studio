@@ -1579,3 +1579,48 @@ def test_the_rollback_floor_survives_a_staged_ledger_edit(tmp_path: Path, where:
     assert any("receipt" in p for p in problems), problems
     assert rs.main(["--root", str(root)]) == 1
     assert _digits_free(problems)
+
+
+# Added after the round 86 fixes, for mutants that other checks masked: each case is refused by
+# its own check alone.
+def test_an_out_of_sequence_malformed_retained_file_is_not_named(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rs = _r86()
+    root = _repo(tmp_path, logged=True, staged="clean\n")
+    _chain(root, 2)
+    bad = root / "datasets-local" / "verification" / "retained" / f"{BENZENE}.48736829.fit-values.json"
+    bad.write_text("{not json", encoding="utf-8")
+    problems = rs.fit_tier(root).problems
+    assert any("not a readable JSON" in p for p in problems) and _digits_free(problems), problems
+    assert rs.main(["--root", str(root)]) == 1
+    out = capsys.readouterr()
+    assert "48736829" not in out.out + out.err
+
+
+def test_an_unsigned_run_withholds_every_target(tmp_path: Path) -> None:
+    rs = _r86()
+    root = _root(tmp_path, logged=True)
+    path = _fit_file(root, _unsigned(_record()))  # unsigned, yet every discrepancy given
+    assert any(path.name in p for p in rs.fit_tier(root).problems)
+
+
+def test_a_staged_ledger_may_not_drop_a_committed_receipt_row(tmp_path: Path) -> None:
+    rs = _r86()
+    root = _repo(tmp_path, logged=False, staged="clean\n")
+    _git(root, "commit", "-q", "-m", "the ledger")
+    assert rs.check_staged(root) == []
+    text = (root / LEDGER_REL).read_text(encoding="utf-8")
+    row = next(line for line in text.splitlines() if line.startswith("| 2026-11-23T14:32Z | `"))
+    (root / LEDGER_REL).write_text(text.replace(row + "\n", ""), encoding="utf-8")
+    _git(root, "add", str(LEDGER_REL))
+    assert any("committed scan receipt" in p for p in rs.check_staged(root))
+
+
+def test_a_record_declares_a_boolean_spot_check_state() -> None:
+    _r86()
+    import fit_record
+
+    record = {**_record(), "spot_check_signed": "yes"}
+    assert any("spot-check state" in p for p in fit_record.check(record, [], None))
+    assert not any("spot-check state" in p for p in fit_record.check(_record(), [], None))

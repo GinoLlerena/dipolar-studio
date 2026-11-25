@@ -141,6 +141,7 @@ restricted-fit scan tier.
 | 2026-11-24T23:18Z | `e60d96ce98144c189fa14940b24f81087cb32f7d` (commit `0fac7e8`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-24T23:41Z | `0cc589221cbcada2a2cd68da921bad9b9df90a1a` (commit `a435803`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-24T23:50Z | `6db1cd031d218206c4916b7c711ad422d1b6c240` (commit `f424cdc`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T00:55Z | `fd1544e417525969927ccebf5009fc498667fde1` (commit `8156758`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -476,6 +477,37 @@ row is appended here in the next commit.
     changed.
 
   No case that the gate rejected before is removed.
+
+- **2026-11-25, round 86 fixes (round 85's six findings).**
+  1. **Staged preregistration.** The staged check and the scan command read the preregistration
+     from git's index. `fit_record.roster` and `pending_targets` take that text.
+  2. **Retained names.** A retained number above the dataset's count of retained files is shown
+     as `(a file with an unexpected name)`, in the tier's problems and in the chain's. The gap
+     message names no number.
+  3. **Review evidence.** `evidence._file` refuses a path whose canonical spelling differs.
+     `_section_has_body` removes HTML comments before looking for a body.
+  4. **Kept outputs.** `verification.check_out`, used by `write_local` and the command, refuses
+     a destination under `datasets-local/verification/reports/` or `retained/`, or a fit-values
+     file, compared case-folded.
+  5. **Signed state.** The record declares `spot_check_signed`. The chain check compares it with
+     the bound report's one "Spot-check signed" line. A signed run must declare no-target for
+     exactly the targets file's pending cells; an unsigned run must withhold every target. These
+     rules replace round 85's "withheld or exact, both tracks alike" rule. The declaration makes
+     them stricter, and that rule's two mutants became equivalent, so the rule was removed.
+  6. **Rollback floor.** The staged checks are shared by `check_staged` and the command. They
+     refuse a staged ledger that drops or changes a committed §6 receipt row, and they take the
+     receipt floor from the committed ledger and the last commit message too.
+
+  Mutation testing caught 11 of 15 round 86 mutants, and a fifth mutant needed more context to
+  apply. The survivors were each masked by another check, so one case was added for each:
+  - a malformed retained file at an out-of-sequence name;
+  - an unsigned run with every discrepancy given;
+  - a dropped committed receipt row with no rollback;
+  - a direct check of a non-boolean signed state.
+
+  All 16 mutants are then caught, including one added for the signed rule's pending cells. The
+  11 round 85 mutants were rerun: 9 are caught, and the remaining 2 belonged to the rule that
+  was removed.
 
 ## 7. Exit matrix
 

@@ -28,7 +28,9 @@ checks, whoever calls it, that the first-fit log committed in its root authorize
 Each complete run writes its fit values (``write_fit_values``; the format is
 ``fit_record.py``'s): every roster cell of both tracks declared, each fit's provenance, and the
 run's place in a hash-bound chain with its local report, kept as
-``datasets-local/verification/reports/<dataset>.<run>.md`` (round 84, A2, A4, A6).
+``datasets-local/verification/reports/<dataset>.<run>.md`` (round 84, A2, A4, A6). Round 86: the
+record also declares whether the spot-check was signed (``spot_check_signed``), as its report
+states, and ``--out`` may not name one of those kept outputs.
 
 Run by the owner, on the owner's machine (it prints only the shared output)::
 
@@ -53,7 +55,8 @@ The two optional owner-local inputs (round 83; ``evidence.py`` has the rules):
   text and not another cell's. The receipt file is the key plus ``"kind": "review receipt"``, a
   ``reviewer``, and ``public_entry``: the reviewed public entry's ``path`` (outside
   ``datasets-local/``), ``sha256`` and ``heading``: a Markdown heading that the file holds once,
-  with a body, linked by no other receipt.
+  with a body, linked by no other receipt. Every path is spelled canonically (no ``./`` or
+  ``//``), and HTML comments are not a body (round 86).
 """
 
 from __future__ import annotations
@@ -1243,10 +1246,28 @@ def _md(x: object) -> str:
     return "—" if x is None else repr(x) if isinstance(x, float) else str(x)
 
 
+def _kept_output(path: Path) -> bool:
+    """Whether ``path`` is one of the outputs the workflow keeps (round 86): a fit-values file, or
+    anything under the verification folder's ``reports/`` or ``retained/``, in any letter case."""
+    parts = tuple(x.casefold() for x in PurePosixPath(path.as_posix()).parts)
+    if parts[:2] != (LOCAL_DIR, "verification"):
+        return False
+    return parts[-1].endswith(FIT_SUFFIX) or (len(parts) > 3 and parts[2] in (fr.REPORTS, fr.RETAINED))
+
+
+def check_out(path: Path, root: Path) -> Path:
+    """The local report's destination: under ``datasets-local/`` and not a kept output."""
+    target = _local_path(path, root)
+    if _kept_output(path):
+        raise ValueError("the local report is not written over the kept outputs under datasets-local/verification/")
+    return target
+
+
 def write_local(report: Mapping[str, Any], path: Path, *, root: Path) -> Path:
-    """The local detail as Markdown, under ``datasets-local/`` only (never tracked, never shared).
-    Each complete run's copy is also kept beside its fit values (``write_fit_values``)."""
-    _local_path(path, root)
+    """The local detail as Markdown, under ``datasets-local/`` only (never tracked, never shared),
+    and never over the outputs the workflow keeps (round 86). Each complete run's copy is also
+    kept beside its fit values (``write_fit_values``)."""
+    check_out(path, root)
     return _write_local_text(path, root, local_text(report))
 
 
@@ -1306,6 +1327,7 @@ def local_text(report: Mapping[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+LOCAL_DIR = "datasets-local"
 #: The restricted-fit scan tier's source (tools/datasets/restricted_scan.py, FIT_DIR and FIT_SUFFIX).
 FIT_DIR = "datasets-local/verification"
 FIT_SUFFIX = ".fit-values.json"
@@ -1350,6 +1372,7 @@ def fit_values(report: Mapping[str, Any]) -> dict[str, Any]:
         "dataset": report["dataset"],
         "protocol_sha256": report["protocol_sha256"],
         "submission": dict(report["submission"]),
+        "spot_check_signed": bool(report["spot_check_signed"]),
         "provenance": json.loads(json.dumps(provenance, allow_nan=False, default=str)),
         "values": values,
     }
@@ -1413,7 +1436,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ns = parser.parse_args(argv)
     root = pr.ROOT
     out = Path(ns.out)
-    _local_path(out, root)  # refuse a shared destination before any work
+    check_out(out, root)  # refuse a shared destination, or a kept output, before any work
     submission = _load_json(ns.submission)
     if isinstance(submission, dict) and isinstance(submission.get("at"), str):
         submission["at"] = datetime.fromisoformat(submission["at"].replace("Z", "+00:00"))

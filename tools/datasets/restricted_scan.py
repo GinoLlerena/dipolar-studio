@@ -58,7 +58,7 @@ import math
 import re
 import subprocess
 import sys
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from decimal import ROUND_DOWN, ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
@@ -310,10 +310,10 @@ class FitTier:
 
 #: A results receipt's record of each dataset's number of fit outputs (round 85, the rollback anchor).
 _RESULTS_RECEIPT = re.compile(
-    r"\| passed, not skipped; fit tier: results \(files: "
-    + ", ".join(rf"{re.escape(d)} (\d+)" for d in FIT_DATASETS)
-    + r"\) \|"
+    r"passed, not skipped; fit tier: results \(files: " + ", ".join(rf"{re.escape(d)} (\d+)" for d in FIT_DATASETS) + r"\)"
 )
+#: A §6 scan receipt row (round 86: a staged ledger may not drop or change a committed one).
+_RECEIPT_ROW = re.compile(r"\| \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z \| `[0-9a-f]{40}` .*")
 
 
 def receipt_status(fit: FitTier) -> str:
@@ -362,8 +362,8 @@ def _expected_name(name: str, retained: bool) -> tuple[str, int] | None:
 class _Rosters:
     """Each dataset's frozen roster and pending targets, read once when an output of it is checked."""
 
-    def __init__(self, root: Path) -> None:
-        self.root = root
+    def __init__(self, root: Path, prereg: dict[str, Any] | None = None) -> None:
+        self.root, self.prereg = root, prereg
         self.read: dict[str, fr.Roster | None] = {}
         self.pending: dict[str, frozenset[tuple[str, str]] | None] = {}
         self.problems: list[str] = []
@@ -371,7 +371,7 @@ class _Rosters:
     def targets(self, dataset: str) -> frozenset[tuple[str, str]] | None:
         if dataset not in self.pending:
             try:
-                self.pending[dataset] = fr.pending_targets(self.root, dataset)
+                self.pending[dataset] = fr.pending_targets(self.root, dataset, self.prereg)
             except ValueError as exc:
                 self.pending[dataset] = None
                 self.problems.append(str(exc))
@@ -382,7 +382,7 @@ class _Rosters:
             return None
         if dataset not in self.read:
             try:
-                self.read[dataset] = fr.roster(self.root, dataset)
+                self.read[dataset] = fr.roster(self.root, dataset, self.prereg)
             except ValueError as exc:
                 self.read[dataset] = None
                 self.problems.append(str(exc))
@@ -458,12 +458,28 @@ def _submissions(text: str | None) -> list[ffl.Entry]:
         return []
 
 
-def fit_tier(root: Path, ledger: str | None = None, committed: str | None = None) -> FitTier:
+def fit_tier(
+    root: Path,
+    ledger: str | None = None,
+    committed: str | None = None,
+    *,
+    prereg: str | None = None,
+    anchors: Sequence[str] = (),
+) -> FitTier:
     """The fit tier of the checkout at ``root``: its status, tiers and value-free problems.
     ``ledger`` is the ledger's text to judge by (the staged one, for a receipt); by default the
     working copy's. ``committed`` is the committed ledger's text (round 84, A1): only its
-    submissions need an output; by default those of ``ledger``."""
+    submissions need an output; by default those of ``ledger``. Round 86: ``prereg`` is the
+    preregistration's text to read the roster through (the staged one, for a receipt), by default
+    the working copy's; ``anchors`` are further texts whose results receipts set the floor of
+    outputs (the committed ledger and the last commit message)."""
     problems: list[str] = []
+    prereg_data: dict[str, Any] | None = None
+    if prereg is not None:
+        try:
+            prereg_data = json.loads(prereg)
+        except ValueError:
+            prereg_data = {}  # unreadable: every roster read reports it
     logged_entries: list[ffl.Entry] = []
     ledger_text: str | None = None
     try:
@@ -478,7 +494,7 @@ def fit_tier(root: Path, ledger: str | None = None, committed: str | None = None
         problems.append(f"{LEDGER}: the first-fit record cannot be read ({type(exc).__name__})")
         logged = True  # unknown: require the tier
     required_entries = logged_entries if committed is None else _submissions(committed)
-    rosters = _Rosters(root)
+    rosters = _Rosters(root, prereg_data)
     logged_records = [_logged_record(e) for e in logged_entries]
     required = [_logged_record(e) for e in required_entries]
     folder = root / FIT_DIR
@@ -489,10 +505,16 @@ def fit_tier(root: Path, ledger: str | None = None, committed: str | None = None
     satisfied: list[dict[str, Any]] = []
     current: dict[str, dict[str, Any]] = {}
     retained: dict[str, dict[int, tuple[dict[str, Any], str]]] = {}
+    in_sequence: dict[str, int] = {}  # round 86: retained numbers above this count are never printed
+    for path, is_retained in found:
+        named = _expected_name(path.name, is_retained)
+        if is_retained and named is not None:
+            in_sequence[named[0]] = in_sequence.get(named[0], 0) + 1
     for path, is_retained in found:
         place = f"{FIT_DIR}/{fr.RETAINED}" if is_retained else FIT_DIR
         expected = _expected_name(path.name, is_retained)
-        rel = f"{place}/{path.name}" if expected is not None else f"{place}/{UNEXPECTED_NAME}"
+        printable = expected is not None and expected[1] <= in_sequence.get(expected[0], 0)
+        rel = f"{place}/{path.name}" if printable else f"{place}/{UNEXPECTED_NAME}"
         if expected is None:
             problems.append(f"{rel}: not named <dataset>{FIT_SUFFIX} (or <dataset>.<n>{FIT_SUFFIX} when retained)")
         if path.is_symlink():
@@ -513,7 +535,7 @@ def fit_tier(root: Path, ledger: str | None = None, committed: str | None = None
         problems += fr.chain(root, dataset, current.get(dataset), retained.get(dataset, {}))
     outputs = {d: (d in current) + len(retained.get(d, {})) for d in FIT_DATASETS}
     if ledger_text is not None:
-        for dataset, floor in _receipted(ledger_text).items():
+        for dataset, floor in _receipted("\n".join([ledger_text, *anchors])).items():
             if outputs[dataset] < floor:
                 problems.append(
                     f"{FIT_DIR}: fewer {dataset} fit outputs than the latest scan receipt (§6) recorded: an output "
@@ -548,10 +570,11 @@ def _git_show(root: Path, spec: str) -> str | None:
     return shown.stdout.decode("utf-8", errors="replace") if shown.returncode == 0 else None
 
 
-def check_staged(root: Path) -> list[str]:
-    """The whole staged-index check: the fit tier judged by the **staged** ledger, whose first-fit
-    log must extend the committed one (round 83, A1), then ``path:line`` hits of every tier (the
-    inputs' and the fit values'). Value-free."""
+def _staged(root: Path) -> tuple[list[str], FitTier]:
+    """The staged checks and the fit tier judged by the **staged** ledger and preregistration
+    (rounds 83 and 86). The staged first-fit log must extend the committed one, and the staged
+    ledger must keep every committed scan receipt row. The committed ledger and the last commit
+    message also set the receipt floor."""
     staged = _git_show(root, f":{LEDGER}")
     problems = [] if staged is not None else [f"{LEDGER}: not in git's index"]
     committed = _git_show(root, f"HEAD:{LEDGER}")
@@ -565,22 +588,40 @@ def check_staged(root: Path) -> list[str]:
                 problems.append(f"{LEDGER}: the staged first-fit log drops or changes a committed row")
         except ValueError:
             pass  # reported by the fit tier below
-    fit = fit_tier(root, ledger=staged if staged is not None else "", committed=committed or "")
+        rows = {line.strip() for line in staged.splitlines()}
+        if any(_RECEIPT_ROW.fullmatch(x.strip()) and x.strip() not in rows for x in committed.splitlines()):
+            problems.append(f"{LEDGER}: the staged ledger drops or changes a committed scan receipt (§6)")
+    message = subprocess.run(["git", "log", "-1", "--format=%B", "HEAD"], cwd=root, capture_output=True)
+    anchors = [committed or "", message.stdout.decode("utf-8", errors="replace") if message.returncode == 0 else ""]
+    prereg = _git_show(root, f":{PREREG}")
+    fit = fit_tier(
+        root,
+        ledger=staged if staged is not None else "",
+        committed=committed or "",
+        prereg=prereg if prereg is not None else "",
+        anchors=anchors,
+    )
+    return [*problems, *fit.problems], fit
+
+
+def check_staged(root: Path) -> list[str]:
+    """The whole staged-index check: the staged checks and the fit tier (``_staged``), then
+    ``path:line`` hits of every tier (the inputs' and the fit values'). Value-free."""
+    problems, fit = _staged(root)
     hits = scan(index_blobs(root), restricted_tiers(root) + fit.tiers, ALLOWED_LINES)
-    return [*problems, *fit.problems, *hits]
+    return [*problems, *hits]
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="The restricted-fit scan tier's status (value-free).")
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     ns = parser.parse_args(argv)
-    # The staged ledger, as receipted; outputs are required for the committed submissions (A1).
-    fit = fit_tier(ns.root, ledger=_git_show(ns.root, f":{LEDGER}"), committed=_git_show(ns.root, f"HEAD:{LEDGER}") or "")
+    problems, fit = _staged(ns.root)  # judged as receipted: the staged ledger and preregistration
     print(status_line(fit))
     print(f"receipt: {receipt_status(fit)}")
-    for problem in fit.problems:
+    for problem in problems:
         print(f"- {problem}")
-    return 1 if fit.problems else 0
+    return 1 if problems else 0
 
 
 if __name__ == "__main__":
