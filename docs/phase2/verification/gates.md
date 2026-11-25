@@ -151,6 +151,7 @@ restricted-fit scan tier.
 | 2026-11-25T16:25Z | `402cf62abbe34edad653bd1877e561561cf7e2cd` (commit `f89f13e`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T16:39Z | `d13bba4e49057d2fbde18de0d0fa53cd29159c8c` (commit `26e8365`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T18:23Z | `920df98e06c45e35720bb934b2fdd3807d45bc89` (commit `bb77185`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T18:34Z | `f7d1d7a0e57b00b9d2a23b8b751b503ce6ca6144` (commit `7d94171`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -720,6 +721,22 @@ row is appended here in the next commit.
   - **Rehearsal.** The installed wheels were rebuilt, byte-identical to the SHA-256 values
     above. From outside the checkout they recovered S_zz (off by 4.4e-11) and refused the stale
     run.
+
+- **2026-11-25, round 89** ([round89-v1.5c-review.md](../../validation/round89-v1.5c-review.md)),
+  the second and last review under the cap. GPT-6.2-Sol reviewed `7d94171`: **NOT READY**
+  (1 A, 1 B). All nine round 88 findings are resolved.
+  - **The findings.**
+    - A1: a run made stale between the snippet's `run.list` and its `run.get` was saved.
+    - B1: the notes' Phase 1 cross-reference pointed to the wrong section.
+  - **Owner's decision** (2026-11-25T22:57Z): "Fix both, merge on CI". The fixes come with gates
+    frozen first, the full suites are rerun locally, and the merge follows once all six CI jobs
+    pass. The round 89 fixes are not re-reviewed, so the V1.5e exit audit re-checks them, with the
+    owner-local checks already owed (round 87).
+  - **Gates** (`_r89`, strict xfails):
+    - the snippet checks the `run.stale` returned by `run.get`, before it writes the file;
+    - the rehearsal replaces the couplings between the snippet's two calls, and requires a
+      refusal;
+    - the notes link the 0.1.0b1 notes for Phase 1.
 
 ## 7. Exit matrix
 
