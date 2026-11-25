@@ -80,6 +80,18 @@ synthetic datasets) is fitted, by the owner, by every agent and by any participa
 - Recruit one benzene participant and two 8CB testers (decision 8).
 - Before any cell identity is published under P-1 (round 81, B): record a rights check that
   naming a disagreeing cell discloses no restricted value of its source, for each dataset.
+- Append the `freeze approved` row to the first-fit log (§10) when the gates are frozen, then
+  log each submission there, and commit it, before running it (round 83, A1). The runner
+  authorizes no fit before that.
+- If the library requests succeed, write each dataset's method-evidence record under
+  `datasets-local/` (`verification.py --method`, round 83, A4), naming where the source documents
+  each input. Without it the authors'-analysis track stays pending.
+- For each disagreeing cell, write its annex entry and review receipt under `datasets-local/` and
+  pass their references with `--reviews` (round 83, A5). Round 84: the annex entry has the plan's
+  six fields, and each receipt links its own public heading, which has a body.
+- Keep every file under `datasets-local/verification/`, including `retained/` and `reports/`.
+  The scan checks the whole chain of runs, so deleting a run's record or report fails it
+  (round 84, A6).
 
 ## 5. Frozen gates
 
@@ -113,6 +125,27 @@ restricted-fit scan tier.
 | 2026-11-22T16:26Z | `46865eecdb39ad123ba1b6eaf919300ff479874b` (commit `016a56a`) | passed, not skipped | Claude |
 | 2026-11-22T17:20Z | `bb23b01d5eb136482391097d52e43eef94e0c048` (commit `76f4aba`) | passed, not skipped | Claude |
 | 2026-11-22T17:22Z | `31cd0fe992daba9e652d7d0fbdd52fa863c4db34` (commit `1382313`) | passed, not skipped | Claude |
+| 2026-11-22T20:32Z | `491ac4dfdaaebc5a916e135cf4a11381f387a1e8` (commit `5b219c4`) | passed, not skipped | Claude |
+| 2026-11-22T22:16Z | `21e153040a21075f1627543d70a9178cc2dbc0d9` (commit `0795f47`) | passed, not skipped | Claude |
+| 2026-11-22T22:33Z | `056b50b005c3c51025562a0f2e220781d154bb69` (commit `1654d64`) | passed, not skipped | Claude |
+| 2026-11-23T14:11Z | `e2e08c4417bee3dc4b13a6bf820196aaaefccb0a` (commit `13f41cb`) | passed, not skipped | Claude |
+| 2026-11-23T14:32Z | `da39310621d06ad536cad92fea31b0bdd2acb195` (commit `b413038`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-23T14:44Z | `51a4b9b4c2188839586ec248106bd8a01312fe69` (commit `1ad0fd4`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-23T15:15Z | `0b79bdfebd5e1db1e3b91380b7188f0ce147c713` (commit `f2ef4d0`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-23T15:30Z | `0eda6177587680bb29bb4efc7bf4c0372eeda034` (commit `0ab5e5e`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-23T19:27Z | `9cfb4bdda7e45398ae2f3becc2c9bbe615020707` (commit `45f54a8`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-23T20:03Z | `3caa4572f249c978e7fc0dcf2dda65feedb58f4f` (commit `e74081d`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-23T20:12Z | `9e47637cf8d4f598b2556ae4f7350f38a1c438b1` (commit `35c0f9f`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-23T22:24Z | `41319233761248908f7c133c7377f2889bc609a7` (commit `46a1f2c`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-23T22:56Z | `613fbb884214948378ef3b6a29b265c53d939655` (commit `9ca2803`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-24T23:18Z | `e60d96ce98144c189fa14940b24f81087cb32f7d` (commit `0fac7e8`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-24T23:41Z | `0cc589221cbcada2a2cd68da921bad9b9df90a1a` (commit `a435803`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-24T23:50Z | `6db1cd031d218206c4916b7c711ad422d1b6c240` (commit `f424cdc`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T00:55Z | `fd1544e417525969927ccebf5009fc498667fde1` (commit `8156758`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T01:32Z | `869ca8628d5604a5d22aae0b25c589bc7dfbbd2c` (commit `eda54e8`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T01:41Z | `b4ef643735c2f3f67c84beccb8d1f2aab9286755` (commit `3c516dc`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T02:56Z | `482947faba10adb3a000bd9b719c73b020f7fe20` (commit `da89862`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T03:38Z | `fb59e5658f0f89bfd06e83585f5b534f41c0e894` (commit `1456a88`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -139,6 +172,442 @@ row is appended here in the next commit.
   V1.5b, as the plan assigns them. The pending gates no longer use strict xfails. A V1.5b gate
   xfails only while `tools/validation/verification.py` is missing, and the workflow gate only
   while `release.yml` keeps `v*`. `pytest -rx` lists them.
+
+- **2026-11-22, V1.5b report workflow (for review).** The gates in `tests/test_v15_verification.py`
+  were frozen in commit `0795f47`, before the implementation. Two readings of the frozen text are
+  open for the reviewer:
+  - **Reproduction with undocumented corrections.** V0.3 §6 requires all four inputs for a
+    reproduction claim, and uses the fallback when "the geometry is obtained but the weights or
+    the objective are not". With the geometry, objective and weights documented but the
+    corrections not, neither applies. `prereg_labels.reproduction_mode` returns `pending`.
+  - **The o-DCB declared geometry places no chlorine.** V0.3 §2: "chlorine enters no coupling".
+    The fit imports the six carbons and the four protons only. The couplings and the C2v
+    declaration do not depend on chlorine.
+  No experimental coupling has been fitted. Every V1.5b test uses synthetic files under a
+  temporary root.
+
+- **2026-11-23, V1.5b part 2 gates frozen (for review).** Before their implementation:
+  - **The restricted-fit scan tier** (`tests/test_v15_fit_tier.py`). Its source is the report
+    workflow's full-precision fit values in `datasets-local/verification/<dataset>.fit-values.json`.
+    The declared variants: each value as written and at 4–8 significant digits (half-up,
+    half-even, truncated) in any path, and at 3 significant digits in the Phase 2 and validation
+    docs. The §3 first-fit row decides when it is required: `pre-result` while that row is
+    `empty` and no local fit output exists, `results` after. Its problems are value-free. From
+    the implementation on, each scan row below records the tier's status.
+  - **The four-site-jump robot tutorial** (`packages/dipolar-app/tests/test_app_v15_jump4.py`).
+    Synthetic jump4 couplings with a known answer. The agent proposes, a human accepts, the robot
+    waits and reports the complete `run.get` result. A rejection or no decision ends it without
+    a fit.
+
+- **2026-11-23, the restricted-fit scan tier is in force.** The decision-11 command now runs the
+  whole staged check (`restricted_scan.check_staged`), fit tier included. From
+  `FIT_TIER_SINCE` (2026-11-23T14:30Z) each scan row records the tier's status, which
+  `uv run --locked python tools/datasets/restricted_scan.py` prints without any value. Until the
+  §3 first-fit row is filled the status is `pre-result`. After the owner logs the first fit, the
+  report workflow's `datasets-local/verification/<dataset>.fit-values.json` must exist before any
+  scan can pass.
+
+- **2026-11-23, round 83 gates frozen (A1–A3, A6, B1), before the fixes.** New:
+  `tests/test_v15_first_fit_log.py` (the §10 first-fit log, the runner's authorization, the
+  command's refusal without a committed, logged submission) and round 83 regressions at the end
+  of `tests/test_v15_verification.py` (linked local paths, protocol validation before any fit,
+  provenance). Amended in `tests/test_v15_fit_tier.py`: a fit is logged in §10, not by the §3
+  row; the staged check reads the staged ledger and refuses a log that drops a committed row;
+  each logged submission needs its own output, bound to it, covering the roster exactly and
+  retained across reruns; diagnostics never repeat a key or file name; every receipt row is well
+  formed and the first one under the tier is pinned. The amendment strengthens the frozen gate.
+  It removes no case that the gate rejected before. §10 is new and append-only. Its first four
+  rows transcribe earlier entries. The owner adds the `freeze approved` row. Until then the
+  runner authorizes no fit.
+
+- **2026-11-23, round 83 fixes (A1–A3, A6, B2).**
+  - **A1.** `tools/validation/first_fit_log.py` reads §10. `verification.authorize` requires a
+    `freeze approved` row, a chronology that `freeze_ok` accepts, the owner or a participant, a
+    submission logged with exactly its fields, and a time not in the future. The command reads
+    the committed ledger (`git show HEAD:…`) and fits nothing without that authorization.
+  - **A2.** The fit tier requires, for each logged submission, a complete output bound to it.
+    Reruns keep earlier outputs under `retained/`.
+  - **A3.** Local writes refuse linked directories and replace, never follow, a linked file.
+    Diagnostics never print a key or an unexpected file name.
+  - **A6.** The closed schema and `prereg.validate` run before any fit. The local report keeps
+    each fit's provenance.
+  - **B2.** The robot documents the ready file's credential boundary.
+
+  Two tests were added after the gate commit, for mutants that survived it: an edited committed
+  log row, and a record at another revision than its submission. Two other surviving mutants are
+  redundant guards: another check raises the same problem. One read in the gate's own test file
+  named no encoding (`tests/test_boundaries.py` caught it). It now names UTF-8. Findings A4 and
+  A5 follow separately.
+
+- **2026-11-23, round 83 gates frozen (A4, A5), before the fixes.** Added at the end of
+  `tests/test_v15_verification.py`: the authors'-analysis track run from an owner-local
+  method-evidence record. All four inputs documented give a reproduction, fitted with the authors'
+  ring radii and the documented weights, with the printed token's table margin or the 2p figure
+  margin. The geometry without the objective or the weights gives the frozen fallback (1/σ²)
+  under its own label. Anything else stays pending, with no second fit. P-2 withholds this track's
+  targets until the spot-check is signed, and an unverified rank keeps its precedence, signed or
+  not. A malformed record, or a printed token that is not its target, blocks before any fit. This
+  track's disagreements need their own reviews. Its values stay local and enter the fit-values
+  record. Amended: review evidence is a reference (path and SHA-256) to an existing local annex
+  entry and to a local review receipt that links a reviewed public entry by path, SHA-256 and
+  heading. Each file is bound to the dataset, track, cell and protocol revision. Matching keys
+  alone, and missing, stale, unbound, linked or misplaced files, leave the failure unresolved.
+  Added to `tests/test_v15_fit_tier.py`: the scan covers the reproduction values, roster-exact.
+  These tests xfail while `tools/validation/evidence.py` is absent. The amendment strengthens the
+  frozen gate. It removes no case that the gate rejected before.
+
+- **2026-11-23, round 83 fixes (A4, A5).**
+  - **A4.** `tools/validation/evidence.py` reads the owner-local method-evidence record
+    (`verification.py --method`). It refuses, before any fit, a record that is not for this
+    dataset and revision, or that this runner cannot express: the authors' geometry is the
+    protocol's shape with the authors' two radii, the objective is least squares, the weights are
+    1/σ² or uniform, and the corrections are an empty list. `run_report` fits the authors'
+    analysis only in `reproduction` or `fallback` mode (the fallback always uses 1/σ²). The
+    margins come from the printed token of the hash-verified targets file, which must print the
+    target's value, or are 2p. P-2 and rank precedence apply on this track. Its disagreements
+    join the review keys, and its fits and discrepancies enter the local report and the
+    fit-values record. The scan requires roster-exact coverage of those values when present.
+  - **A5.** A disagreement counts as reviewed only when each key has one annex reference and one
+    receipt reference. The annex reference must reach an existing, current annex entry under
+    `datasets-local/`. The receipt reference must reach a local receipt that links the reviewed
+    public entry (outside `datasets-local/`) by path, SHA-256 and a heading line. Every file must
+    be bound to the key and reached through no link.
+
+  One gate test was corrected after the gate commit: the uniform-weights test required the
+  weighted and uniform estimates to differ by more than 1e-5, but they differ by 9.8e-6. The
+  bound is now 1e-6, which is still about 10⁵ times the test's 1e-9 relative tolerance, so the
+  test still distinguishes the weights.
+  Mutation testing then caught 24 of 26 mutants. Two tests were added or strengthened for the
+  survivors. First, a fit marked rank-unverified but still carrying an estimate must stay
+  `rank-unverified` on the reproduction track. Sol's round 83 survivor ("passed gated targets
+  and ignored rank") is caught in both parts. Second, the missing-heading mutant now refreshes
+  every receipt's public hash, so only the heading is wrong. All 26 mutants are then caught.
+
+- **2026-11-23, round 84 (final Sol round): NOT READY (6 A, 2 B).** Record:
+  `docs/validation/round84-v1.5b-review.md`. Under the review process the owner decides how to
+  proceed before any merge. Until then PR #28 is not merged, and no fit is authorized: §10 has no
+  `freeze approved` row.
+  - **Owner decision (2026-11-23T20:15Z, in chat): "Fix all six, scoped Sol check".** Session S6c
+    freezes regression tests for A1–A6, then fixes them per the dispositions. Then one more Sol
+    round (round 85) reviews only those six fixes. This round is an owner-authorized exception
+    to the two-round cap. PR #28 merges only if round 85 is READY; otherwise the owner decides
+    again.
+
+- **2026-11-23, round 84 gates frozen (A1–A6).** These tests xfail while
+  `tools/validation/fit_record.py` is absent.
+  - **A1.** `run_report` refuses with a `PermissionError`, before it reads or fits anything, when
+    the submission is not authorized. It checks against the first-fit log committed in its own
+    root, at the runner's clock. Refused cases:
+    - no committed ledger;
+    - logged in the working copy only;
+    - an agent runner;
+    - a submission at the freeze instant;
+    - a future time;
+    - another release.
+
+    The scan requires an output only for a submission in the committed (`HEAD`) log. The commit
+    that logs a submission therefore passes, and the next commit needs that submission's
+    output. An end-to-end test logs, commits, runs and reruns.
+
+    To test the runner's own check, each synthetic root that is fitted now holds a committed
+    synthetic ledger with its logged submissions (`Synthetic.logged`). The runner's clock is
+    fixed just after the synthetic submission time.
+  - **A2.** The fit-values record declares every cell of the frozen roster on both tracks: an
+    estimate and a discrepancy, each as a value or as the cell's pending reason. The roster is
+    the condition set of the hash-verified couplings, so the scan reads the couplings through
+    the preregistration copy. The record is refused for:
+    - an invented condition;
+    - any undeclared quantity;
+    - both or neither of a value and a reason;
+    - an unknown reason;
+    - a discrepancy value without an estimate value;
+    - an independent estimate declared undocumented;
+    - a reproduction track that is only partly pending.
+  - **A3.** The scan prints no unexpected file name, even one made only of safe characters, in
+    the tier's problems or on the command's output.
+  - **A4.** A rank-pending cell, on either track, is declared `rank-unverified` and passes the
+    scan.
+  - **A5.**
+    - An annex entry holds the plan's six fields (procedure 6): frame and convention, geometry,
+      vibrational corrections, sample context, numerical comparison, and cause. Each is a
+      non-empty text, not all the same, and no two cells share all six.
+    - Each receipt links its own Markdown heading. That heading appears once in the public file
+      and has a body.
+  - **A6.** The record carries each fit's provenance: the versions, the method and each
+    condition's fit provenance per track. Each record is also one run of a chain: its run
+    number, the SHA-256 of the record it replaced, and the SHA-256 of that run's local report,
+    kept as `reports/<dataset>.<run>.md`. The scan refuses a chain where a run's output or
+    report was deleted, edited or renumbered.
+
+  Existing tests were amended to the new record format (`_record`, `_reproduced`, the workflow
+  tests), to the new annex format (every test that uses `_evidence`), and to the A1 timing (two
+  staged-check tests). These now xfail on the round 84 marker.
+  No case that the gate rejected before is removed.
+
+- **2026-11-23, round 84 fixes (A1–A6).** The new module `tools/validation/fit_record.py` holds the
+  fit-values record's format and checks. Both the writer (`verification.py`) and the scan use it.
+  - **A1.** `run_report` checks the submission itself, against the first-fit log committed in its
+    root, at the runner's clock (`authorization`). It raises `Unauthorized` (a `PermissionError`)
+    before reading or fitting anything. The command now relies on that check. The scan requires
+    an output only for each submission in the committed (`HEAD`) log, and still accepts outputs
+    bound to a staged submission.
+  - **A2, A4.** The record declares every roster cell of both tracks: its estimate and its
+    discrepancy, each a value or the cell's pending reason. The roster is the condition set of
+    the couplings file, read only when its SHA-256 matches the preregistration copy. A
+    rank-pending cell is declared `rank-unverified`, and a pending authors' analysis
+    `inputs-undocumented` throughout.
+  - **A3.** A file name the scan does not expect is shown as `(a file with an unexpected name)`,
+    whatever its characters.
+  - **A5.**
+    - The annex entry holds the plan's six fields. Each is a non-empty text, not all one text,
+      and not another cell's.
+    - Each receipt links a Markdown heading that the public file holds once, with a body, and
+      that no other receipt links.
+    - These checks are structural: the owner's attestation remains the check of substance.
+  - **A6.** The record carries the versions, the flags, the method and each condition's fit
+    provenance on both tracks. A rerun keeps the record it replaces, unchanged, under
+    `retained/`. Each record names:
+    - its run number;
+    - the SHA-256 of the record it replaced;
+    - the SHA-256 of its run's local report, kept as `reports/<dataset>.<run>.md` and never
+      overwritten.
+
+    The scan checks the whole chain: numbering, run numbers, predecessor hashes, and each
+    report's presence and hash.
+
+  Gate corrections after the gate commit:
+  - Four tests built their submission or root without the round 84 setup. Three fitted an
+    unlogged submission, and they now use `Synthetic.logged`. One built a root without the
+    synthetic roster, and it now uses `_root`.
+  - Mutation testing caught 25 of 28 mutants. The three survivors were each masked by another
+    check, so three cases were added, one for each check on its own:
+    - an invented condition in the declarations only;
+    - an unknown reason on an independent discrepancy;
+    - couplings changed after the freeze.
+
+    All 28 mutants are then caught.
+
+- **2026-11-23, round 85 (first attempt): no report.** The scoped Sol review of `9ca2803` stopped
+  partway: the provider's safety filter flagged the run. It delivered no verdict, so the attempt
+  does not count as the authorized round. Its last message named two cases the scan accepted,
+  and both were confirmed by reading the code:
+  - **A false pending declaration.** A record could declare a real discrepancy as `no-target`.
+    That discrepancy then dropped out of the fit tier.
+  - **A rollback.** An earlier chain, restored whole, checked out, because nothing tracked in
+    git recorded how many runs there had been.
+
+  The orphaned test run was stopped and the reviewer's worktree removed.
+  - **Owner decision (2026-11-24T23:15Z, in chat): "Fix both, then rerun 85".** Tests first,
+    then fixes for both cases. Round 85 is then rerun as the same scoped review, with a reworded
+    brief, and still counts as round 85.
+
+- **2026-11-24, round 85 gates frozen (the two cases).** These tests xfail while
+  `fit_record` has no `pending_targets`.
+  - **The false pending declaration.** The rules:
+    - A cell's discrepancy is pending only for its estimate's own reason or, beside an estimate
+      value, for `no-target`.
+    - A rank-pending condition is pending for every component.
+    - On each track, the `no-target` cells are either every estimated cell (all targets
+      withheld: the spot-check is unsigned, P-2) or exactly the estimated cells whose target
+      the hash-verified targets file marks pending. Both tracks make the same choice.
+  - **The rollback.** A results receipt in §6 now records each dataset's number of fit outputs:
+    `fit tier: results (files: benzene-taggar2006 <n>, odcb-chandrakumar1993 <n>)`. The scan
+    command prints it (`receipt_status`). The scan then refuses fewer outputs for a dataset
+    than the latest receipt recorded. No results row existed before, so no recorded row
+    changes.
+  - **Amendments.** The synthetic records `_record` and `_reproduced` now give every
+    discrepancy, as a signed run with every target present does. The receipt row pattern
+    accepts the new results form.
+
+  An o-DCB workflow test covers a pending S_zz target, whose anisotropy waits with its
+  discrepancy (`s_zz-target-pending`), and a pending anisotropy target, signed and unsigned. No
+  case that the gate rejected before is removed.
+
+- **2026-11-24, round 85 fixes (the two cases).**
+  - **False pending declarations.** `fit_record.consistency` checks the pending reasons against
+    each other. `fit_record.pending_targets` reads the targets file's pending cells: the file is
+    verified against its frozen SHA-256 first, and only its keys and `status` column are read.
+    When those cells cannot be read, the record's own problem names it.
+  - **Rollback.** `restricted_scan.receipt_status` gives the results status with each dataset's
+    number of fit outputs, and the scan command prints it as `receipt: …`. The scan then refuses
+    fewer outputs for a dataset than any results receipt in the judged ledger recorded.
+
+  Gate corrections after the gate commit:
+  - `_repo` writes stand-ins for the restricted files over two synthetic inputs, so it now binds
+    the preregistration copy to those stand-ins again. Four staged-check tests needed that once
+    the targets file's hash was read.
+  - Mutation testing caught 9 of 11 round 85 mutants. The two survivors (the targets hash not
+    checked; unreadable pending cells accepted) were both masked by one test, which replaced the
+    targets file with unparseable text. The test now appends a blank line, which keeps the
+    parsed content and changes the hash.
+  - Rerunning 12 round 84 scan mutants showed three now masked by the round 85 rules: an
+    unknown reason, an estimate reason the track cannot have, and an authors' track pending
+    only in part. One case was added for each, refused by its own check alone.
+
+  All 11 round 85 mutants and the 12 rerun round 84 mutants are then caught.
+
+- **2026-11-24, round 85 (scoped Sol round, rerun on `a435803`): NOT READY (6 A, 2 B).** Record:
+  `docs/validation/round85-v1.5b-review.md`. A1 and A4 are resolved. Still open: A2, A3, A5, A6,
+  the false pending declaration and the rollback. Under the review process the owner decides how
+  to proceed before any merge. Until then PR #28 is not merged, and no fit is authorized: §10 has
+  no `freeze approved` row.
+  - **Owner decision (2026-11-25T00:40Z, in chat): "Fix all six, one more round".** Tests
+    first, then the six fixes per the dispositions. Then one more scoped Sol round (round 86),
+    another owner-authorized exception to the cap. PR #28 merges only if round 86 is READY.
+
+- **2026-11-25, round 86 gates frozen (round 85's six findings).** These tests xfail while
+  `fit_record` has no `SIGNED_LINE`.
+  1. **Staged preregistration.** The staged check reads the roster through the staged
+     preregistration, so a working-copy-only hash change is found. Change from the
+     disposition: a record's revision is **not** required to equal the current
+     preregistration's hash. A run kept from before a later protocol amendment must stay a
+     valid record of that revision.
+  2. **Retained names.** A retained number outside the sequence is printed nowhere: not by the
+     tier, the chain check, the staged check or the command.
+  3. **Review evidence.** A public or annex path spelled with `./` is refused, so one file has
+     one spelling. A body made only of HTML comments is not a body.
+  4. **Kept outputs.** The local report cannot be written over a kept report, a retained output
+     or a fit-values file, in any letter case.
+  5. **Signed state.** A record declares `spot_check_signed`, which must match its bound
+     report's "Spot-check signed" line. A signed run cannot declare every discrepancy
+     `no-target`.
+  6. **Rollback floor.** The floor also comes from the committed ledger and the last commit
+     message. A staged ledger that drops a committed receipt row is refused.
+
+  Amendments:
+  - The synthetic record declares `spot_check_signed`, and its report states it.
+  - `_repo` and the end-to-end test stage the preregistration copy.
+  - The fit tier's round 84 marker also waits for the round 86 fix, because the record format
+    changed.
+
+  No case that the gate rejected before is removed.
+
+- **2026-11-25, round 86 fixes (round 85's six findings).**
+  1. **Staged preregistration.** The staged check and the scan command read the preregistration
+     from git's index. `fit_record.roster` and `pending_targets` take that text.
+  2. **Retained names.** A retained number above the dataset's count of retained files is shown
+     as `(a file with an unexpected name)`, in the tier's problems and in the chain's. The gap
+     message names no number.
+  3. **Review evidence.** `evidence._file` refuses a path whose canonical spelling differs.
+     `_section_has_body` removes HTML comments before looking for a body.
+  4. **Kept outputs.** `verification.check_out`, used by `write_local` and the command, refuses
+     a destination under `datasets-local/verification/reports/` or `retained/`, or a fit-values
+     file, compared case-folded.
+  5. **Signed state.** The record declares `spot_check_signed`. The chain check compares it with
+     the bound report's one "Spot-check signed" line. A signed run must declare no-target for
+     exactly the targets file's pending cells; an unsigned run must withhold every target. These
+     rules replace round 85's "withheld or exact, both tracks alike" rule. The declaration makes
+     them stricter, and that rule's two mutants became equivalent, so the rule was removed.
+  6. **Rollback floor.** The staged checks are shared by `check_staged` and the command. They
+     refuse a staged ledger that drops or changes a committed §6 receipt row, and they take the
+     receipt floor from the committed ledger and the last commit message too.
+
+  Mutation testing caught 11 of 15 round 86 mutants, and a fifth mutant needed more context to
+  apply. The survivors were each masked by another check, so one case was added for each:
+  - a malformed retained file at an out-of-sequence name;
+  - an unsigned run with every discrepancy given;
+  - a dropped committed receipt row with no rollback;
+  - a direct check of a non-boolean signed state.
+
+  All 16 mutants are then caught, including one added for the signed rule's pending cells. The
+  11 round 85 mutants were rerun: 9 are caught, and the remaining 2 belonged to the rule that
+  was removed.
+
+- **2026-11-25, round 86 (scoped Sol round on `eda54e8`): NOT READY (6 A, 0 B).** Record:
+  `docs/validation/round86-v1.5b-review.md`. Round 85's findings 4 and 5 are resolved; 1, 2, 3
+  and 6 remain open in narrower forms. There is also a regression: a signed run kept from
+  before a target amendment is judged by the amended pending targets. Under the review process
+  the owner decides how to proceed before any merge. Until then PR #28 is not merged, and no fit
+  is authorized: §10 has no `freeze approved` row.
+  - **Owner decision (2026-11-25T02:45Z, in chat): "Fix all, merge on CI".** Tests first, then
+    fixes for all six round 86 findings, with a mutation check. PR #28 then merges once CI is
+    green, with no further Sol round. Round 86's findings are therefore fixed but **not
+    re-reviewed**. The V1.5e exit audit re-reviews these owner-local scan and review checks
+    before any `freeze approved` row may be logged.
+
+- **2026-11-25, round 87 gates frozen (round 86's six findings).** These tests xfail while
+  `fit_record` has no `protocol_sha256`.
+  1. **Staged preregistration.** One that is not a JSON object (`null`, a list, a string) reads
+     no roster. The scan never falls back to the working copy's.
+  2. **Non-file outputs.** A directory or a link under the verification folders is a problem with
+     no name or number, and no exception, in both the staged check and the command.
+  3. **Public paths.** A path that names the same public file in another letter case cannot
+     share a heading with it. A path into `DATASETS-LOCAL/` is local.
+  4. **Hidden bodies.** A multiline HTML comment that hides a heading line is not a body.
+  5. **Target amendments.** A run states the targets file it was judged with (`targets_sha256`)
+     and the cells that were pending in it (`pending_targets`).
+     - At the current file, the cells are read and checked against it.
+     - At an earlier file, the run's protocol revision must be a committed revision of the
+       preregistration whose targets hash it names; the run's own list is then used.
+     - A hash named by no revision is refused.
+  6. **Receipts in commit messages.** The receipt in the last commit message (`tree <hash>`) must
+     be carried into §6 by the next commit. A receipt wrapped across lines still sets the floor.
+
+  Amendments:
+  - The synthetic record gains the two fields. `_fit_file` fills the targets hash from the
+    checkout's preregistration.
+  - The o-DCB pending test declares its pending cells.
+  - The fit tier's round 84 marker also waits for round 87.
+
+  No case that the gate rejected before is removed.
+
+- **2026-11-25, round 87 fixes (round 86's six findings).** Fixed, not re-reviewed by Sol (owner
+  decision above). The V1.5e exit audit re-reviews these checks.
+  1. **Staged preregistration.** One that is not a JSON object is treated as unreadable.
+  2. **Non-file outputs.** These are listed as `(a file with an unexpected name): not a regular
+     file`. They are neither read nor hashed, and they are left out of the sequence count.
+  3. **Public paths.**
+     - The receipts' duplicate check compares the public file itself (device and inode), not
+       its spelling.
+     - `datasets-local` is recognised in any letter case.
+  4. **Hidden bodies.** The heading checks read the rendered text. `evidence._rendered` removes
+     HTML comments, and an unclosed comment runs to the end of the file. `_section_has_body`
+     reads those rendered lines; its own comment removal became redundant and was dropped.
+  5. **Target amendments.**
+     - Each report and record names its targets file (`targets_sha256`) and pending cells
+       (`pending_targets`).
+     - At the current file, the scan reads the pending cells and checks the declared ones
+       against them.
+     - At an earlier file, the record's revision and that file's hash must match a committed
+       revision of the preregistration, found by its protocol hash
+       (`fit_record.protocol_sha256`). The declared cells are then used, and they must be
+       roster cells.
+     - **Documented limit:** an earlier targets file is local and is not kept, so that run's
+       pending cells rest on its own record, which is bound by its report's hash. They cannot
+       be re-read from the file.
+  6. **Receipts in commit messages.**
+     - The staged checks refuse a ledger that does not carry the last commit message's receipt
+       (`tree <hash>`) into §6.
+     - Receipts are matched across line breaks.
+     - The real repository's scan first enforced this rule on these fixes, and passes once the
+       `da89862` row is appended.
+
+  Gate corrections after the gate commit:
+  - `_amended_repo` creates the ledger's folder and returns the record as written, at revision
+    A.
+  - The wrapped-receipt test's message now carries the receipt's `passed, not skipped;`
+    prefix.
+
+  Added cases:
+  - an unclosed comment as a body;
+  - an earlier revision's pending cell outside the roster, for a mutant that the current-file
+    comparison masked.
+
+  Mutation results:
+  - Round 87: 12 of 12 mutants caught.
+  - Round 85 rerun: 8 caught. Its two retired mutants belong to the rule removed in round 86.
+  - Round 86 rerun: 15 caught. One retired mutant belonged to the redundant comment removal.
+
+- **2026-11-25, Windows CI.** The Windows test job had failed on every commit of this PR since
+  `b413038`; it had been overlooked until now. CI on `main` is green, so this PR introduced
+  every failure. Three causes, all now fixed:
+  1. **Local writes.** `verification._write_local_text` wrote text mode, which writes `\r\n`
+     on Windows. A kept report's hash, taken of its text, then never matched its file. It now
+     writes LF on every platform, and so does the fit tier's test helper.
+  2. **Path separators.** Two tests compared the runner's POSIX paths with `str(Path)`. They now
+     use `as_posix()`.
+  3. **jump4 generator.** It wrote platform line endings, while its committed output is LF. It
+     now writes LF.
 
 ## 7. Exit matrix
 
@@ -246,3 +715,27 @@ geometry 1e-4 Å off. It runs in CI on Linux and Windows and on the owner's macO
   Round 82 was the final review round (NOT READY). Its findings were fixed with gates frozen
   first, without a further review, and the owner decided to merge PR #27 once CI was green
   (all six checks passed at `1382313`; merge `76b4848`).
+
+## 10. First-fit log
+
+Round 83 (A1). This table is the machine-read chronology of the first-fit gate. It is
+append-only: a row is never edited or removed, and every later commit's log must extend the
+committed one. Rows are in time order (UTC, to the minute). The runner fits only a submission
+logged here by its exact fields, after a `freeze approved` row, and only for the owner or a
+participant. The restricted-fit scan tier is required from the first `submission` row on. The
+§3 rows stay as written. Their first-fit field stays `empty`: a submission is recorded here.
+
+Events: `decisions approved`, `decision changed`, `amendments approved`, `no-fit attestation`,
+`freeze approved` (the owner's, once), `submission` (dataset, runner role, release or commit,
+protocol revision) and `first access` (the first access to any V1 experimental result, once,
+after a submission). The cells an event does not use hold `—`.
+
+| UTC | Event | Dataset | Runner | Release or commit | Protocol revision |
+|---|---|---|---|---|---|
+| 2026-11-21T14:59Z | decisions approved | — | — | — | — |
+| 2026-11-21T15:32Z | amendments approved | — | — | — | — |
+| 2026-11-21T15:33Z | decision changed | — | — | — | — |
+| 2026-11-22T14:11Z | no-fit attestation | — | — | — | — |
+
+The first four rows transcribe §1, §3 and the §6 entries of those times: the decisions, P-1 and
+P-2, decision 11's change from A to B, and the owner's signed attestation.
