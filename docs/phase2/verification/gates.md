@@ -145,6 +145,7 @@ restricted-fit scan tier.
 | 2026-11-25T01:32Z | `869ca8628d5604a5d22aae0b25c589bc7dfbbd2c` (commit `eda54e8`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T01:41Z | `b4ef643735c2f3f67c84beccb8d1f2aab9286755` (commit `3c516dc`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T02:56Z | `482947faba10adb3a000bd9b719c73b020f7fe20` (commit `da89862`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T03:38Z | `fb59e5658f0f89bfd06e83585f5b534f41c0e894` (commit `1456a88`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -596,6 +597,17 @@ row is appended here in the next commit.
   - Round 87: 12 of 12 mutants caught.
   - Round 85 rerun: 8 caught. Its two retired mutants belong to the rule removed in round 86.
   - Round 86 rerun: 15 caught. One retired mutant belonged to the redundant comment removal.
+
+- **2026-11-25, Windows CI.** The Windows test job had failed on every commit of this PR since
+  `b413038`; it had been overlooked until now. CI on `main` is green, so this PR introduced
+  every failure. Three causes, all now fixed:
+  1. **Local writes.** `verification._write_local_text` wrote text mode, which writes `\r\n`
+     on Windows. A kept report's hash, taken of its text, then never matched its file. It now
+     writes LF on every platform, and so does the fit tier's test helper.
+  2. **Path separators.** Two tests compared the runner's POSIX paths with `str(Path)`. They now
+     use `as_posix()`.
+  3. **jump4 generator.** It wrote platform line endings, while its committed output is LF. It
+     now writes LF.
 
 ## 7. Exit matrix
 

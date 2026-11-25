@@ -429,7 +429,7 @@ def test_a_changed_input_blocks_its_comparison(tmp_path: Path, dataset: str, whi
     path = syn.couplings_path if which == "couplings" else syn.targets_path
     path.write_bytes(path.read_bytes() + b"\n")
     problems = v.check_inputs(dataset, prereg=syn.prereg, root=tmp_path)
-    assert problems and any(str(path.relative_to(tmp_path)) in p for p in problems)
+    assert problems and any(path.relative_to(tmp_path).as_posix() in p for p in problems)
     report = v.run_report(
         dataset, call=_never, prereg=syn.prereg, root=tmp_path, submission=syn.logged(), receipt=syn.receipt()
     )
@@ -449,7 +449,7 @@ def test_absent_local_files_are_reported_not_certified(tmp_path: Path, dataset: 
         dataset, call=_never, prereg=syn.prereg, root=tmp_path, submission=syn.logged(), receipt=syn.receipt()
     )
     assert report["status"] == "local evidence unavailable"
-    assert report["missing"] == [str(path.relative_to(tmp_path))]
+    assert report["missing"] == [path.relative_to(tmp_path).as_posix()]
     assert "tracks" not in report and "cells" not in report
     shared = v.shared_output(report)
     assert shared == {

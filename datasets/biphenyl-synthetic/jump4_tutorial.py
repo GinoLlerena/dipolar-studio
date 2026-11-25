@@ -58,7 +58,7 @@ def write(path: Path) -> None:
     writer = csv.DictWriter(out, fieldnames=COLUMNS, lineterminator="\n")
     writer.writeheader()
     writer.writerows(rows())
-    path.write_text(out.getvalue(), encoding="utf-8")
+    path.write_text(out.getvalue(), encoding="utf-8", newline="\n")  # LF on every platform
 
 
 if __name__ == "__main__":

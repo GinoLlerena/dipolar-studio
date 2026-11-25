@@ -1238,7 +1238,7 @@ def _write_local_text(path: Path, root: Path, text: str) -> Path:
     _local_path(path, root)  # again, now that the directories exist
     fd, temporary = tempfile.mkstemp(dir=target.parent, prefix=".tmp-", suffix=".part")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:  # LF everywhere: hashed
             handle.write(text)
         os.replace(temporary, target)
     except BaseException:

@@ -377,7 +377,7 @@ def _fit_file(root: Path, record: Any, name: str = f"{BENZENE}.fit-values.json",
         report.parent.mkdir(parents=True, exist_ok=True)
         text = _report_text(record.get("spot_check_signed") is not False)
         if not report.exists() or hashlib.sha256(text.encode()).hexdigest() == record.get("report_sha256"):
-            report.write_text(text, encoding="utf-8")
+            report.write_text(text, encoding="utf-8", newline="\n")  # LF on every platform, as hashed
     return path
 
 
