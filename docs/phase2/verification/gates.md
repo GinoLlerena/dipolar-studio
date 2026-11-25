@@ -140,6 +140,7 @@ restricted-fit scan tier.
 | 2026-11-23T22:56Z | `613fbb884214948378ef3b6a29b265c53d939655` (commit `9ca2803`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-24T23:18Z | `e60d96ce98144c189fa14940b24f81087cb32f7d` (commit `0fac7e8`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-24T23:41Z | `0cc589221cbcada2a2cd68da921bad9b9df90a1a` (commit `a435803`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-24T23:50Z | `6db1cd031d218206c4916b7c711ad422d1b6c240` (commit `f424cdc`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -445,6 +446,36 @@ row is appended here in the next commit.
   the false pending declaration and the rollback. Under the review process the owner decides how
   to proceed before any merge. Until then PR #28 is not merged, and no fit is authorized: §10 has
   no `freeze approved` row.
+  - **Owner decision (2026-11-25T00:40Z, in chat): "Fix all six, one more round".** Tests
+    first, then the six fixes per the dispositions. Then one more scoped Sol round (round 86),
+    another owner-authorized exception to the cap. PR #28 merges only if round 86 is READY.
+
+- **2026-11-25, round 86 gates frozen (round 85's six findings).** These tests xfail while
+  `fit_record` has no `SIGNED_LINE`.
+  1. **Staged preregistration.** The staged check reads the roster through the staged
+     preregistration, so a working-copy-only hash change is found. Change from the
+     disposition: a record's revision is **not** required to equal the current
+     preregistration's hash. A run kept from before a later protocol amendment must stay a
+     valid record of that revision.
+  2. **Retained names.** A retained number outside the sequence is printed nowhere: not by the
+     tier, the chain check, the staged check or the command.
+  3. **Review evidence.** A public or annex path spelled with `./` is refused, so one file has
+     one spelling. A body made only of HTML comments is not a body.
+  4. **Kept outputs.** The local report cannot be written over a kept report, a retained output
+     or a fit-values file, in any letter case.
+  5. **Signed state.** A record declares `spot_check_signed`, which must match its bound
+     report's "Spot-check signed" line. A signed run cannot declare every discrepancy
+     `no-target`.
+  6. **Rollback floor.** The floor also comes from the committed ledger and the last commit
+     message. A staged ledger that drops a committed receipt row is refused.
+
+  Amendments:
+  - The synthetic record declares `spot_check_signed`, and its report states it.
+  - `_repo` and the end-to-end test stage the preregistration copy.
+  - The fit tier's round 84 marker also waits for the round 86 fix, because the record format
+    changed.
+
+  No case that the gate rejected before is removed.
 
 ## 7. Exit matrix
 

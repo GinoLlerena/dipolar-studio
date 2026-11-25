@@ -1061,6 +1061,14 @@ def _r84() -> Any:
     return v
 
 
+def _r86() -> Any:
+    """Round 86 (round 85's findings): an xfail while ``fit_record`` has no ``SIGNED_LINE``."""
+    v = _r84()
+    if not hasattr(importlib.import_module("fit_record"), "SIGNED_LINE"):
+        pytest.xfail("round 86: the fixes are not written yet")
+    return v
+
+
 def _annex_texts(n: int) -> dict[str, str]:
     return {f: f"synthetic {f.replace('_', ' ')} of discrepancy {n}" for f in ANNEX_TEXTS}
 
@@ -1245,9 +1253,30 @@ def _coverage_mutant(name: str, root: Path, keys: list[dict[str, str]], protocol
         public.write_text(text, encoding="utf-8")
         for ref in receipts:  # every receipt is current: only the heading is wrong
             _rewrite(root, ref, lambda r: r["public_entry"].update(sha256=_sha(public)))
+    # Round 86 (round 85, finding 3): one file has one spelling, and a comment is not a body.
+    elif name == "a public path spelled with ./, sharing a heading":
+        _rewrite(
+            root,
+            receipts[1],
+            lambda r: r["public_entry"].update(path="./" + PUBLIC_ENTRY, heading="### Discrepancy review 1"),
+        )
+    elif name == "an annex path spelled with ./":
+        annex[0]["path"] = "./" + annex[0]["path"]
+    elif name == "a body of HTML comments only":
+        text = public.read_text(encoding="utf-8")
+        public.write_text(
+            text.replace("Synthetic, value-free context of review 1.\n", "<!-- a\nnote -->\n"), encoding="utf-8"
+        )
+        for ref in receipts:
+            _rewrite(root, ref, lambda r: r["public_entry"].update(sha256=_sha(public)))
     return reviews
 
 
+R86_COVERAGE = [
+    "a public path spelled with ./, sharing a heading",
+    "an annex path spelled with ./",
+    "a body of HTML comments only",
+]
 COVERAGE_MUTANTS = [
     "an annex entry missing",
     "a receipt missing",
@@ -1288,6 +1317,8 @@ COVERAGE_MUTANTS = [
     "a heading with no body",
     "a heading that is not Markdown",
     "a heading given twice",
+    # Round 86.
+    *R86_COVERAGE,
 ]
 
 
@@ -1295,6 +1326,8 @@ COVERAGE_MUTANTS = [
 def test_incomplete_review_evidence_leaves_the_failure_unresolved(tmp_path: Path, call: Any, name: str) -> None:
     """Missing, duplicate, stale or unbound evidence is refused, and no cell is flagged reviewed."""
     v = _r84()
+    if name in R86_COVERAGE:
+        _r86()
     syn, keys = _disagreeing(tmp_path, conditions=("I/314", "II/306"))
     reviews = _coverage_mutant(name, tmp_path, keys, syn.protocol)
     report = v.run_report(

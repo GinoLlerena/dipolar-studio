@@ -278,14 +278,27 @@ def _estimands(dataset: str) -> list[str]:
 # and it is one run of a chain: its run number, the SHA-256 of the record it replaced, and the
 # SHA-256 of that run's local report, kept as reports/<dataset>.<run>.md.
 R84_PY = ROOT / "tools" / "validation" / "fit_record.py"
-REPORT_TEXT = "# Verification report (local): synthetic\n"
+
+
+def _report_text(signed: bool) -> str:
+    """A synthetic local report: its title and the line the scan reads (round 86, finding 5)."""
+    return f"# Verification report (local): synthetic\n\n- Spot-check signed: {signed}\n"
+
+
+REPORT_TEXT = _report_text(True)
 QUANTITIES = ("estimate", "discrepancy", "reproduction estimate", "reproduction discrepancy")
 
 
 def _r84() -> Any:
+    """Amended in round 86: the record format gained ``spot_check_signed``, so every test of this
+    format waits for the round 86 fix too."""
     rs = _r83()
     if not R84_PY.is_file():
         pytest.xfail("round 84: the fixes are not written yet")
+    import fit_record
+
+    if not hasattr(fit_record, "SIGNED_LINE"):
+        pytest.xfail("round 86: the record format's fix is not written yet")
     return rs
 
 
@@ -328,6 +341,7 @@ def _record(
         "run": run,
         "previous_sha256": previous,
         "report_sha256": hashlib.sha256(REPORT_TEXT.encode()).hexdigest(),
+        "spot_check_signed": True,
         "provenance": {
             "versions": {"dipolar-core": "synthetic", "dipolar-app": "synthetic"},
             "flags": [],
@@ -343,16 +357,25 @@ def _count(dataset: str) -> int:
 
 
 def _fit_file(root: Path, record: Any, name: str = f"{BENZENE}.fit-values.json", raw: str | None = None) -> Path:
-    """Write a fit output, and the local report of its run when the record names one."""
+    """Write a fit output, and the local report of its run when the record names one (amended in
+    round 86: the report states the record's spot-check state)."""
     path = root / "datasets-local" / "verification" / name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(raw if raw is not None else json.dumps(record), encoding="utf-8")
     if isinstance(record, dict) and isinstance(record.get("run"), int) and record.get("dataset") in (BENZENE, ODCB):
         report = root / "datasets-local" / "verification" / "reports" / f"{record['dataset']}.{record['run']}.md"
         report.parent.mkdir(parents=True, exist_ok=True)
-        if not report.exists():
-            report.write_text(REPORT_TEXT, encoding="utf-8")
+        text = _report_text(record.get("spot_check_signed") is not False)
+        if not report.exists() or hashlib.sha256(text.encode()).hexdigest() == record.get("report_sha256"):
+            report.write_text(text, encoding="utf-8")
     return path
+
+
+def _unsigned(record: dict[str, Any]) -> dict[str, Any]:
+    """The record of a run before the spot-check was signed (round 86), with its report's hash."""
+    record["spot_check_signed"] = False
+    record["report_sha256"] = hashlib.sha256(_report_text(False).encode()).hexdigest()
+    return record
 
 
 def _sha_of(path: Path) -> str:
@@ -732,7 +755,7 @@ def _repo(tmp_path: Path, *, logged: bool, staged: str) -> Path:
     _write_prereg(root, prereg)
     _git(root, "init", "-q")
     (root / "notes.md").write_text(staged, encoding="utf-8")
-    _git(root, "add", "notes.md", str(LEDGER_REL))
+    _git(root, "add", "notes.md", str(LEDGER_REL), str(PREREG_REL))
     return root
 
 
@@ -802,6 +825,7 @@ def test_the_owner_logs_commits_runs_and_reruns_in_order(
     root = _repo(tmp_path, logged=False, staged="clean\n")
     syn, _, _ = _authors_benzene(root)
     _write_prereg(root, syn.prereg)
+    _git(root, "add", str(PREREG_REL))  # amended in round 86: the scan reads the staged copy
     _git(root, "commit", "-q", "-m", "the ledger before the submission")
     (root / LEDGER_REL).write_text(_ledger(_submission(protocol=syn.protocol)), encoding="utf-8")
     _git(root, "add", str(LEDGER_REL))
@@ -1257,7 +1281,7 @@ def test_withheld_targets_and_rank_pending_conditions_are_accepted(tmp_path: Pat
     condition rank-pending with its discrepancies pending for the same reason."""
     rs = _r85()
     root = _root(tmp_path, logged=True)
-    _fit_file(root, _withheld(_reproduced(), "discrepancy", "reproduction discrepancy"))
+    _fit_file(root, _unsigned(_withheld(_reproduced(), "discrepancy", "reproduction discrepancy")))
     assert rs.fit_tier(root).problems == []
     _fit_file(root, _rank_pending(_record(), C0, ["S_zz"], "rank-unverified"))
     assert rs.fit_tier(root).problems == []
@@ -1425,3 +1449,133 @@ def test_a_declaration_names_a_known_reason() -> None:
     assert fit_record.entry_problem(entry) is None
     assert fit_record.entry_problem({**entry, "reason": "not wanted"})
     assert fit_record.entry_problem({**entry, "reason": "s_zz-target-pending"})  # never declared: it has a value
+
+
+# ========== round 86: round 85's six findings, frozen before the fixes (docs/validation/round85-
+# v1.5b-review.md). These xfail while fit_record has no SIGNED_LINE.
+def _r86() -> Any:
+    rs = _r85()
+    import fit_record
+
+    if not hasattr(fit_record, "SIGNED_LINE"):
+        pytest.xfail("round 86: the fixes are not written yet")
+    return rs
+
+
+def test_the_staged_check_reads_the_staged_preregistration(tmp_path: Path) -> None:
+    """Finding 1: a condition swapped in the couplings, with the hash changed only in the working
+    copy's preregistration and the record changed to match, passes the working-copy tier but not
+    the staged check, which reads the roster through the staged preregistration."""
+    rs = _r86()
+    root = _repo(tmp_path, logged=True, staged="clean\n")
+    _fit_file(root, _record())
+    assert rs.check_staged(root) == []
+    prereg = json.loads((root / PREREG_REL).read_text(encoding="utf-8"))
+    couplings = root / prereg["datasets"][BENZENE]["couplings"]["path"]
+    swapped = C0.split("/")[1]
+    couplings.write_text(couplings.read_text(encoding="utf-8").replace(f",{swapped},", ",s99,"), encoding="utf-8")
+    prereg["datasets"][BENZENE]["couplings"]["sha256"] = _sha_of(couplings)
+    _write_prereg(root, prereg)  # the working copy only: not staged
+    renamed = _renamed(f"{C0.split('/')[0]}/s99")
+    _fit_file(root, renamed)
+    assert rs.fit_tier(root).problems == []  # the working copy agrees with itself
+    problems = rs.check_staged(root)
+    assert any("roster" in p or "couplings" in p for p in problems), problems
+    assert _digits_free(problems)
+
+
+def test_an_out_of_sequence_retained_number_is_not_printed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Finding 2: a retained file named with a number outside the sequence (a value's digits) is
+    not printed by the tier, the chain check, the staged check or the command."""
+    rs = _r86()
+    root = _repo(tmp_path, logged=True, staged="clean\n")
+    first, _ = _chain(root, 2)
+    first.rename(first.with_name(f"{BENZENE}.48736829.fit-values.json"))
+    fit = rs.fit_tier(root)
+    assert fit.problems and _digits_free(fit.problems), fit.problems
+    staged = rs.check_staged(root)
+    assert staged and _digits_free(staged), staged
+    assert rs.main(["--root", str(root)]) == 1
+    out = capsys.readouterr()
+    assert _digits_free([out.out, out.err]) and "48736829" not in out.out + out.err
+
+
+def test_the_command_never_writes_its_report_over_the_kept_outputs(tmp_path: Path) -> None:
+    """Finding 4: the local report's destination cannot be a kept report, a retained output or a
+    fit-values file, in any letter case."""
+    v = _v()
+    _r86()
+    report = {"dataset": BENZENE, "protocol_sha256": "ab" * 32, "submission": {}, "status": "blocked", "problems": []}
+    kept = tmp_path / "datasets-local" / "verification" / "reports" / f"{BENZENE}.1.md"
+    kept.parent.mkdir(parents=True)
+    kept.write_text(REPORT_TEXT, encoding="utf-8")
+    for bad in (
+        f"datasets-local/verification/reports/{BENZENE}.1.md",
+        f"datasets-local/verification/Reports/{BENZENE}.1.md",
+        f"datasets-local/verification/retained/{BENZENE}.1.fit-values.json",
+        f"datasets-local/verification/{BENZENE}.fit-values.json",
+        f"datasets-local/verification/./reports/{BENZENE}.2.md",
+    ):
+        with pytest.raises(ValueError):
+            v.write_local(report, Path(bad), root=tmp_path)
+    assert kept.read_text(encoding="utf-8") == REPORT_TEXT
+    assert v.write_local(report, Path("datasets-local/verification/benzene-report.md"), root=tmp_path).is_file()
+
+
+def test_a_signed_run_cannot_be_declared_withheld(tmp_path: Path) -> None:
+    """Finding 5: a record of a signed run whose every discrepancy is declared no-target is
+    refused; so is a record whose signed state is not its bound report's."""
+    rs = _r86()
+    root = _root(tmp_path, logged=True)
+    path = _fit_file(root, _withheld(_record(), "discrepancy"))
+    assert any(path.name in p for p in rs.fit_tier(root).problems)
+    unsigned = _unsigned(_withheld(_record(), "discrepancy"))
+    _fit_file(root, unsigned)
+    assert rs.fit_tier(root).problems == []  # an unsigned run withholds every target
+    report = root / "datasets-local" / "verification" / "reports" / f"{BENZENE}.1.md"
+    report.write_text(_report_text(True), encoding="utf-8")  # the report says signed
+    _fit_file(root, {**unsigned, "report_sha256": _sha_of(report)})
+    problems = rs.fit_tier(root).problems
+    assert any(path.name in p and "signed" in p for p in problems), problems
+    _fit_file(root, {k: x for k, x in _record().items() if k != "spot_check_signed"})
+    assert rs.fit_tier(root).problems  # the state must be declared
+
+
+def _receipt_repo(tmp_path: Path, *, in_ledger: bool) -> tuple[Path, list[Path]]:
+    """Three committed runs, with their results receipt in the committed ledger or only in the
+    commit message."""
+    root = _repo(tmp_path, logged=True, staged="clean\n")
+    paths = _chain(root, 3)
+    message = f"runs\n\nScan receipt: passed, not skipped; fit tier: results (files: {BENZENE} 3, {ODCB} 0).\n"
+    if in_ledger:
+        (root / LEDGER_REL).write_text(_with_receipt(_ledger(_submission()), 3, 0), encoding="utf-8")
+        _git(root, "add", str(LEDGER_REL))
+        message = "runs\n"
+    _git(root, "commit", "-q", "-m", message)
+    assert restricted_scan.check_staged(root) == []
+    return root, paths
+
+
+def _restore_run_1(root: Path, paths: list[Path]) -> None:
+    first, second, current = paths
+    record = first.read_text(encoding="utf-8")
+    reports = root / "datasets-local" / "verification" / "reports"
+    for path in (second, current, first, reports / f"{BENZENE}.2.md", reports / f"{BENZENE}.3.md"):
+        path.unlink()
+    current.write_text(record, encoding="utf-8")
+
+
+@pytest.mark.parametrize("where", ["the committed ledger, with its row staged away", "the commit message"])
+def test_the_rollback_floor_survives_a_staged_ledger_edit(tmp_path: Path, where: str) -> None:
+    """Finding 6: the receipt floor comes from the committed ledger and the last commit message as
+    well as the staged ledger, and a staged ledger that drops a committed receipt row is refused."""
+    rs = _r86()
+    root, paths = _receipt_repo(tmp_path, in_ledger=where.startswith("the committed"))
+    _restore_run_1(root, paths)
+    if where.startswith("the committed"):
+        (root / LEDGER_REL).write_text(_ledger(_submission()), encoding="utf-8")  # the receipt row removed
+        _git(root, "add", str(LEDGER_REL))
+    problems = rs.check_staged(root)
+    assert any("receipt" in p for p in problems), problems
+    assert rs.main(["--root", str(root)]) == 1
+    assert _digits_free(problems)
