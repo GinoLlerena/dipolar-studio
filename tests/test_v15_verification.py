@@ -1288,6 +1288,12 @@ def _coverage_mutant(name: str, root: Path, keys: list[dict[str, str]], protocol
         local = root / "datasets-local" / "public.md"
         local.write_bytes(public.read_bytes())
         _rewrite(root, receipts[0], lambda r: r["public_entry"].update(path="DATASETS-LOCAL/public.md"))
+    elif name == "an unclosed comment as the body":
+        text = public.read_text(encoding="utf-8")
+        last = "### Discrepancy review 2"
+        public.write_text(text.split("\n" + last)[0] + "\n" + last + "\n\n<!-- never closed\n", encoding="utf-8")
+        for ref in receipts:
+            _rewrite(root, ref, lambda r: r["public_entry"].update(sha256=_sha(public)))
     elif name == "a multiline comment hiding a heading line":
         text = public.read_text(encoding="utf-8")
         public.write_text(
@@ -1308,6 +1314,7 @@ R87_COVERAGE = [
     "a public path in another letter case, sharing a heading",
     "a public entry under datasets-local in capitals",
     "a multiline comment hiding a heading line",
+    "an unclosed comment as the body",  # added with the round 87 fixes, for the unclosed case
 ]
 COVERAGE_MUTANTS = [
     "an annex entry missing",

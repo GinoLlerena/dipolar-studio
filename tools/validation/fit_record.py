@@ -74,6 +74,8 @@ RECORD_FIELDS = frozenset(
         "previous_sha256",
         "report_sha256",
         "spot_check_signed",
+        "targets_sha256",
+        "pending_targets",
         "provenance",
         "values",
     }
@@ -91,6 +93,25 @@ Roster = tuple[tuple[str, ...], tuple[str, ...]]  # (conditions, estimands)
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def protocol_sha256(prereg: Mapping[str, Any]) -> str:
+    """The protocol revision of a preregistration, as ``prereg.protocol_sha256`` computes it: the
+    SHA-256 of its canonical JSON without the amendment ledger (round 87: a run's own revision)."""
+    payload = {k: v for k, v in prereg.items() if k != "amendments"}
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def pending_cells(record: Mapping[str, Any]) -> frozenset[tuple[str, str]] | None:
+    """The record's declared pending targets (round 87), or None when malformed."""
+    cells = record.get("pending_targets")
+    if not isinstance(cells, list) or not all(
+        isinstance(c, list) and len(c) == 2 and all(isinstance(x, str) for x in c) for c in cells
+    ):
+        return None
+    out = frozenset((c[0], c[1]) for c in cells)
+    return out if len(out) == len(cells) else None
 
 
 def _dataset(root: Path, dataset: str, prereg: Mapping[str, Any] | None) -> Any:
@@ -314,6 +335,14 @@ def check(
         problems.append("no SHA-256 of its run's local report")
     if not isinstance(record.get("spot_check_signed"), bool):
         problems.append("no declared spot-check state (true or false)")
+    targets = record.get("targets_sha256")
+    if not (isinstance(targets, str) and _SHA.fullmatch(targets)):
+        problems.append("no SHA-256 of the targets file it was judged with")
+    declared = pending_cells(record)
+    if declared is None:
+        problems.append("its pending targets are not a list of distinct cells")
+    elif frozen is not None and not declared <= {(c, e) for c in frozen[0] for e in frozen[1]}:
+        problems.append("a pending target is not a cell of the frozen roster")
     if frozen is not None:
         problems += declarations(entries, frozen)
         problems += consistency(entries, pending, record.get("spot_check_signed"))

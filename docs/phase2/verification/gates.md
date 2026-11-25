@@ -144,6 +144,7 @@ restricted-fit scan tier.
 | 2026-11-25T00:55Z | `fd1544e417525969927ccebf5009fc498667fde1` (commit `8156758`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T01:32Z | `869ca8628d5604a5d22aae0b25c589bc7dfbbd2c` (commit `eda54e8`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T01:41Z | `b4ef643735c2f3f67c84beccb8d1f2aab9286755` (commit `3c516dc`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T02:56Z | `482947faba10adb3a000bd9b719c73b020f7fe20` (commit `da89862`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -548,6 +549,53 @@ row is appended here in the next commit.
   - The fit tier's round 84 marker also waits for round 87.
 
   No case that the gate rejected before is removed.
+
+- **2026-11-25, round 87 fixes (round 86's six findings).** Fixed, not re-reviewed by Sol (owner
+  decision above). The V1.5e exit audit re-reviews these checks.
+  1. **Staged preregistration.** One that is not a JSON object is treated as unreadable.
+  2. **Non-file outputs.** These are listed as `(a file with an unexpected name): not a regular
+     file`. They are neither read nor hashed, and they are left out of the sequence count.
+  3. **Public paths.**
+     - The receipts' duplicate check compares the public file itself (device and inode), not
+       its spelling.
+     - `datasets-local` is recognised in any letter case.
+  4. **Hidden bodies.** The heading checks read the rendered text. `evidence._rendered` removes
+     HTML comments, and an unclosed comment runs to the end of the file. `_section_has_body`
+     reads those rendered lines; its own comment removal became redundant and was dropped.
+  5. **Target amendments.**
+     - Each report and record names its targets file (`targets_sha256`) and pending cells
+       (`pending_targets`).
+     - At the current file, the scan reads the pending cells and checks the declared ones
+       against them.
+     - At an earlier file, the record's revision and that file's hash must match a committed
+       revision of the preregistration, found by its protocol hash
+       (`fit_record.protocol_sha256`). The declared cells are then used, and they must be
+       roster cells.
+     - **Documented limit:** an earlier targets file is local and is not kept, so that run's
+       pending cells rest on its own record, which is bound by its report's hash. They cannot
+       be re-read from the file.
+  6. **Receipts in commit messages.**
+     - The staged checks refuse a ledger that does not carry the last commit message's receipt
+       (`tree <hash>`) into §6.
+     - Receipts are matched across line breaks.
+     - The real repository's scan first enforced this rule on these fixes, and passes once the
+       `da89862` row is appended.
+
+  Gate corrections after the gate commit:
+  - `_amended_repo` creates the ledger's folder and returns the record as written, at revision
+    A.
+  - The wrapped-receipt test's message now carries the receipt's `passed, not skipped;`
+    prefix.
+
+  Added cases:
+  - an unclosed comment as a body;
+  - an earlier revision's pending cell outside the roster, for a mutant that the current-file
+    comparison masked.
+
+  Mutation results:
+  - Round 87: 12 of 12 mutants caught.
+  - Round 85 rerun: 8 caught. Its two retired mutants belong to the rule removed in round 86.
+  - Round 86 rerun: 15 caught. One retired mutant belonged to the redundant comment removal.
 
 ## 7. Exit matrix
 

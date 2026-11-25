@@ -152,7 +152,7 @@ def _file(root: Path, rel: object, *, local: bool) -> Path | None:
         return None
     if pure.is_absolute() or any(part in ("", ".", "..") for part in pure.parts):
         return None
-    if (pure.parts[0] == LOCAL) != local:
+    if (pure.parts[0].casefold() == LOCAL) != local:  # round 87: in any letter case
         return None
     here = root
     for part in pure.parts:
@@ -212,20 +212,24 @@ _HEADING = re.compile(r"(#{1,6}) \S.*")
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 
 
+def _rendered(text: str) -> str:
+    """The text without its HTML comments, an unclosed one included (round 87: what renders)."""
+    return re.sub(r"<!--.*\Z", "", _COMMENT.sub("", text), flags=re.DOTALL)
+
+
 def _section_has_body(lines: list[str], heading: str) -> bool:
     """Whether the heading's section (up to the next heading of its level or above) holds a
-    line that is not blank and not a heading, once HTML comments are removed (round 86: a
-    comment does not render, so it is not a body)."""
+    line that is not blank and not a heading. ``lines`` are the rendered text's, without HTML
+    comments (``_rendered``; rounds 86 and 87: a comment does not render, so it is not a body)."""
     level = len(heading) - len(heading.lstrip("#"))
     at = lines.index(heading)
-    section = []
     for line in lines[at + 1 :]:
         m = _HEADING.fullmatch(line)
         if m and len(m.group(1)) <= level:
-            break
-        section.append(line)
-    rendered = _COMMENT.sub("", "\n".join(section))
-    return any(line.strip() and not _HEADING.fullmatch(line) for line in rendered.splitlines())
+            return False
+        if line.strip() and not m:
+            return True
+    return False
 
 
 def check_receipt(root: Path, ref: Mapping[str, Any]) -> str | None:
@@ -245,7 +249,7 @@ def check_receipt(root: Path, ref: Mapping[str, Any]) -> str | None:
     if _sha(path) != public["sha256"]:
         return "links a public entry that changed after its review"
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = _rendered(path.read_text(encoding="utf-8")).splitlines()
     except UnicodeDecodeError:
         return "links a public file that is not text"
     heading = public["heading"]
@@ -264,7 +268,11 @@ def _public_heading(root: Path, ref: Mapping[str, Any]) -> tuple[str, str] | Non
     record, _ = _record(root, ref)
     if record is None or not isinstance(record.get("public_entry"), Mapping):
         return None
-    return str(record["public_entry"].get("path")), str(record["public_entry"].get("heading"))
+    path = _file(root, record["public_entry"].get("path"), local=False)
+    if path is None:
+        return None
+    stat = path.stat()  # round 87: the file itself, whatever spelling or letter case names it
+    return f"{stat.st_dev}:{stat.st_ino}", str(record["public_entry"].get("heading"))
 
 
 def review_coverage(

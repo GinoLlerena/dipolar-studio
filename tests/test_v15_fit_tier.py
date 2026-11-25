@@ -1699,12 +1699,14 @@ def _amended_repo(tmp_path: Path) -> tuple[Path, Synthetic, dict[str, Any], list
     syn = Synthetic(root, ODCB, truths=truths, targets=targets)
     _write_prereg(root, syn.prereg)
     protocol = test_prereg.protocol_sha256(syn.prereg)
+    (root / LEDGER_REL).parent.mkdir(parents=True, exist_ok=True)  # corrected after the round 87 gate
     (root / LEDGER_REL).write_text(_ledger(_submission(ODCB, protocol)), encoding="utf-8")
     record = _record(ODCB, protocol=protocol)
     record["pending_targets"] = [list(pending[0])]
     for e in _discrepancies(record):
         if (e["condition"], e["component"]) == pending[0]:
             e.update(value=None, reason="no-target")
+    record["targets_sha256"] = syn.prereg["datasets"][ODCB]["targets"]["sha256"]  # revision A's file
     _fit_file(root, record, name=f"{ODCB}.fit-values.json")
     _git(root, "init", "-q")
     _git(root, "add", str(LEDGER_REL), str(PREREG_REL))
@@ -1782,6 +1784,23 @@ def test_a_wrapped_receipt_in_the_commit_message_sets_the_floor(tmp_path: Path) 
     """Finding 6: a receipt broken across lines in the last commit message still sets the floor."""
     rs = _r87()
     root, paths = _receipt_repo(tmp_path, in_ledger=False)
-    _git(root, "commit", "-q", "--allow-empty", "-m", f"runs\n\nfit tier: results\n(files: {BENZENE} 3,\n{ODCB} 0)")
+    _git(
+        root,
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        f"runs\n\npassed, not skipped; fit tier: results\n(files: {BENZENE} 3,\n{ODCB} 0)",
+    )
     _restore_run_1(root, paths)
     assert any("receipt" in p for p in rs.check_staged(root))
+
+
+def test_an_earlier_revisions_pending_cells_are_roster_cells(tmp_path: Path) -> None:
+    """Added with the round 87 fixes, for a mutant that the current-file comparison masked: a run
+    of an earlier revision names only roster cells as pending."""
+    rs = _r87()
+    root, _, record, pending = _amended_repo(tmp_path)
+    invented = {**record, "pending_targets": [list(pending[0]), ["I/999", "S_zz"]]}
+    _fit_file(root, invented, name=f"{ODCB}.fit-values.json")
+    assert rs.main(["--root", str(root)]) == 1

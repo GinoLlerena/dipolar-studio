@@ -1090,6 +1090,11 @@ def run_report(
         **base,
         "status": COMPLETE,
         "spot_check_signed": signed,
+        # Round 87: the targets file this run was judged with, and its pending cells.
+        "targets": {
+            "sha256": p["datasets"][dataset]["targets"]["sha256"],
+            "pending": sorted(k for k, t in targets.items() if t is None),
+        },
         "tracks": {
             "independent": pr.dataset_report(dataset, independent, p, root),
             "reproduction": pr.dataset_report(dataset, reproduction, p, root),
@@ -1373,6 +1378,8 @@ def fit_values(report: Mapping[str, Any]) -> dict[str, Any]:
         "protocol_sha256": report["protocol_sha256"],
         "submission": dict(report["submission"]),
         "spot_check_signed": bool(report["spot_check_signed"]),
+        "targets_sha256": report["targets"]["sha256"],
+        "pending_targets": [list(cell) for cell in report["targets"]["pending"]],
         "provenance": json.loads(json.dumps(provenance, allow_nan=False, default=str)),
         "values": values,
     }

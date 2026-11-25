@@ -312,6 +312,8 @@ class FitTier:
 _RESULTS_RECEIPT = re.compile(
     r"passed, not skipped; fit tier: results \(files: " + ", ".join(rf"{re.escape(d)} (\d+)" for d in FIT_DATASETS) + r"\)"
 )
+#: The receipt a commit message records (Decision 11B); the next commit carries it into §6 (round 87).
+_LAST_RECEIPT = re.compile(r"Scan receipt \(Decision 11B\): tree ([0-9a-f]{40})")
 #: A §6 scan receipt row (round 86: a staged ledger may not drop or change a committed one).
 _RECEIPT_ROW = re.compile(r"\| \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z \| `[0-9a-f]{40}` .*")
 
@@ -327,7 +329,7 @@ def receipt_status(fit: FitTier) -> str:
 def _receipted(ledger: str) -> dict[str, int]:
     """The largest number of each dataset's fit outputs that a §6 scan receipt recorded."""
     floor = dict.fromkeys(FIT_DATASETS, 0)
-    for m in _RESULTS_RECEIPT.finditer(ledger):
+    for m in _RESULTS_RECEIPT.finditer(re.sub(r"\s+", " ", ledger)):  # round 87: across line breaks
         for dataset, n in zip(FIT_DATASETS, m.groups(), strict=True):
             floor[dataset] = max(floor[dataset], int(n))
     return floor
@@ -367,6 +369,31 @@ class _Rosters:
         self.read: dict[str, fr.Roster | None] = {}
         self.pending: dict[str, frozenset[tuple[str, str]] | None] = {}
         self.problems: list[str] = []
+        self.revisions: set[tuple[str, str, str]] | None = None
+
+    def targets_sha(self, dataset: str) -> object:
+        """The targets file's frozen SHA-256 in the judged preregistration, or None."""
+        try:
+            return fr._dataset(self.root, dataset, self.prereg)["targets"]["sha256"]
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    def earlier(self) -> set[tuple[str, str, str]]:
+        """(protocol revision, dataset, targets SHA-256) of every committed revision of the
+        preregistration (round 87: a run is judged by the targets of its own revision)."""
+        if self.revisions is None:
+            self.revisions = set()
+            log = subprocess.run(["git", "log", "--format=%H", "--", PREREG], cwd=self.root, capture_output=True)
+            for commit in log.stdout.decode("ascii", errors="replace").split() if log.returncode == 0 else []:
+                text = _git_show(self.root, f"{commit}:{PREREG}")
+                try:
+                    data = json.loads(text or "")
+                    revision = fr.protocol_sha256(data)
+                    for d, entry in data["datasets"].items():
+                        self.revisions.add((revision, str(d), str(entry["targets"]["sha256"])))
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    continue
+        return self.revisions
 
     def targets(self, dataset: str) -> frozenset[tuple[str, str]] | None:
         if dataset not in self.pending:
@@ -442,9 +469,21 @@ def _fit_entries(
     frozen = rosters(dataset) if dataset == record.get("dataset") else None
     if dataset is not None and frozen is None and dataset == record.get("dataset"):
         problems.append(f"{rel}: the frozen roster cannot be read, so its declarations cannot be checked")
-    pending = rosters.targets(dataset) if frozen is not None and dataset is not None else None
-    if frozen is not None and pending is None:
-        problems.append(f"{rel}: the targets file's pending cells cannot be read, so its no-target cells cannot be checked")
+    pending = None
+    if frozen is not None and dataset is not None:
+        declared, named = fr.pending_cells(record), record.get("targets_sha256")
+        if named == rosters.targets_sha(dataset):  # the current targets file: read and checked
+            pending = rosters.targets(dataset)
+            if pending is None:
+                problems.append(
+                    f"{rel}: the targets file's pending cells cannot be read, so its no-target cells cannot be checked"
+                )
+            elif declared is not None and declared != pending:
+                problems.append(f"{rel}: its pending targets are not the targets file's")
+        elif (record.get("protocol_sha256"), dataset, named) in rosters.earlier():
+            pending = declared  # round 87: an earlier revision's file, at the run's own declaration
+        else:
+            problems.append(f"{rel}: it names a targets file of no committed revision of the preregistration")
     problems += [f"{rel}: {p}" for p in fr.check(record, good, frozen, pending)]
     return values, problems, (submission if bound and not problems else None), record
 
@@ -480,6 +519,8 @@ def fit_tier(
             prereg_data = json.loads(prereg)
         except ValueError:
             prereg_data = {}  # unreadable: every roster read reports it
+        if not isinstance(prereg_data, dict):
+            prereg_data = {}  # round 87: null, a list or a string is unreadable too, never "the working copy"
     logged_entries: list[ffl.Entry] = []
     ledger_text: str | None = None
     try:
@@ -506,6 +547,11 @@ def fit_tier(
     current: dict[str, dict[str, Any]] = {}
     retained: dict[str, dict[int, tuple[dict[str, Any], str]]] = {}
     in_sequence: dict[str, int] = {}  # round 86: retained numbers above this count are never printed
+    odd = [(p, r) for p, r in found if not p.is_file() or p.is_symlink()]
+    found = [(p, r) for p, r in found if (p, r) not in odd]
+    for _, is_retained in odd:  # round 87: neither read nor named
+        place = f"{FIT_DIR}/{fr.RETAINED}" if is_retained else FIT_DIR
+        problems.append(f"{place}/{UNEXPECTED_NAME}: not a regular file")
     for path, is_retained in found:
         named = _expected_name(path.name, is_retained)
         if is_retained and named is not None:
@@ -535,7 +581,7 @@ def fit_tier(
         problems += fr.chain(root, dataset, current.get(dataset), retained.get(dataset, {}))
     outputs = {d: (d in current) + len(retained.get(d, {})) for d in FIT_DATASETS}
     if ledger_text is not None:
-        for dataset, floor in _receipted("\n".join([ledger_text, *anchors])).items():
+        for dataset, floor in _receipted(" ".join([ledger_text, *anchors])).items():
             if outputs[dataset] < floor:
                 problems.append(
                     f"{FIT_DIR}: fewer {dataset} fit outputs than the latest scan receipt (§6) recorded: an output "
@@ -592,7 +638,11 @@ def _staged(root: Path) -> tuple[list[str], FitTier]:
         if any(_RECEIPT_ROW.fullmatch(x.strip()) and x.strip() not in rows for x in committed.splitlines()):
             problems.append(f"{LEDGER}: the staged ledger drops or changes a committed scan receipt (§6)")
     message = subprocess.run(["git", "log", "-1", "--format=%B", "HEAD"], cwd=root, capture_output=True)
-    anchors = [committed or "", message.stdout.decode("utf-8", errors="replace") if message.returncode == 0 else ""]
+    last = message.stdout.decode("utf-8", errors="replace") if message.returncode == 0 else ""
+    anchors = [committed or "", last]
+    receipt = _LAST_RECEIPT.search(re.sub(r"\s+", " ", last))
+    if receipt and staged is not None and f"`{receipt.group(1)}`" not in staged:
+        problems.append(f"{LEDGER}: the last commit's scan receipt is not carried into §6")
     prereg = _git_show(root, f":{PREREG}")
     fit = fit_tier(
         root,
