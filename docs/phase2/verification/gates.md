@@ -143,6 +143,7 @@ restricted-fit scan tier.
 | 2026-11-24T23:50Z | `6db1cd031d218206c4916b7c711ad422d1b6c240` (commit `f424cdc`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T00:55Z | `fd1544e417525969927ccebf5009fc498667fde1` (commit `8156758`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T01:32Z | `869ca8628d5604a5d22aae0b25c589bc7dfbbd2c` (commit `eda54e8`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T01:41Z | `b4ef643735c2f3f67c84beccb8d1f2aab9286755` (commit `3c516dc`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -516,6 +517,37 @@ row is appended here in the next commit.
   before a target amendment is judged by the amended pending targets. Under the review process
   the owner decides how to proceed before any merge. Until then PR #28 is not merged, and no fit
   is authorized: §10 has no `freeze approved` row.
+  - **Owner decision (2026-11-25T02:45Z, in chat): "Fix all, merge on CI".** Tests first, then
+    fixes for all six round 86 findings, with a mutation check. PR #28 then merges once CI is
+    green, with no further Sol round. Round 86's findings are therefore fixed but **not
+    re-reviewed**. The V1.5e exit audit re-reviews these owner-local scan and review checks
+    before any `freeze approved` row may be logged.
+
+- **2026-11-25, round 87 gates frozen (round 86's six findings).** These tests xfail while
+  `fit_record` has no `protocol_sha256`.
+  1. **Staged preregistration.** One that is not a JSON object (`null`, a list, a string) reads
+     no roster. The scan never falls back to the working copy's.
+  2. **Non-file outputs.** A directory or a link under the verification folders is a problem with
+     no name or number, and no exception, in both the staged check and the command.
+  3. **Public paths.** A path that names the same public file in another letter case cannot
+     share a heading with it. A path into `DATASETS-LOCAL/` is local.
+  4. **Hidden bodies.** A multiline HTML comment that hides a heading line is not a body.
+  5. **Target amendments.** A run states the targets file it was judged with (`targets_sha256`)
+     and the cells that were pending in it (`pending_targets`).
+     - At the current file, the cells are read and checked against it.
+     - At an earlier file, the run's protocol revision must be a committed revision of the
+       preregistration whose targets hash it names; the run's own list is then used.
+     - A hash named by no revision is refused.
+  6. **Receipts in commit messages.** The receipt in the last commit message (`tree <hash>`) must
+     be carried into §6 by the next commit. A receipt wrapped across lines still sets the floor.
+
+  Amendments:
+  - The synthetic record gains the two fields. `_fit_file` fills the targets hash from the
+    checkout's preregistration.
+  - The o-DCB pending test declares its pending cells.
+  - The fit tier's round 84 marker also waits for round 87.
+
+  No case that the gate rejected before is removed.
 
 ## 7. Exit matrix
 

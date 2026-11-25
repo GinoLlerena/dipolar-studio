@@ -1069,6 +1069,14 @@ def _r86() -> Any:
     return v
 
 
+def _r87() -> Any:
+    """Round 87 (round 86's findings): an xfail while ``fit_record`` has no ``protocol_sha256``."""
+    v = _r86()
+    if not hasattr(importlib.import_module("fit_record"), "protocol_sha256"):
+        pytest.xfail("round 87: the fixes are not written yet")
+    return v
+
+
 def _annex_texts(n: int) -> dict[str, str]:
     return {f: f"synthetic {f.replace('_', ' ')} of discrepancy {n}" for f in ANNEX_TEXTS}
 
@@ -1269,6 +1277,25 @@ def _coverage_mutant(name: str, root: Path, keys: list[dict[str, str]], protocol
         )
         for ref in receipts:
             _rewrite(root, ref, lambda r: r["public_entry"].update(sha256=_sha(public)))
+    # Round 87 (round 86, findings 3 and 4): one file under any letter case, and no hidden body.
+    elif name == "a public path in another letter case, sharing a heading":
+        _rewrite(
+            root,
+            receipts[1],
+            lambda r: r["public_entry"].update(path=PUBLIC_ENTRY.upper(), heading="### Discrepancy review 1"),
+        )
+    elif name == "a public entry under datasets-local in capitals":
+        local = root / "datasets-local" / "public.md"
+        local.write_bytes(public.read_bytes())
+        _rewrite(root, receipts[0], lambda r: r["public_entry"].update(path="DATASETS-LOCAL/public.md"))
+    elif name == "a multiline comment hiding a heading line":
+        text = public.read_text(encoding="utf-8")
+        public.write_text(
+            text.replace("Synthetic, value-free context of review 1.\n", "<!-- a\n### Hidden\nnote -->\n"),
+            encoding="utf-8",
+        )
+        for ref in receipts:
+            _rewrite(root, ref, lambda r: r["public_entry"].update(sha256=_sha(public)))
     return reviews
 
 
@@ -1276,6 +1303,11 @@ R86_COVERAGE = [
     "a public path spelled with ./, sharing a heading",
     "an annex path spelled with ./",
     "a body of HTML comments only",
+]
+R87_COVERAGE = [
+    "a public path in another letter case, sharing a heading",
+    "a public entry under datasets-local in capitals",
+    "a multiline comment hiding a heading line",
 ]
 COVERAGE_MUTANTS = [
     "an annex entry missing",
@@ -1319,6 +1351,8 @@ COVERAGE_MUTANTS = [
     "a heading given twice",
     # Round 86.
     *R86_COVERAGE,
+    # Round 87.
+    *R87_COVERAGE,
 ]
 
 
@@ -1328,6 +1362,8 @@ def test_incomplete_review_evidence_leaves_the_failure_unresolved(tmp_path: Path
     v = _r84()
     if name in R86_COVERAGE:
         _r86()
+    if name in R87_COVERAGE:
+        _r87()
     syn, keys = _disagreeing(tmp_path, conditions=("I/314", "II/306"))
     reviews = _coverage_mutant(name, tmp_path, keys, syn.protocol)
     report = v.run_report(
