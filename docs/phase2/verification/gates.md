@@ -146,6 +146,7 @@ restricted-fit scan tier.
 | 2026-11-25T01:41Z | `b4ef643735c2f3f67c84beccb8d1f2aab9286755` (commit `3c516dc`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T02:56Z | `482947faba10adb3a000bd9b719c73b020f7fe20` (commit `da89862`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T03:38Z | `fb59e5658f0f89bfd06e83585f5b534f41c0e894` (commit `1456a88`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T03:58Z | `7a2be32f97a487d5c203670d2d5df93b5b1348fa` (commit `31f7f21`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -608,6 +609,35 @@ row is appended here in the next commit.
      use `as_posix()`.
   3. **jump4 generator.** It wrote platform line endings, while its committed output is LF. It
      now writes LF.
+
+- **2026-11-25, V1.5c gates frozen** (plan, V1.5c row). `tests/test_v15c_release.py`, written
+  before the guide and the candidate. A gate the candidate does not meet yet is a strict xfail,
+  and the implementation commit removes each marker. The gates cover:
+  - **versions:** both packages, both `__version__` values and `uv.lock` name `0.2.0b1`;
+    `dipolar --version` names both packages and the contract;
+  - **release notes:** the version, both wheels, the contract, D-1, the fixed-geometry
+    workflow, each report page's verification field as the page prints it, the holdout status,
+    the credits, and links pinned to `v0.2.0b1`;
+  - **the historical beta guide:** `docs/beta/testers.md` keeps every repository link pinned to
+    `v0.1.0b1`, and the 0.1.0b1 release notes keep their tagged bytes (decision 7A);
+  - **the benzene guide** (`docs/phase2/reproduce-benzene.md`):
+    - the SI hash, byte size and links, and the stop on a mismatch (decision 10);
+    - the frozen geometry, ring positions, D6h and its axes;
+    - the copy probe, the 15-condition roster from the corpus's labels, and the orbit mapping;
+    - an invented token example, with no corpus coupling quoted;
+    - the precision rule (§8), the release and its exact `dipolar --version` line;
+    - a `run.get` snippet that saves the run and reads `Szz`;
+    - eligibility (decision 8), the order of step 4, and what stays on the participant's
+      computer (decision 9);
+  - **the worksheet:** blank, every closed record field of `verification.check_participant`, and
+    no personal field;
+  - **the workflows:**
+    - the release checks are kept, and the archive check covers every export-ignored path;
+    - the installed version is checked literally;
+    - `tools/package/check_wheels.py` checks every wheel's manifest;
+    - a synthetic D6h rehearsal (`tools/package/rehearse_d6h.py`) runs on the installed wheels
+      with `-I` from outside the checkout, in the release workflow and the CI packaged job;
+  - **exclusion:** the `git archive` of `HEAD` has no third-party or local data.
 
 ## 7. Exit matrix
 
