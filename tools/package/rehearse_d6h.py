@@ -88,8 +88,9 @@ def matches(reference: float, estimate: float) -> bool:
     return abs(estimate - reference) <= TOLERANCE
 
 
-def the_guides_snippet(guide: Path, project_dir: Path, out: Path) -> str:
-    """The guide's ``run.get`` code block, with its two path lines pointed at this rehearsal."""
+def the_guides_snippet(guide: Path, project_dir: Path, out: Path, *, run_id: str | None = None) -> str:
+    """The guide's ``run.get`` code block, with its path lines pointed at this rehearsal and, when
+    given, its ``RUN_ID`` line naming the run to save."""
     blocks = [
         b for b in re.findall(r"```python\n(.*?)```", guide.read_text(encoding="utf-8"), re.S) if "Studio.connect" in b
     ]
@@ -102,6 +103,11 @@ def the_guides_snippet(guide: Path, project_dir: Path, out: Path) -> str:
     code, n2 = re.subn(r'^OUT = "[^"]+"', lambda _: out_line, code, flags=re.M)
     if (n1, n2) != (1, 1):
         raise SystemExit("the guide's snippet does not start with PROJECT_DIR and OUT")
+    if run_id is not None:
+        run_line = f"RUN_ID = {json.dumps(run_id)}"
+        code, n3 = re.subn(r'^RUN_ID = "[^"]+"', lambda _: run_line, code, flags=re.M)
+        if n3 != 1:
+            raise SystemExit("the guide's snippet has no RUN_ID line")
     return code
 
 
@@ -160,15 +166,32 @@ def main() -> int:
                     raise SystemExit("the mapping is incomplete")
                 studio.call("couplings.import", csv=csv, confirmed_mapping=mapping, expected_science_revision=rev)
                 studio.fit()
-            print("ok  the fit ran through dipolar serve")
+                run_id = str(studio.call("run.list")["runs"][0]["id"])  # newest first: this fit
+            print(f"ok  the fit ran through dipolar serve ({run_id})")
 
             saved = Path(tmp) / "run.json"
-            snippet = the_guides_snippet(ns.guide, project, saved)
+            snippet = the_guides_snippet(ns.guide, project, saved, run_id=run_id)
             done = subprocess.run([sys.executable, "-I", "-c", snippet], capture_output=True, text=True, timeout=120)
             if done.returncode != 0:
                 raise SystemExit(f"the guide's run.get snippet failed:\n{done.stderr}")
             print("ok  the guide's run.get snippet ran")
             result = json.loads(saved.read_text(encoding="utf-8"))
+
+            # Replace the couplings (σ changed), so the run is stale: the snippet must refuse it.
+            changed = csv.replace(f",{SIGMA_HZ}\n", f",{2 * SIGMA_HZ}\n")
+            with Studio.connect(ready) as studio:
+                studio.call(
+                    "couplings.import",
+                    csv=changed,
+                    confirmed_mapping=mapping,
+                    expected_science_revision=studio.science_revision,
+                )
+            refused = Path(tmp) / "stale.json"
+            snippet = the_guides_snippet(ns.guide, project, refused, run_id=run_id)
+            done = subprocess.run([sys.executable, "-I", "-c", snippet], capture_output=True, text=True, timeout=120)
+            if done.returncode == 0 or refused.exists() or "stale" not in done.stderr:
+                raise SystemExit("the guide's snippet saved a stale run")
+            print("ok  the guide's snippet refuses a stale run")
         finally:
             server.terminate()
             server.wait(timeout=30)

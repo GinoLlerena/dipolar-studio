@@ -122,6 +122,17 @@ the name is a label.
 | 2 | `mix2.2` |  |
 | 2 | `mix2.3` |  |
 
+## Before you fit
+
+Do not fit any condition until the owner confirms two entries in the project's first-fit log
+(the [gate ledger](verification/gates.md), §10):
+
+- the owner's `freeze approved` row, which freezes the gates for every fit of experimental data;
+- a `submission` row for your attempt, with the release and the protocol revision.
+
+Until then you may install the release, check the source, and prepare your CSV and XYZ files. A
+fit made before both entries cannot be scored. This applies to a trial fit too.
+
 ## Step 3. The geometry, the symmetry and the fits
 
 ### Compute the geometry
@@ -156,9 +167,11 @@ the program, and the formula), the number of decimal places, and the axes.
 Write the coordinates with **12 or more decimal places**. The owner then checks your S_zz against
 the project's reference within 1e-8 (absolute).
 
-- With 8 to 11 decimal places, the owner adds an allowance: the change in the reference estimate
-  when the reference coordinates are rounded to your precision, in the input XYZ frame. It is
-  computed before your estimates are looked at.
+- With 8 to 11 decimal places, the owner adds an allowance. It is
+  the absolute change in the reference S_zz, condition by condition,
+  when the reference coordinates are rounded to your precision, in the input XYZ frame. The owner
+  computes it with identical couplings, mapping and settings, before looking at your estimates,
+  and checks your S_zz within 1e-8 plus that allowance.
 - With fewer than 8 decimal places, regenerate the XYZ with more.
 
 ### Declare the symmetry and fit
@@ -186,28 +199,35 @@ after checking that all three couplings were replaced):
 ### Save the selected run
 
 Save each condition's run at full precision, with the installed Python client connected to the
-running app. Run this with the environment's Python while `dipolar serve` runs. Set the two
-paths first:
+running app. In the Fit tab's list of runs, choose the run to save, and copy its ID (for example
+`run_000001`). Run this with the environment's Python while `dipolar serve` runs. Set the two
+paths and the run's ID first:
 
 ```python
 PROJECT_DIR = "~/dipolar/benzene/run1-1.31"  # this condition's project directory
 OUT = "run1-1.31.run.json"  # where to save the run
+RUN_ID = "run_000001"  # the run you chose, by its ID in the Fit tab's list of runs
 import json
 from pathlib import Path
 
 from dipolar_app.api import Studio
 
 with Studio.connect(Path(PROJECT_DIR).expanduser() / "serve.ready.json") as studio:
-    newest = studio.call("run.list")["runs"][0]  # the newest run first
-    result = studio.call("run.get", run_id=newest["id"])["result"]
+    listed = [r for r in studio.call("run.list")["runs"] if r["id"] == RUN_ID]
+    if not listed:
+        raise SystemExit(f"{RUN_ID} is not a run of this project")
+    if listed[0]["stale"]:
+        raise SystemExit(f"{RUN_ID} is stale: the project changed after it. Fit again, and save the new run.")
+    result = studio.call("run.get", run_id=RUN_ID)["result"]
 Path(OUT).write_text(json.dumps(result, indent=2), encoding="utf-8")
 szz = next(c for c in result["components"] if c["name"] == "Szz")
 print("S_zz", szz["status"], repr(szz["estimate"]), "rank verified:", result["rank"]["verified"])
 assert szz["status"] == "estimated" and result["rank"]["verified"]
 ```
 
-S_zz is the component named `Szz` in `result["components"]`. Keep the saved files: the owner
-checks them in a private session (see the end of this guide).
+S_zz is the component named `Szz` in `result["components"]`. A run is **stale** when the project
+changed after it, for example when its couplings were replaced. The snippet refuses a stale run.
+Keep the saved files: the owner checks them in a private session (see the end of this guide).
 
 ## Step 4. Compare with the paper
 

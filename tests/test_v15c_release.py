@@ -552,8 +552,6 @@ def test_the_rehearsal_keeps_a_windows_path_in_the_guides_snippet(tmp_path: Path
 
 
 # ========================================================= round 88 gates (frozen before its fixes)
-_r88 = pytest.mark.xfail(strict=True, reason="round 88: frozen before its fix")
-
 #: The release job's checking steps, as frozen at round 88 (A8): a commented-out command, an
 #: ``|| true``, a forced status or a removed step changes the text and fails.
 RELEASE_STEPS = {
@@ -635,7 +633,6 @@ PACKAGED_STEPS = {
 
 
 # ---------------------------------------------------------- A2: the first-fit gate, the allowance
-@_r88
 def test_r88_the_guide_holds_every_fit_until_the_attempt_is_logged() -> None:
     """The first-fit gate (§3, §10) covers participants: no fit before ``freeze approved`` and the
     attempt's own logged submission."""
@@ -646,7 +643,6 @@ def test_r88_the_guide_holds_every_fit_until_the_attempt_is_logged() -> None:
     assert text.index("## Before you fit") < text.index("## Step 3")
 
 
-@_r88
 def test_r88_the_allowance_is_the_absolute_per_condition_change() -> None:
     rule = _section(_guide(), "Coordinate precision")
     for phrase in (
@@ -664,7 +660,6 @@ def _snippet_code() -> list[str]:
     return [line for line in block.splitlines() if line.strip() and not line.lstrip().startswith("#")]
 
 
-@_r88
 def test_r88_the_snippet_saves_the_run_chosen_by_its_id_and_refuses_a_stale_one() -> None:
     code = _snippet_code()
     assert re.fullmatch(r'RUN_ID = "run_\d{6}"(  #.*)?', code[2]), code[2]
@@ -684,7 +679,6 @@ def _rehearse(tmp_path: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-@_r88
 def test_r88_the_rehearsal_shows_the_snippet_refusing_a_stale_run(tmp_path: Path) -> None:
     """After the fit, the rehearsal replaces the couplings, so the run is stale, and runs the
     guide's snippet again: it must fail, naming the stale run."""
@@ -693,7 +687,6 @@ def test_r88_the_rehearsal_shows_the_snippet_refusing_a_stale_run(tmp_path: Path
     assert "ok  the guide's snippet refuses a stale run" in out.stdout
 
 
-@_r88
 def test_r88_the_snippet_keeps_windows_paths_and_the_run_id() -> None:
     r = _module(REHEARSAL)
     project, out = Path(r"C:\Users\RUNNER~1\Temp\benzene-synthetic"), Path(r"C:\Temp\x\run.json")
@@ -704,12 +697,12 @@ def test_r88_the_snippet_keeps_windows_paths_and_the_run_id() -> None:
 
 
 # ----------------------------------------------------- A4: the worksheet makes a valid record
-@_r88
 def test_r88_a_record_built_as_the_worksheet_says_passes_the_checker() -> None:
     """The owner's record, built only from what the worksheet says (its record rows, the
     ``<run>/<sample>`` condition keys, the participant's counts), passes ``check_participant``."""
     text = _worksheet()
-    record_rows = {r[1].strip("`") for r in _rows(_section(text, "The owner's record")) if len(r) >= 3}
+    # Backticked keys only: the header's "Key" is not a field (gate correction, round 88 fixes).
+    record_rows = {r[1].strip("`") for r in _rows(_section(text, "The owner's record")) if r[1:2] and r[1][:1] == "`"}
     assert record_rows == set(verification._RECORD_FIELDS)
     assert "`<run>/<sample>`" in text and "only `numerical_match`" in text
     counts_rows = [r[1].strip("`") for r in _rows(_section(text, "Comparison counts")) if len(r) >= 3]
@@ -840,7 +833,6 @@ def test_r88_the_wheel_check_cli_exits_by_its_finding(tmp_path: Path, entries: l
 
 
 # ---------------------------------------------------------------- B1: the notes' schedule
-@_r88
 def test_r88_the_notes_scope_the_status_to_v1_5() -> None:
     status = _section(_text(NOTES), "Verification status")
     assert "after this release" not in status

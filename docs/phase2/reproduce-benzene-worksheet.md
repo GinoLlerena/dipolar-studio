@@ -7,10 +7,9 @@ not post it publicly.
 Write no name, handle, e-mail address or other contact detail here. The owner keeps those
 separately and knows you only by your opaque participant ID.
 
-The owner's sanitized record (`verification.check_participant`) takes only `participant`,
-`eligible`, `release_tag`, `commit`, `protocol_sha256`, `si_sha256_matches`,
-`geometry_computed`, `conditions`, `counts` and `success_claimed`. The other keys stay in this
-private worksheet.
+The owner builds a sanitized record (`verification.check_participant`) from this worksheet. Its
+fields are listed under [The owner's record](#the-owners-record), at the end. The other keys stay
+in this private worksheet.
 
 | Field | Key | Value |
 |---|---|---|
@@ -62,8 +61,11 @@ private worksheet.
 
 ## Conditions
 
-One row per condition. The `conditions` field of the record is this table. The last column is
-the owner's: `numerical_match`, from the owner's local check of your saved run.
+One row per condition. The other columns are your notes, and they stay in this worksheet. The
+last column is the owner's: `numerical_match`, from the owner's local check of your saved run.
+
+In the record, `conditions` has one entry per row, keyed `<run>/<sample>` (for example `1/1.31`).
+Each entry holds only `numerical_match`.
 
 | Run | Sample | CSV made from the checked file | S_zz estimated, rank verified | Saved run file | `numerical_match` (owner) |
 |---|---|---|---|---|---|
@@ -95,14 +97,36 @@ Filled in by the owner, in a local session, under the guide's precision rule (1e
 
 ## Comparison counts
 
-Step 4, after the owner publishes the counts. The `counts` field of the record is these four
-numbers, which carry no value from the paper.
+Step 4, after the owner publishes the counts. Record your own counts and the published ones.
+The record's `counts` is your four counts, which carry no value from the paper.
 
 | Field | Key | Value |
 |---|---|---|
-| Compared | `compared` |  |
-| Agreeing | `agreeing` |  |
-| Disagreeing | `disagreeing` |  |
-| Pending | `pending` |  |
-| They equal the published counts (yes or no) | `counts_equal_published` |  |
+| Compared (yours) | `compared` |  |
+| Agreeing (yours) | `agreeing` |  |
+| Disagreeing (yours) | `disagreeing` |  |
+| Pending (yours) | `pending` |  |
+| Compared (published) | `published_compared` |  |
+| Agreeing (published) | `published_agreeing` |  |
+| Disagreeing (published) | `published_disagreeing` |  |
+| Pending (published) | `published_pending` |  |
+| Yours equal the published counts (yes or no) | `counts_equal_published` |  |
 | Adequacy, recorded separately (your notes) | `adequacy_notes` |  |
+
+## The owner's record
+
+The owner fills in this table from the worksheet. It is the whole sanitized record: nothing
+else is kept in the repository's receipt.
+
+| Field | Key | Taken from | Value |
+|---|---|---|---|
+| Participant ID | `participant` | the first table |  |
+| Eligible under decision 8 | `eligible` | the first table, checked by the owner |  |
+| Release tag | `release_tag` | Release |  |
+| Its commit | `commit` | Release |  |
+| Protocol revision | `protocol_sha256` | Release |  |
+| The SI hash matches | `si_sha256_matches` | Source |  |
+| The geometry was computed | `geometry_computed` | Geometry |  |
+| `numerical_match` per `<run>/<sample>` | `conditions` | Conditions (the owner's column) |  |
+| Your four counts | `counts` | Comparison counts (yours) |  |
+| Success claimed | `success_claimed` | the first table |  |

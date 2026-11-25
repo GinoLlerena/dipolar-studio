@@ -150,6 +150,7 @@ restricted-fit scan tier.
 | 2026-11-25T15:21Z | `6a20fe40992e47ba585631c82c7dc37ac5c8dcd0` (commit `b5063db`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T16:25Z | `402cf62abbe34edad653bd1877e561561cf7e2cd` (commit `f89f13e`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T16:39Z | `d13bba4e49057d2fbde18de0d0fa53cd29159c8c` (commit `26e8365`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T18:23Z | `920df98e06c45e35720bb934b2fdd3807d45bc89` (commit `bb77185`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -694,6 +695,31 @@ row is appended here in the next commit.
     one fails a gate now.
   - **A1** was fixed in `26e8365`, before the report arrived.
   - **A5** is recorded: gate corrections land in a gate commit before the fixes, as here.
+
+- **2026-11-25, round 88 fixes.** Every `_r88` marker is removed, and all 57 V1.5c gates pass.
+  - **A2.** The guide gains "Before you fit": no fit until the first-fit log has `freeze
+    approved` and the attempt's own `submission` row. The allowance is now stated as the absolute
+    per-condition change in the reference S_zz, computed with identical couplings, mapping and
+    settings, added to 1e-8.
+  - **A3.** The snippet saves the run named by `RUN_ID`, copied from the Fit tab's list of runs,
+    and refuses a stale run. The rehearsal fits, saves that run, replaces the couplings, and shows
+    the snippet refusing the now-stale run.
+  - **A4.** The worksheet ends with "The owner's record", which lists exactly the record's
+    fields. Conditions are keyed `<run>/<sample>`, each holding only `numerical_match`. The
+    worksheet records both count sets: the participant's (`counts`) and the published ones.
+  - **B1.** The notes scope the status to V1.5's comparisons, run by the owner independently of
+    the release, and point to Phase 1's validation.
+  - **Gate correction.** The A4 gate read the record table's header cell ("Key") as a field. It
+    now reads only backticked keys. No other gate changed after `bb77185`.
+  - **Mutation check.**
+    - Against the fixes: 13 mutants, all caught (the hold, the allowance, the run ID, the stale
+      refusal, the rehearsal's run-ID line, the record rows, the notes).
+    - The round 88 and V1.5c mutation sets were rerun. All are caught but one, which is retired:
+      renaming `geometry_computed` in the Geometry table. The key now also appears in the
+      owner's-record table, which is the record's field and is covered by the A4 gate.
+  - **Rehearsal.** The installed wheels were rebuilt, byte-identical to the SHA-256 values
+    above. From outside the checkout they recovered S_zz (off by 4.4e-11) and refused the stale
+    run.
 
 ## 7. Exit matrix
 
