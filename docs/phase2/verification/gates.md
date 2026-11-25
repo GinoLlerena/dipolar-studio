@@ -149,6 +149,7 @@ restricted-fit scan tier.
 | 2026-11-25T03:58Z | `7a2be32f97a487d5c203670d2d5df93b5b1348fa` (commit `31f7f21`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T15:21Z | `6a20fe40992e47ba585631c82c7dc37ac5c8dcd0` (commit `b5063db`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T16:25Z | `402cf62abbe34edad653bd1877e561561cf7e2cd` (commit `f89f13e`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T16:39Z | `d13bba4e49057d2fbde18de0d0fa53cd29159c8c` (commit `26e8365`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -674,6 +675,25 @@ row is appended here in the next commit.
   (`test_the_rehearsal_keeps_a_windows_path_in_the_guides_snippet`, failing on macOS before the
   fix). The replacement is now a function. The release workflow runs on Linux, where the paths
   have no backslashes.
+
+- **2026-11-25, round 88** ([round88-v1.5c-review.md](../../validation/round88-v1.5c-review.md)).
+  GPT-6.2-Sol reviewed `f89f13e`: **NOT READY** (8 A, 1 B).
+  - **Owner's decision** (2026-11-25T18:18Z): "Fix all, then round 89". The fixes come with gates
+    frozen first, then one more scoped Sol review: the second and last the plan allows for V1.5c.
+  - **Gates.** The round 88 gates are in `tests/test_v15c_release.py`. Seven are strict xfails
+    (`_r88`) until the fixes: A2 (two), A3 (three), A4 and B1. The rest pass on the candidate and
+    are stronger checks. They are:
+    - A6: the original `v*` trigger now fails B10 (`tests/test_v15_gates.py`) instead of
+      xfailing;
+    - A7: a hash mismatch only stops; each proton sits on its own carbon; the pair classes are the
+      corpus's; Step 4 states the frozen criterion; nothing private is to be shared; the owner's
+      `numerical_match` column; and nothing personal in the worksheet's prose;
+    - A8: the release-checking steps of both workflows, compared with their frozen text and
+      order; the build ending with the wheel check; and the wheel-check command's exit status.
+  - **Mutation check.** The 14 escaped mutations of A6–A8 were applied one at a time, and every
+    one fails a gate now.
+  - **A1** was fixed in `26e8365`, before the report arrived.
+  - **A5** is recorded: gate corrections land in a gate commit before the fixes, as here.
 
 ## 7. Exit matrix
 

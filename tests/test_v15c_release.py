@@ -549,3 +549,299 @@ def test_the_rehearsal_keeps_a_windows_path_in_the_guides_snippet(tmp_path: Path
     names: dict[str, Any] = {}
     exec(compile("\n".join(code.splitlines()[:2]), "<snippet>", "exec"), names)
     assert names["PROJECT_DIR"] == str(project) and names["OUT"] == str(out)
+
+
+# ========================================================= round 88 gates (frozen before its fixes)
+_r88 = pytest.mark.xfail(strict=True, reason="round 88: frozen before its fix")
+
+#: The release job's checking steps, as frozen at round 88 (A8): a commented-out command, an
+#: ``|| true``, a forced status or a removed step changes the text and fails.
+RELEASE_STEPS = {
+    "The tag is the packages' version, with release notes": (
+        'version="${GITHUB_REF_NAME#v}"\n'
+        "# Literal comparisons (round 61: as a regex, the dots matched any version like 0.1+0b1).\n"
+        'grep -Fqx "version = \\"$version\\"" packages/dipolar-app/pyproject.toml\n'
+        'grep -Fqx "version = \\"$version\\"" packages/dipolar-core/pyproject.toml\n'
+        'test -f "docs/release-notes/$version.md"\n'
+        'echo "VERSION=$version" >> "$GITHUB_ENV"\n'
+    ),
+    "No release exists for this tag yet": (
+        'if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then\n'
+        '  echo "A release for $GITHUB_REF_NAME exists: delete the draft on GitHub, then re-run this workflow." >&2\n'
+        "  exit 1\n"
+        "fi\n"
+    ),
+    "The source archive leaves out third-party data": (
+        "# GitHub attaches the tag's source archives to the release; .gitattributes keeps the 8CB\n"
+        "# couplings out of them (round 61: the owner's choice is that the beta ships none).\n"
+        "# The V0 corpus (Phase 2) is validation-only too, and datasets-local/ is never tracked.\n"
+        "# Each command must succeed before the listing is searched (round 70: a failed archive\n"
+        "# must not pass the check).\n"
+        "set -euo pipefail\n"
+        'git archive --format=tar -o "$RUNNER_TEMP/source.tar" HEAD\n'
+        'tar -tf "$RUNNER_TEMP/source.tar" > "$RUNNER_TEMP/source.list"\n'
+        'test -s "$RUNNER_TEMP/source.list"\n'
+        "# grep exits 0 on a match, 1 on no match, 2 on an error: only 1 passes (round 71b).\n"
+        "status=0\n"
+        'grep -qE "biphenyl-8CB-dipietro2013|benzene-zli1132-taggar2006|datasets-local/" "$RUNNER_TEMP/source.list" || status=$?\n'  # noqa: E501
+        'if [ "$status" -eq 0 ]; then\n'
+        '  echo "the source archive contains third-party data" >&2\n'
+        "  exit 1\n"
+        'elif [ "$status" -ne 1 ]; then\n'
+        '  echo "searching the source archive listing failed (grep status $status)" >&2\n'
+        "  exit 1\n"
+        "fi\n"
+    ),
+    "Build the wheels (page bundled)": ("tools/package/build.sh"),
+    "The user's path against the installed wheels": (
+        'uv venv "$RUNNER_TEMP/pkg"\n'
+        'uv pip install --python "$RUNNER_TEMP/pkg/bin/python" dist/packages/*.whl\n'
+        '"$RUNNER_TEMP/pkg/bin/python" -I tools/package/smoke.py --guide docs/user/getting-started.md\n'
+    ),
+    "The installed version is the tag's, with the contract": (
+        'contract="$("$RUNNER_TEMP/pkg/bin/python" -I -c \'from dipolar_app.registry import CONTRACT_VERSION; print(CONTRACT_VERSION)\')"\n'  # noqa: E501
+        "# Literal (round 61): the whole line, both packages.\n"
+        'test "$("$RUNNER_TEMP/pkg/bin/dipolar" --version)" = "dipolar $VERSION (dipolar-core $VERSION, contract $contract)"\n'  # noqa: E501
+    ),
+    "A synthetic D6h fit on the installed wheels, from outside the checkout (V1.5c)": (
+        'cd "$RUNNER_TEMP"\n'
+        '"$RUNNER_TEMP/pkg/bin/python" -I "$GITHUB_WORKSPACE/tools/package/rehearse_d6h.py" \\\n'
+        '  --guide "$GITHUB_WORKSPACE/docs/phase2/reproduce-benzene.md" \\\n'
+        '  --prereg "$GITHUB_WORKSPACE/docs/phase2/v0.3-preregistration.json"\n'
+    ),
+    "Draft the release": (
+        'prerelease=""\n'
+        'case "$VERSION" in *a*|*b*|*rc*) prerelease="--prerelease" ;; esac\n'
+        'gh release create "$GITHUB_REF_NAME" dist/packages/*.whl --draft $prerelease \\\n'
+        '  --title "Dipolar Studio $VERSION" --notes-file "docs/release-notes/$VERSION.md"\n'
+    ),
+}
+#: The CI packaged job's installed-wheel steps, frozen likewise.
+PACKAGED_STEPS = {
+    "Build the wheels (page bundled)": ("tools/package/build.sh"),
+    "Install the wheels into a clean virtualenv": (
+        'uv venv "$RUNNER_TEMP/pkg"\nuv pip install --python "$RUNNER_TEMP/pkg/bin/python" dist/packages/*.whl\n'
+    ),
+    "The user's path against the installed package (the guide's example, dipolar serve)": (
+        '"$RUNNER_TEMP/pkg/bin/python" -I tools/package/smoke.py --guide docs/user/getting-started.md\n'
+    ),
+    "A synthetic D6h fit on the installed wheels, from outside the checkout (V1.5c)": (
+        'cd "$RUNNER_TEMP"\n'
+        '"$RUNNER_TEMP/pkg/bin/python" -I "$GITHUB_WORKSPACE/tools/package/rehearse_d6h.py" \\\n'
+        '  --guide "$GITHUB_WORKSPACE/docs/phase2/reproduce-benzene.md" \\\n'
+        '  --prereg "$GITHUB_WORKSPACE/docs/phase2/v0.3-preregistration.json"\n'
+    ),
+}
+
+
+# ---------------------------------------------------------- A2: the first-fit gate, the allowance
+@_r88
+def test_r88_the_guide_holds_every_fit_until_the_attempt_is_logged() -> None:
+    """The first-fit gate (§3, §10) covers participants: no fit before ``freeze approved`` and the
+    attempt's own logged submission."""
+    text = _guide()
+    hold = _section(text, "Before you fit")
+    for phrase in ("Do not fit any condition until the owner confirms", "first-fit log", "`freeze approved`"):
+        assert phrase in hold, phrase
+    assert text.index("## Before you fit") < text.index("## Step 3")
+
+
+@_r88
+def test_r88_the_allowance_is_the_absolute_per_condition_change() -> None:
+    rule = _section(_guide(), "Coordinate precision")
+    for phrase in (
+        "1e-8 plus that allowance",
+        "the absolute change in the reference S_zz, condition by condition,",
+        "when the reference coordinates are rounded to your precision",
+        "identical couplings, mapping and settings",
+    ):
+        assert phrase in rule, phrase
+
+
+# ------------------------------------------------------------- A3: the selected run, never stale
+def _snippet_code() -> list[str]:
+    (block,) = [b for b in re.findall(r"```python\n(.*?)```", _guide(), flags=re.S) if "Studio.connect" in b]
+    return [line for line in block.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+
+
+@_r88
+def test_r88_the_snippet_saves_the_run_chosen_by_its_id_and_refuses_a_stale_one() -> None:
+    code = _snippet_code()
+    assert re.fullmatch(r'RUN_ID = "run_\d{6}"(  #.*)?', code[2]), code[2]
+    block = "\n".join(code)
+    assert 'studio.call("run.list")' in block and '["stale"]' in block
+    assert "run_id=RUN_ID" in block
+
+
+def _rehearse(tmp_path: Path) -> subprocess.CompletedProcess[str]:
+    prereg = ROOT / "docs" / "phase2" / "v0.3-preregistration.json"
+    return subprocess.run(
+        [sys.executable, "-I", str(REHEARSAL), "--guide", str(GUIDE), "--prereg", str(prereg)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+
+
+@_r88
+def test_r88_the_rehearsal_shows_the_snippet_refusing_a_stale_run(tmp_path: Path) -> None:
+    """After the fit, the rehearsal replaces the couplings, so the run is stale, and runs the
+    guide's snippet again: it must fail, naming the stale run."""
+    out = _rehearse(tmp_path)
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert "ok  the guide's snippet refuses a stale run" in out.stdout
+
+
+@_r88
+def test_r88_the_snippet_keeps_windows_paths_and_the_run_id() -> None:
+    r = _module(REHEARSAL)
+    project, out = Path(r"C:\Users\RUNNER~1\Temp\benzene-synthetic"), Path(r"C:\Temp\x\run.json")
+    code = r.the_guides_snippet(GUIDE, project, out, run_id="run_000007")
+    names: dict[str, Any] = {}
+    exec(compile("\n".join(code.splitlines()[:3]), "<snippet>", "exec"), names)
+    assert (names["PROJECT_DIR"], names["OUT"], names["RUN_ID"]) == (str(project), str(out), "run_000007")
+
+
+# ----------------------------------------------------- A4: the worksheet makes a valid record
+@_r88
+def test_r88_a_record_built_as_the_worksheet_says_passes_the_checker() -> None:
+    """The owner's record, built only from what the worksheet says (its record rows, the
+    ``<run>/<sample>`` condition keys, the participant's counts), passes ``check_participant``."""
+    text = _worksheet()
+    record_rows = {r[1].strip("`") for r in _rows(_section(text, "The owner's record")) if len(r) >= 3}
+    assert record_rows == set(verification._RECORD_FIELDS)
+    assert "`<run>/<sample>`" in text and "only `numerical_match`" in text
+    counts_rows = [r[1].strip("`") for r in _rows(_section(text, "Comparison counts")) if len(r) >= 3]
+    mine = [k for k in counts_rows if k in verification._COUNT_FIELDS]
+    published = [k for k in counts_rows if k.startswith("published_")]
+    assert sorted(mine) == sorted(verification._COUNT_FIELDS)
+    assert sorted(published) == sorted(f"published_{k}" for k in verification._COUNT_FIELDS)
+    conditions = [r for r in _rows(_section(text, "Conditions")) if r[0] in ("1", "2")]
+    complete = {"compared": 15, "agreeing": 15, "disagreeing": 0, "pending": 0}
+    record = {
+        "participant": "P-001",
+        "eligible": True,
+        "release_tag": TAG,
+        "commit": "c" * 40,
+        "protocol_sha256": "p" * 64,
+        "si_sha256_matches": True,
+        "geometry_computed": True,
+        "success_claimed": True,
+        "conditions": {f"{r[0]}/{r[1].strip('`')}": {"numerical_match": True} for r in conditions},
+        "counts": {k: complete[k] for k in mine},
+    }
+    trusted = {
+        "release_tag": TAG,
+        "commit": "c" * 40,
+        "protocol_sha256": "p" * 64,
+        "spot_check_receipt_sha256": "s" * 64,
+        "roster": [f"{run}/{sample}" for run, sample in _roster()],
+        "published_counts": complete,
+    }
+    assert set(record) == set(verification._RECORD_FIELDS)
+    assert verification.check_participant(record, trusted=trusted) == []
+
+
+# --------------------------------------------------- A7: the guide's and worksheet's substance
+def test_r88_a_hash_mismatch_only_stops() -> None:
+    mismatch = _section(_guide(), "If the hash does not match")
+    assert "Stop the attempt: do not parse or fit anything from that file." in mismatch
+    assert not re.search(r"(?i)\b(continue|proceed|carry on|anyway|ignore)\b", mismatch)
+
+
+def test_r88_each_proton_sits_on_its_own_carbon() -> None:
+    pairs = re.findall(r"^\| `H(\d)` \| `C(\d)` \|", _guide(), flags=re.M)
+    assert pairs == [(str(n), str(n)) for n in range(1, 7)]
+
+
+def test_r88_the_pair_classes_are_the_corpus_classes() -> None:
+    with CORPUS.open(encoding="utf-8") as handle:
+        corpus = {r["coupling"]: r["class"] for r in csv.DictReader(handle)}
+    guide = dict(re.findall(r"^\| (D1[234]) \| (ortho|meta|para) \|", _guide(), flags=re.M))
+    assert guide == corpus
+
+
+def test_r88_step_4_states_the_frozen_criterion() -> None:
+    crit = PREREG["criteria"]["independent"]
+    rel, factor = crit["relative_tolerance"], crit["precision_factor"]
+    compare = _section(_guide(), "Step 4")
+    assert f"|S − S_pub| ≤ {rel}·|S_pub| + {factor}p" in compare
+    assert len(re.findall(r"≤", compare)) == 1
+
+
+def test_r88_nothing_private_is_to_be_shared() -> None:
+    """Every sentence of "What stays on your computer" that speaks of posting, publishing,
+    sharing, uploading or attaching restricts it."""
+    keep = _section(_guide(), "What stays on your computer")
+    for sentence in re.split(r"(?<=[.!?])\s+", " ".join(keep.split())):
+        if re.search(r"(?i)\b(post|publish|share|upload|attach)\w*", sentence):
+            assert re.search(r"\b(not|never|only)\b", sentence), sentence
+
+
+def test_r88_the_conditions_table_names_the_owners_column() -> None:
+    (header, *_) = _rows(_section(_worksheet(), "Conditions"))
+    assert header[-1] == "`numerical_match` (owner)"
+
+
+def test_r88_the_worksheet_asks_for_nothing_personal_in_prose_either() -> None:
+    text = _worksheet().replace("Write no name, handle, e-mail address or other contact detail here.", "")
+    assert not re.search(r"(?i)\b(names?|e-?mail|handles?|phone|contacts?|address|legal|github)\b", text)
+
+
+# ---------------------------------------------------------------- A8: the workflows, frozen
+def _named_steps(path: Path, job: str) -> list[tuple[str, str]]:
+    return [(str(s.get("name")), str(s.get("run", ""))) for s in _steps(path, job)]
+
+
+@pytest.mark.parametrize(
+    ("path", "job", "frozen"), [(RELEASE, "draft", RELEASE_STEPS), (CI, "packaged", PACKAGED_STEPS)]
+)
+def test_r88_the_checking_steps_are_as_frozen(path: Path, job: str, frozen: dict[str, str]) -> None:
+    steps = _named_steps(path, job)
+    names = [n for n, _ in steps]
+    for name, run in frozen.items():
+        assert names.count(name) == 1, name
+        assert dict(steps)[name] == run, name
+    assert [n for n in names if n in frozen] == list(frozen)  # in the frozen order
+    workflow = yaml.safe_load(_text(path))
+    job_spec = workflow["jobs"][job]
+    assert "continue-on-error" not in job_spec and "if" not in job_spec
+    for step in job_spec["steps"]:
+        if step.get("name") in frozen:
+            assert set(step) == {"name", "run"} | ({"env"} if "env" in step else set()), step["name"]
+    if job == "draft":
+        assert names[-1] == "Draft the release"
+
+
+def test_r88_the_build_ends_with_the_wheel_check() -> None:
+    lines = [line for line in _text(ROOT / "tools" / "package" / "build.sh").splitlines() if line.strip()]
+    commands = [line for line in lines if not line.lstrip().startswith("#")]
+    assert "set -euo pipefail" in commands
+    assert commands[-1] == "python3 tools/package/check_wheels.py dist/packages/*.whl"
+
+
+@pytest.mark.parametrize(
+    ("entries", "status"),
+    [
+        (["dipolar_app/__init__.py", "dipolar_app/static/index.html"], 0),
+        (["dipolar_app/__init__.py", "dipolar_app/data/jp052592j_si_001.txt"], 1),
+    ],
+)
+def test_r88_the_wheel_check_cli_exits_by_its_finding(tmp_path: Path, entries: list[str], status: int) -> None:
+    import zipfile
+
+    wheel = tmp_path / "dipolar_app-0.0.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        for name in entries:
+            archive.writestr(name, "x")
+    done = subprocess.run([sys.executable, str(CHECK_WHEELS), str(wheel)], capture_output=True, text=True)
+    assert done.returncode == status, done.stdout + done.stderr
+
+
+# ---------------------------------------------------------------- B1: the notes' schedule
+@_r88
+def test_r88_the_notes_scope_the_status_to_v1_5() -> None:
+    status = _section(_text(NOTES), "Verification status")
+    assert "after this release" not in status
+    assert "V1.5" in status and "Phase 1" in status

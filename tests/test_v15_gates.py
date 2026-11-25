@@ -8,8 +8,8 @@ and 82 (docs/validation/round81-v1.5a-gates.md) strengthened them.
 While that module's file does not exist, its gates xfail through ``_verification()``, and
 through that alone. Once the file exists, every gate runs, the page gates included, and any
 exception from the implementation fails, an import error included (round 82). The
-release-trigger guard is V1.5c's: while ``release.yml`` keeps exactly the original ``v*``
-trigger, the workflow gate xfails. Once it changes, the whole trigger must be the approved one.
+release-trigger guard is V1.5c's, which landed it: the whole trigger must be the approved one,
+and the original ``v*`` fails (round 88, A6).
 ``pytest -rx`` lists what is still pending, and the exit matrix requires none.
 """
 
@@ -921,11 +921,9 @@ def _workflow_trigger() -> Any:
 
 def test_the_release_workflow_uses_exactly_the_approved_trigger() -> None:
     """The whole event mapping, not only the tag list (round 82, A5): no branch push, no `create`,
-    no other event. The xfail holds only for the exact original trigger. The exit matrix requires
-    this test to have passed (Decision 6 and release), so a return to `v*` fails the V1.5c exit."""
+    no other event. V1.5c landed the guard, so the original `v*` trigger now fails like any other
+    (round 88, A6: it used to xfail)."""
     trigger = _workflow_trigger()
-    if trigger == {"push": {"tags": ["v*"]}}:
-        pytest.xfail("V1.5c lands the release-trigger guard")
     assert trigger == {"push": {"tags": APPROVED_FILTERS}}
     assert all(_triggers(t, APPROVED_FILTERS) for t in PACKAGE_TAGS)
     assert not any(_triggers(t, APPROVED_FILTERS) for t in OTHER_TAGS)
@@ -939,6 +937,7 @@ def test_the_release_workflow_uses_exactly_the_approved_trigger() -> None:
         {"push": {"tags": APPROVED_FILTERS}, "create": None},
         {"push": {"tags": APPROVED_FILTERS}, "workflow_dispatch": None},
         {"push": {"tags": ["v*"]}, "create": None},
+        {"push": {"tags": ["v*"]}},
     ],
 )
 def test_a_trigger_with_another_route_is_refused(trigger: Any, monkeypatch: pytest.MonkeyPatch) -> None:
