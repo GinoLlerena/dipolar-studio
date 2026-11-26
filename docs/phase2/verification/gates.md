@@ -159,6 +159,7 @@ restricted-fit scan tier.
 | 2026-11-26T17:58Z | `8ca74448142f0b1d6d44f0fa5fc15be2a2e24e3f` (commit `9283329`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-26T18:58Z | `3241206beed6a36ea9abb4cdab9f704cbc30a26d` (commit `43cdf73`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-26T19:12Z | `8bb45cc503d2a267cf6e08223702d9e9befbdf4b` (commit `95ffcb9`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-26T20:39Z | `b672767a0030d27ebb55d5285d9b6af91eabb774` (commit `22cf16c`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -919,6 +920,44 @@ row is appended here in the next commit.
     - The round 91 "earlier commit" gate now uses the commit's own receipt in the Decision 11B
       form. A short form blocks the next commit (round 91, A2), so it cannot stay in the history.
   - **The ledger** gets the owed `95ffcb9` receipt row.
+
+- **2026-11-26, round 92 fixes** (fixed, not re-reviewed, on the owner's decision). Every round 92
+  marker is removed.
+  - **A1.** Every `stat` in the fit tier, the chain, the couplings and targets reads, and
+    `evidence._file` gives a value-free problem on `OSError`, including a folder that cannot be
+    searched.
+  - **B1.** Only a commit's own receipt sets the history floor: in the Decision 11B form, and
+    naming that commit's tree. The ledger's rows still set it too. **Rule:** a commit message
+    carries only its own scan receipt, and never quotes another commit's.
+  - **B2.** Every receipt of a carried message must be carried. Only text that starts a receipt
+    (`Scan receipt:`, or `Scan receipt (Decision 11B):`) or holds a results status counts as one,
+    so prose about receipts does not.
+  - **B3.** The fit tier applies the runner's `freeze_ok(chronology(...))`. When it fails, no
+    submission binds an output.
+  - **B4.** A body is a line with a visible word, meaning two letters in a row. Before the
+    check, entities are decoded and blank fillers removed. Tags, link targets, hidden elements
+    (the `hidden` attribute itself, `display:none`, unclosed ones included), link-reference
+    definitions and invisible characters are stripped.
+    - A class name containing "hidden" is not hidden.
+    - A body made only of an autolink, a footnote or `[Note]: …` still fails closed. That is
+      acceptable: a review entry is prose, and the owner attests to its substance (round 85,
+      B).
+  - **B5.** Deep nesting (`RecursionError`) in a fit output, a staged preregistration, a
+    committed revision or a review record gives a value-free problem.
+  - **B6.** Each of the six reverts has its test (round 92 gates).
+  - **B7, the known limit, worded exactly.** Only retained records are bound by a hash. The
+    next run's `previous_sha256` fixes the latest record as it is at that moment, any edit
+    included. A scan receipt records only counts. Binding the latest record is left to the V1.5e
+    audit.
+  - **Tests added for masked mutants.**
+    - The couplings stat guard alone.
+    - Two blank fillers.
+    - A public file whose `stat` fails.
+    - Two combining joiners: they showed the planned format and combining filter to be redundant
+      (such characters never form a word), so it was dropped.
+  - **Mutation check.** 15 mutants, all caught. They cover each new `OSError` guard, the
+    own-tree condition, the first-receipt-only carry, the `freeze_ok` check, the `RecursionError`
+    guard, and each part of the visible-word rule.
 
 ## 7. Exit matrix
 

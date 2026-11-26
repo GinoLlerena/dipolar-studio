@@ -2034,9 +2034,6 @@ def test_r91_an_unauthorized_submission_binds_no_output(tmp_path: Path) -> None:
 
 
 # ============================================ round 92 gates (pre-freeze; frozen before the fixes)
-_r92 = pytest.mark.xfail(strict=True, reason="round 92: frozen before its fix")
-
-
 def _unsearchable(monkeypatch: pytest.MonkeyPatch, part: str) -> None:
     """A path containing ``part`` cannot be stat'ed, as under a directory that can be listed but
     not searched (Python 3.12 raises PermissionError from is_file, is_dir, is_symlink)."""
@@ -2054,9 +2051,9 @@ def _unsearchable(monkeypatch: pytest.MonkeyPatch, part: str) -> None:
 @pytest.mark.parametrize(
     "part",
     [
-        pytest.param("0487368", marks=_r92),
-        pytest.param("verification/retained", marks=_r92),
-        pytest.param("datasets-local/verification", marks=_r92),
+        "0487368",
+        "verification/retained",
+        "datasets-local/verification",
         "verification/reports",  # already guarded by the round 91 fix
     ],
 )
@@ -2074,7 +2071,6 @@ def test_r92_an_unsearchable_path_gives_a_value_free_problem(
     assert "0487368" not in "\n".join(fit.problems)
 
 
-@_r92
 def test_r92_a_quoted_receipt_sets_no_floor(tmp_path: Path) -> None:
     """Round 92 (B1): only a commit's own receipt, in the Decision 11B form and naming that
     commit's tree, sets the history floor. Quoted text in a message does not."""
@@ -2095,7 +2091,6 @@ def test_r92_a_quoted_receipt_sets_no_floor(tmp_path: Path) -> None:
     assert not any("fewer" in p for p in problems), problems
 
 
-@_r92
 def test_r92_every_receipt_of_a_carried_message_is_carried(tmp_path: Path) -> None:
     """Round 92 (B2): a message holding two receipts (a squash merge) carries both."""
     rs = _r87()
@@ -2125,7 +2120,6 @@ def test_r92_every_receipt_of_a_carried_message_is_carried(tmp_path: Path) -> No
     assert any("not carried" in p for p in rs.check_staged(root))
 
 
-@_r92
 def test_r92_the_tier_applies_the_runners_chronology(tmp_path: Path) -> None:
     """Round 92 (B3): a decision changed after the freeze fails freeze_ok, as the runner judges,
     and an output bound to a later submission is refused."""
@@ -2140,7 +2134,6 @@ def test_r92_the_tier_applies_the_runners_chronology(tmp_path: Path) -> None:
     assert any("freeze_ok" in p for p in rs.fit_tier(root).problems)
 
 
-@_r92
 def test_r92_deep_nesting_is_a_problem_not_a_crash(tmp_path: Path) -> None:
     """Round 92 (B5)."""
     rs = _r87()
@@ -2203,3 +2196,17 @@ def test_r92_a_submission_at_the_freeze_instant_binds_nothing(tmp_path: Path) ->
     _fit_file(root, {**_record(), "submission": submission})
     problems = rs.fit_tier(root).problems
     assert any("authorized" in p for p in problems) and any("not bound to a submission" in p for p in problems)
+
+
+# Added with the round 92 fixes, for a mutant the other cases masked: the couplings file's stat
+# guard alone.
+def test_r92_an_unsearchable_couplings_file_is_a_value_free_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import fit_record
+
+    root = _root(tmp_path, logged=True)
+    prereg = json.loads((root / PREREG_REL).read_text(encoding="utf-8"))
+    _unsearchable(monkeypatch, Path(prereg["datasets"][BENZENE]["couplings"]["path"]).name)
+    with pytest.raises(ValueError, match="cannot be read"):
+        fit_record.roster(root, BENZENE)

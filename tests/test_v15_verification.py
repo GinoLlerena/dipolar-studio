@@ -2281,7 +2281,6 @@ R92_SECTIONS = {
 }
 
 
-@pytest.mark.xfail(strict=True, reason="round 92: frozen before its fix")
 @pytest.mark.parametrize("section", list(R92_SECTIONS))
 def test_r92_a_body_needs_visible_words(tmp_path: Path, section: str) -> None:
     """Round 92 (B4): a body is a line with a visible word, after markup, entities and invisible
@@ -2293,10 +2292,7 @@ def test_r92_a_body_needs_visible_words(tmp_path: Path, section: str) -> None:
 @pytest.mark.parametrize(
     "body",
     [
-        pytest.param(
-            '<span class="not-hidden">Agreed, after review.</span>',
-            marks=pytest.mark.xfail(strict=True, reason="round 92: frozen before its fix"),
-        ),
+        '<span class="not-hidden">Agreed, after review.</span>',
         "Plain, value-free review text.",
     ],
 )
@@ -2310,3 +2306,26 @@ def test_r92_a_bare_tag_is_no_body(tmp_path: Path) -> None:
     """Round 92 (B6): the revert that dropped bare-tag stripping passed every test."""
     evidence, ref = _receipt_on(tmp_path, "### Discrepancy review 1\n\n<br>\n")
     assert evidence.check_receipt(tmp_path, ref) == "links a heading without a body"
+
+
+# Added with the round 92 fixes, for mutants the other cases masked: two combining marks and two
+# blank fillers are \w characters, so only their own removal keeps them from forming a "word";
+# and a public file whose stat fails is a problem, not an exception.
+@pytest.mark.parametrize("section", ["͏͏", "ㅤㅤ"], ids=["two joiners", "two fillers"])
+def test_r92_two_invisible_letters_are_no_word(tmp_path: Path, section: str) -> None:
+    evidence, ref = _receipt_on(tmp_path, "### Discrepancy review 1\n\n" + section + "\n")
+    assert evidence.check_receipt(tmp_path, ref) == "links a heading without a body"
+
+
+def test_r92_a_public_file_that_cannot_be_stated_is_a_problem(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    evidence, ref = _receipt_on(tmp_path, "### Discrepancy review 1\n\nA synthetic, value-free context.\n")
+    is_file = Path.is_file
+
+    def refuse(p: Path) -> bool:
+        if p.name == Path(PUBLIC_ENTRY).name:
+            raise PermissionError(13, "Permission denied", str(p))
+        return is_file(p)
+
+    monkeypatch.setattr(Path, "is_file", refuse)
+    problem = evidence.check_receipt(tmp_path, ref)
+    assert isinstance(problem, str) and "Permission" not in problem

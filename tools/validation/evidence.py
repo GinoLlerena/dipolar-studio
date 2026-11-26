@@ -27,9 +27,11 @@ content.
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import math
 import re
+import unicodedata
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -155,11 +157,14 @@ def _file(root: Path, rel: object, *, local: bool) -> Path | None:
     if (pure.parts[0].casefold() == LOCAL) != local:  # round 87: in any letter case
         return None
     here = root
-    for part in pure.parts:
-        here = here / part
-        if here.is_symlink():
-            return None
-    return here if here.is_file() else None
+    try:  # round 92 (A1): a path that cannot be stat'ed is no file, never an exception
+        for part in pure.parts:
+            here = here / part
+            if here.is_symlink():
+                return None
+        return here if here.is_file() else None
+    except OSError:
+        return None
 
 
 def _sha(path: Path) -> str:
@@ -170,12 +175,15 @@ def _record(root: Path, ref: Mapping[str, Any]) -> tuple[dict[str, Any] | None, 
     path = _file(root, ref["path"], local=True)
     if path is None:
         return None, "is not an existing local file under datasets-local/, reached through no link"
-    if _sha(path) != ref["sha256"]:
-        return None, "is stale: its SHA-256 is not the referenced one"
     try:
-        record = json.loads(path.read_text(encoding="utf-8"))
-    except (UnicodeDecodeError, ValueError):
+        stale = _sha(path) != ref["sha256"]
+        record = None if stale else json.loads(path.read_text(encoding="utf-8"))
+    except OSError:
+        return None, "cannot be read"
+    except (UnicodeDecodeError, ValueError, RecursionError):
         return None, "is not a JSON record"
+    if stale:
+        return None, "is stale: its SHA-256 is not the referenced one"
     if not isinstance(record, dict):
         return None, "is not a JSON record"
     if any(f not in record or str(record[f]) != str(ref[f]) for f in KEY_FIELDS):
@@ -214,7 +222,14 @@ _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 
 #: Round 91 (B4): further text that does not render: an element marked hidden, a link-reference
 #: definition, and zero-width or soft-hyphen characters.
-_HIDDEN = re.compile(r"<(\w+)\b[^>]*\bhidden\b[^>]*>.*?</\1\s*>", re.DOTALL | re.IGNORECASE)
+#: Round 92: the hidden attribute itself (not a class name containing "hidden"), or display:none.
+_HIDE = r"(?=[^>]*(?:\shidden(?=[\s=>/])|\sstyle\s*=\s*[\"'][^\"']*display\s*:\s*none))"
+_HIDDEN = re.compile(rf"<(\w+)\b{_HIDE}[^>]*>.*?</\1\s*>", re.DOTALL | re.IGNORECASE)
+_HIDDEN_UNCLOSED = re.compile(rf"<\w+\b{_HIDE}[^>]*>.*\Z", re.DOTALL | re.IGNORECASE)
+#: Letters that render as blank (Hangul fillers), removed before looking for a word.
+_FILLERS = re.compile("[\u115f\u1160\u3164\uffa0]")
+#: A visible word: two letters in a row (round 92, B4: a positive rule, not a list of cases).
+_WORD = re.compile(r"[^\W\d_]{2,}")
 _LINK_DEFINITION = re.compile(r"^ {0,3}\[[^\]]+\]:[ \t]*\S.*$", re.MULTILINE)
 _INVISIBLE = re.compile("[\u00ad\u200b-\u200f\u2060\ufeff]")
 
@@ -223,7 +238,17 @@ def _rendered(text: str) -> str:
     """The text without what does not render: HTML comments, an unclosed one included (round
     87), hidden elements, link-reference definitions and invisible characters (round 91)."""
     text = re.sub(r"<!--.*\Z", "", _COMMENT.sub("", text), flags=re.DOTALL)
-    return _INVISIBLE.sub("", _LINK_DEFINITION.sub("", _HIDDEN.sub("", text)))
+    text = _HIDDEN_UNCLOSED.sub("", _HIDDEN.sub("", text))
+    return _INVISIBLE.sub("", _LINK_DEFINITION.sub("", text))
+
+
+def _visible(line: str) -> bool:
+    """Whether a rendered line shows a word (round 92, B4): entities decoded, blank fillers
+    removed, tags and link targets stripped."""
+    # Format and combining characters are not word characters, so they never make a word.
+    text = unicodedata.normalize("NFC", html.unescape(line))
+    text = re.sub(r"\]\([^)]*\)", "]", re.sub(r"<[^>]*>", "", _FILLERS.sub("", text)))
+    return _WORD.search(text) is not None
 
 
 def _section_has_body(lines: list[str], heading: str) -> bool:
@@ -234,7 +259,7 @@ def _section_has_body(lines: list[str], heading: str) -> bool:
     for line in lines[at + 1 :]:
         if _HEADING.fullmatch(line):  # round 91 (B4): a body comes before the first subheading
             return False
-        if re.sub(r"<[^>]*>", "", line).strip():  # text that renders, not a bare tag
+        if _visible(line):  # a visible word, not a bare tag, an entity or a blank filler
             return True
     return False
 
@@ -253,10 +278,12 @@ def check_receipt(root: Path, ref: Mapping[str, Any]) -> str | None:
     path = _file(root, public["path"], local=False)
     if path is None:
         return "links no existing public file outside datasets-local/, reached through no link"
-    if _sha(path) != public["sha256"]:
-        return "links a public entry that changed after its review"
     try:
+        if _sha(path) != public["sha256"]:
+            return "links a public entry that changed after its review"
         lines = _rendered(path.read_text(encoding="utf-8")).splitlines()
+    except OSError:
+        return "links a public file that cannot be read"
     except UnicodeDecodeError:
         return "links a public file that is not text"
     heading = public["heading"]

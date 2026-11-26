@@ -28,7 +28,9 @@ analysis, and each fitted condition's fit provenance per track (its science hash
 **The chain (A6).** Each record has its run number, the SHA-256 of the record it replaced (None
 for the first run) and the SHA-256 of its run's local report. Deleting, editing or renumbering a
 retained record, or any run's report, breaks the chain. The latest record is bound by no hash
-until the next run retains it (round 91, B3: the ledger's known limit).
+until the next run retains it. That run's ``previous_sha256`` then fixes the record as it is at
+that moment, any edit included, and a scan receipt records only counts (rounds 91 and 92: the
+ledger's known limit).
 
 Every problem is value-free: it names the record's place and what is wrong, never a value, a
 condition or a file's content.
@@ -132,7 +134,11 @@ def roster(root: Path, dataset: str, prereg: Mapping[str, Any] | None = None) ->
     except (OSError, ValueError, KeyError, TypeError):
         raise ValueError(f"{PREREG}: the roster of {dataset} cannot be read") from None
     path = root / rel
-    if not path.is_file() or path.is_symlink():
+    try:  # round 92 (A1): a stat that fails is value-free too
+        regular = path.is_file() and not path.is_symlink()
+    except OSError:
+        raise ValueError(f"{dataset}: the couplings file cannot be read") from None
+    if not regular:
         raise ValueError(f"{dataset}: the couplings file is absent, so the frozen roster cannot be read")
     try:
         data = path.read_bytes()
@@ -162,7 +168,11 @@ def pending_targets(root: Path, dataset: str, prereg: Mapping[str, Any] | None =
     except (OSError, ValueError, KeyError, TypeError):
         raise ValueError(f"{PREREG}: the targets of {dataset} cannot be read") from None
     path = root / rel
-    if not path.is_file() or path.is_symlink():
+    try:  # round 92 (A1)
+        regular = path.is_file() and not path.is_symlink()
+    except OSError:
+        raise ValueError(f"{dataset}: the targets file cannot be read") from None
+    if not regular:
         raise ValueError(f"{dataset}: the targets file is absent, so its pending targets cannot be read")
     try:
         data = path.read_bytes()
