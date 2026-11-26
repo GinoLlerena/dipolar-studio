@@ -158,6 +158,7 @@ restricted-fit scan tier.
 | 2026-11-26T17:54Z | `cb1b75733c4247913c7554243fb5e6bc114051a5` (commit `244d7d8`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-26T17:58Z | `8ca74448142f0b1d6d44f0fa5fc15be2a2e24e3f` (commit `9283329`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-26T18:58Z | `3241206beed6a36ea9abb4cdab9f704cbc30a26d` (commit `43cdf73`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-26T19:12Z | `8bb45cc503d2a267cf6e08223702d9e9befbdf4b` (commit `95ffcb9`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -886,6 +887,38 @@ row is appended here in the next commit.
     merge parents ignored, the form refusal removed, each `OSError` guard narrowed, the overflow
     guard narrowed, the authorized filter removed, the B2 problem removed, each of the three
     non-rendering removals dropped, and the subheading stop limited by level.
+
+- **2026-11-26, round 92: the scoped pre-freeze review by Claude**
+  ([round92-v1.5d-prefreeze.md](../../validation/round92-v1.5d-prefreeze.md)). A fresh, independent
+  Claude Opus reviewed `95ffcb9`: **NOT READY** (1 A, 7 B).
+  - **Round 91's findings.**
+    - Resolved: A1 (the reviewer's replay of the merge carry rule over the real history demands
+      exactly the rows the ledger has), A2, B1, B2 (as scoped) and B5.
+    - Resolved for the reported cases: B4.
+    - Documented and acceptable: B3.
+    - Partly open: A3.
+  - **The class A finding.** A1: a `stat` on a path that cannot be searched raises, with a name.
+  - **The class B findings.**
+    - B1: quoted receipt text sets a false floor.
+    - B2: only a message's first receipt is carried.
+    - B3: the tier does not apply `freeze_ok`.
+    - B4: the case-by-case detection of non-rendering text.
+    - B5: deep nesting crashes the tier.
+    - B6: six reverts pass every test.
+    - B7: one known-limit sentence overstates.
+  - **Owner's decision** (recorded 2026-11-26T20:32Z, given shortly before): "Fix all, then you
+    decide". The fixes come with gates first and the full suites. Then the freeze decision goes
+    to the owner, without another review round, so **the round 92 fixes are not re-reviewed**.
+  - **Gates.**
+    - Strict xfails (`_r92`, or per parameter): A1 (three stat cases), B1, B2, B3, B4 (twelve
+      bodies that must not count, and a `class="not-hidden"` span that must), and B5.
+    - B6 gets a test for each missed revert, which passes now: the status pattern, `_signed_line`,
+      the couplings and targets reads, a submission at the freeze instant, and a bare tag.
+  - **Gate corrections** (B1 changes what sets a floor).
+    - The round 91 merge gate's receipt now names its commit's own tree.
+    - The round 91 "earlier commit" gate now uses the commit's own receipt in the Decision 11B
+      form. A short form blocks the next commit (round 91, A2), so it cannot stay in the history.
+  - **The ledger** gets the owed `95ffcb9` receipt row.
 
 ## 7. Exit matrix
 

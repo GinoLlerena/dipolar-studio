@@ -2262,3 +2262,51 @@ def test_r91_a_rendered_body_is_still_a_body(tmp_path: Path) -> None:
     """The control for the round 91 (B4) gate."""
     evidence, ref = _receipt_on(tmp_path, "### Discrepancy review 1\n\nA synthetic, value-free context.\n")
     assert evidence.check_receipt(tmp_path, ref) is None
+
+
+# ======================================== round 92 gates (pre-freeze; frozen before the fixes)
+R92_SECTIONS = {
+    "an entity zero-width space": "&#8203;",
+    "a non-breaking space entity": "&nbsp;",
+    "a braille blank": "⠀",
+    "a Hangul filler": "ㅤ",
+    "an invisible separator": "⁣",
+    "a combining grapheme joiner": "͏",
+    "a nested hidden element": "<div hidden><div>x</div>y</div>",
+    "an unclosed hidden element": "<div hidden>\nSome text.\n",
+    "an empty link": "[](https://example.invalid)",
+    "a thematic break": "***",
+    "an empty table": "| |\n|---|",
+    "an element styled display:none": '<p style="display:none">Some text.</p>',
+}
+
+
+@pytest.mark.xfail(strict=True, reason="round 92: frozen before its fix")
+@pytest.mark.parametrize("section", list(R92_SECTIONS))
+def test_r92_a_body_needs_visible_words(tmp_path: Path, section: str) -> None:
+    """Round 92 (B4): a body is a line with a visible word, after markup, entities and invisible
+    characters are removed."""
+    evidence, ref = _receipt_on(tmp_path, "### Discrepancy review 1\n\n" + R92_SECTIONS[section] + "\n")
+    assert evidence.check_receipt(tmp_path, ref) == "links a heading without a body"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(
+            '<span class="not-hidden">Agreed, after review.</span>',
+            marks=pytest.mark.xfail(strict=True, reason="round 92: frozen before its fix"),
+        ),
+        "Plain, value-free review text.",
+    ],
+)
+def test_r92_visible_words_are_a_body(tmp_path: Path, body: str) -> None:
+    """The control for the round 92 (B4) gate, including a class name containing "hidden"."""
+    evidence, ref = _receipt_on(tmp_path, "### Discrepancy review 1\n\n" + body + "\n")
+    assert evidence.check_receipt(tmp_path, ref) is None
+
+
+def test_r92_a_bare_tag_is_no_body(tmp_path: Path) -> None:
+    """Round 92 (B6): the revert that dropped bare-tag stripping passed every test."""
+    evidence, ref = _receipt_on(tmp_path, "### Discrepancy review 1\n\n<br>\n")
+    assert evidence.check_receipt(tmp_path, ref) == "links a heading without a body"

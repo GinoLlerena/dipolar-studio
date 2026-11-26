@@ -1864,7 +1864,9 @@ def _merged(tmp_path: Path) -> tuple[Path, list[Path]]:
     _git(root, "switch", "-q", "-c", "feature")
     (root / "notes.md").write_text("feature\n", encoding="utf-8")
     _git(root, "add", "notes.md")
-    _git(root, "commit", "-q", "-m", f"feature\n\n{_results_message()}\n")
+    # Gate correction (round 92, B1): a receipt names its own commit's tree, as every real one does.
+    tree = subprocess.run(["git", "write-tree"], cwd=root, capture_output=True, text=True, check=True).stdout.strip()
+    _git(root, "commit", "-q", "-m", f"feature\n\n{_results_message(tree)}\n")
     _git(root, "switch", "-q", "main")
     _git(root, "merge", "-q", "--no-ff", "-m", "Merge the feature branch", "feature")
     (root / "notes.md").write_text("after the merge\n", encoding="utf-8")
@@ -1921,14 +1923,30 @@ def test_r91_a_receipt_not_in_the_decision_11b_form_is_refused(tmp_path: Path, p
 
 
 def test_r91_an_earlier_commits_receipt_in_any_phrasing_keeps_the_floor(tmp_path: Path) -> None:
-    """Round 91 (A1, A2): a receipt two commits back, in the short form, still sets the floor."""
+    """Round 91 (A1, A2): a receipt two commits back still sets the floor. Gate correction
+    (round 92, B1): the commit's own receipt in the Decision 11B form; a short form now blocks the
+    next commit, so it cannot stay in the history."""
     rs = _r87()
     root = _repo(tmp_path, logged=True, staged="clean\n")
     paths = _chain(root, 3)
-    _git(root, "commit", "-q", "-m", f"runs\n\n{R91_PHRASINGS['the short form']}\n")
+    tree = subprocess.run(["git", "write-tree"], cwd=root, capture_output=True, text=True, check=True).stdout.strip()
+    _git(root, "commit", "-q", "-m", f"runs\n\n{_results_message(tree)}\n")
+    row = (
+        f"| 2026-11-25T11:00Z | `{tree}` (commit `bbbbbbb`) | passed, not skipped; fit tier: results "
+        f"(files: {BENZENE} 3, {ODCB} 0) | Claude |"
+    )
+    text = (root / LEDGER_REL).read_text(encoding="utf-8")
+    (root / LEDGER_REL).write_text(
+        text.replace("\n\nEach receipt is first recorded", "\n" + row + "\n\nEach receipt is first recorded"),
+        encoding="utf-8",
+    )
+    _git(root, "add", str(LEDGER_REL))
     (root / "notes.md").write_text("unrelated\n", encoding="utf-8")
     _git(root, "add", "notes.md")
     _git(root, "commit", "-q", "-m", "an unrelated change")
+    (root / LEDGER_REL).write_text(text, encoding="utf-8")  # the receipt row edited away: history alone
+    _git(root, "add", str(LEDGER_REL))
+    _git(root, "commit", "-q", "-m", "the row removed")
     _restore_run_1(root, paths)
     (root / "notes.md").write_text("unrelated again\n", encoding="utf-8")
     _git(root, "add", "notes.md")
@@ -2013,3 +2031,175 @@ def test_r91_an_unauthorized_submission_binds_no_output(tmp_path: Path) -> None:
     (root / LEDGER_REL).write_text(text.replace(LAST_LOG_ROW, "\n".join(rows)), encoding="utf-8")
     _fit_file(root, {**_record(), "submission": submission})
     assert any("not bound to a submission" in p for p in rs.fit_tier(root).problems)
+
+
+# ============================================ round 92 gates (pre-freeze; frozen before the fixes)
+_r92 = pytest.mark.xfail(strict=True, reason="round 92: frozen before its fix")
+
+
+def _unsearchable(monkeypatch: pytest.MonkeyPatch, part: str) -> None:
+    """A path containing ``part`` cannot be stat'ed, as under a directory that can be listed but
+    not searched (Python 3.12 raises PermissionError from is_file, is_dir, is_symlink)."""
+    for name in ("is_file", "is_dir", "is_symlink", "exists"):
+        original = getattr(Path, name)
+
+        def check(p: Path, *a: Any, _original: Any = original, **k: Any) -> Any:
+            if part in p.as_posix():
+                raise PermissionError(13, "Permission denied", str(p))
+            return _original(p, *a, **k)
+
+        monkeypatch.setattr(Path, name, check)
+
+
+@pytest.mark.parametrize(
+    "part",
+    [
+        pytest.param("0487368", marks=_r92),
+        pytest.param("verification/retained", marks=_r92),
+        pytest.param("datasets-local/verification", marks=_r92),
+        "verification/reports",  # already guarded by the round 91 fix
+    ],
+)
+def test_r92_an_unsearchable_path_gives_a_value_free_problem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, part: str
+) -> None:
+    """Round 92 (A1): a stat that fails is a redacted problem, never an exception carrying a name."""
+    rs = _r87()
+    root = _root(tmp_path, logged=True)
+    paths = _chain(root, 3)
+    paths[0].with_name(f"{BENZENE}.0487368.fit-values.json").write_text("{}", encoding="utf-8")
+    _unsearchable(monkeypatch, part)
+    fit = rs.fit_tier(root)
+    assert fit.problems
+    assert "0487368" not in "\n".join(fit.problems)
+
+
+@_r92
+def test_r92_a_quoted_receipt_sets_no_floor(tmp_path: Path) -> None:
+    """Round 92 (B1): only a commit's own receipt, in the Decision 11B form and naming that
+    commit's tree, sets the history floor. Quoted text in a message does not."""
+    rs = _r87()
+    root = _repo(tmp_path, logged=False, staged="clean\n")
+    quoted = (
+        f"docs\n\nQuoting round 91: passed, not skipped; fit tier: results (files: {BENZENE} 3, {ODCB} 0), and "
+        f"{_results_message('c' * 40)}\n"
+    )
+    _git(root, "commit", "-q", "-m", quoted)
+    for n in (1, 2):
+        (root / "notes.md").write_text(f"unrelated {n}\n", encoding="utf-8")
+        _git(root, "add", "notes.md")
+        _git(root, "commit", "-q", "-m", f"an unrelated change {n}")
+    (root / "notes.md").write_text("staged\n", encoding="utf-8")
+    _git(root, "add", "notes.md")
+    problems = rs.check_staged(root)
+    assert not any("fewer" in p for p in problems), problems
+
+
+@_r92
+def test_r92_every_receipt_of_a_carried_message_is_carried(tmp_path: Path) -> None:
+    """Round 92 (B2): a message holding two receipts (a squash merge) carries both."""
+    rs = _r87()
+    root = _repo(tmp_path, logged=False, staged="clean\n")
+    first = (
+        "Scan receipt (Decision 11B): tree "
+        + "d" * 40
+        + " at 2026-11-25T11:00Z: passed, not skipped; fit tier: pre-result."
+    )
+    second = (
+        "Scan receipt (Decision 11B): tree "
+        + "e" * 40
+        + " at 2026-11-25T12:00Z: passed, not skipped; fit tier: pre-result."
+    )
+    _git(root, "commit", "-q", "-m", f"squashed\n\n{first}\n\n{second}\n")
+    row = (
+        "| 2026-11-25T11:00Z | `"
+        + "d" * 40
+        + "` (commit `ddddddd`) | passed, not skipped; fit tier: pre-result | Claude |"
+    )
+    text = (root / LEDGER_REL).read_text(encoding="utf-8")
+    (root / LEDGER_REL).write_text(
+        text.replace("\n\nEach receipt is first recorded", "\n" + row + "\n\nEach receipt is first recorded"),
+        encoding="utf-8",
+    )
+    _git(root, "add", str(LEDGER_REL))
+    assert any("not carried" in p for p in rs.check_staged(root))
+
+
+@_r92
+def test_r92_the_tier_applies_the_runners_chronology(tmp_path: Path) -> None:
+    """Round 92 (B3): a decision changed after the freeze fails freeze_ok, as the runner judges,
+    and an output bound to a later submission is refused."""
+    rs = _r87()
+    root = _root(tmp_path, logged=False)
+    submission = _submission()
+    changed = "| 2026-11-24T12:00Z | decision changed | — | — | — | — |"
+    text = (root / LEDGER_REL).read_text(encoding="utf-8")
+    rows = [LAST_LOG_ROW, FREEZE_ROW, changed, _log_row(submission)]
+    (root / LEDGER_REL).write_text(text.replace(LAST_LOG_ROW, "\n".join(rows)), encoding="utf-8")
+    _fit_file(root, _record())
+    assert any("freeze_ok" in p for p in rs.fit_tier(root).problems)
+
+
+@_r92
+def test_r92_deep_nesting_is_a_problem_not_a_crash(tmp_path: Path) -> None:
+    """Round 92 (B5)."""
+    rs = _r87()
+    root = _root(tmp_path, logged=True)
+    _fit_file(root, None, raw="[" * 200000)
+    assert rs.fit_tier(root).problems
+
+
+# Round 92 (B6): tests for the reverts that passed every test.
+def test_r92_a_receipt_status_outside_the_frozen_form_is_refused(tmp_path: Path) -> None:
+    rs = _r87()
+    root = _repo(tmp_path, logged=False, staged="clean\n")
+    _git(
+        root,
+        "commit",
+        "-q",
+        "-m",
+        "x\n\nScan receipt (Decision 11B): tree " + "f" * 40 + " at 2026-11-25T11:00Z: failed, skipped.\n",
+    )
+    row = "| 2026-11-25T11:00Z | `" + "f" * 40 + "` (commit `fffffff`) | failed, skipped | Claude |"
+    text = (root / LEDGER_REL).read_text(encoding="utf-8")
+    (root / LEDGER_REL).write_text(
+        text.replace("\n\nEach receipt is first recorded", "\n" + row + "\n\nEach receipt is first recorded"),
+        encoding="utf-8",
+    )
+    _git(root, "add", str(LEDGER_REL))
+    assert any("Decision 11B form" in p for p in rs.check_staged(root))
+
+
+def test_r92_an_unreadable_report_gives_no_signed_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import fit_record
+
+    report = tmp_path / "r.md"
+    report.write_text(_report_text(True), encoding="utf-8")
+    _unreadable(monkeypatch, "r.md")
+    assert fit_record._signed_line(report) is None
+
+
+@pytest.mark.parametrize("which", ["couplings", "targets"])
+def test_r92_an_unreadable_input_is_a_value_free_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, which: str
+) -> None:
+    import fit_record
+
+    root = _root(tmp_path, logged=True)
+    prereg = json.loads((root / PREREG_REL).read_text(encoding="utf-8"))
+    _unreadable(monkeypatch, Path(prereg["datasets"][BENZENE][which]["path"]).name)
+    read = fit_record.roster if which == "couplings" else fit_record.pending_targets
+    with pytest.raises(ValueError, match="cannot be read"):
+        read(root, BENZENE)
+
+
+def test_r92_a_submission_at_the_freeze_instant_binds_nothing(tmp_path: Path) -> None:
+    rs = _r87()
+    root = _root(tmp_path, logged=False)
+    submission = {**_submission(), "at": "2026-11-24T09:00Z"}  # FREEZE_ROW's instant
+    text = (root / LEDGER_REL).read_text(encoding="utf-8")
+    rows = [LAST_LOG_ROW, FREEZE_ROW, _log_row(submission)]
+    (root / LEDGER_REL).write_text(text.replace(LAST_LOG_ROW, "\n".join(rows)), encoding="utf-8")
+    _fit_file(root, {**_record(), "submission": submission})
+    problems = rs.fit_tier(root).problems
+    assert any("authorized" in p for p in problems) and any("not bound to a submission" in p for p in problems)
