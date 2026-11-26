@@ -2222,3 +2222,44 @@ def test_the_runner_fits_a_committed_authorized_submission(tmp_path: Path, call:
     counted, seen = _counting(call)
     report = v.run_report(BENZENE, call=counted, prereg=syn.prereg, root=tmp_path, submission=syn.logged())
     assert report["status"] == "complete" and seen.count("fit.run") == 15
+
+
+# ======================================== round 91 gates (pre-freeze; frozen before the fixes)
+R91_KEY = {
+    "dataset": ODCB,
+    "track": "independent",
+    "condition": "I/314",
+    "component": "S_zz",
+    "protocol_sha256": "e" * 64,
+}
+R91_SECTIONS = {
+    "a link-reference definition": "### Discrepancy review 1\n\n[//]: # (a hidden note)\n",
+    "a zero-width space": "### Discrepancy review 1\n\n​\n",
+    "a hidden element": "### Discrepancy review 1\n\n<div hidden>x</div>\n",
+    "only a subheading's section": "### Discrepancy review 1\n\n#### A subheading\n\nIts text.\n",
+}
+
+
+def _receipt_on(tmp_path: Path, section: str) -> tuple[Any, dict[str, str]]:
+    import evidence
+
+    reviews = _evidence(tmp_path, [R91_KEY])
+    public = tmp_path / PUBLIC_ENTRY
+    public.write_text("# Synthetic README\n\n" + section, encoding="utf-8")
+    ref = reviews["receipts"][0]
+    _rewrite(tmp_path, ref, lambda r: r["public_entry"].update(sha256=_sha(public)))
+    return evidence, ref
+
+
+@pytest.mark.xfail(strict=True, reason="round 91: frozen before its fix")
+@pytest.mark.parametrize("section", list(R91_SECTIONS))
+def test_r91_text_that_does_not_render_is_not_a_body(tmp_path: Path, section: str) -> None:
+    """Round 91 (B4): a body is text that renders, before the heading's first subheading."""
+    evidence, ref = _receipt_on(tmp_path, R91_SECTIONS[section])
+    assert evidence.check_receipt(tmp_path, ref) == "links a heading without a body"
+
+
+def test_r91_a_rendered_body_is_still_a_body(tmp_path: Path) -> None:
+    """The control for the round 91 (B4) gate."""
+    evidence, ref = _receipt_on(tmp_path, "### Discrepancy review 1\n\nA synthetic, value-free context.\n")
+    assert evidence.check_receipt(tmp_path, ref) is None

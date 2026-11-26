@@ -156,6 +156,7 @@ restricted-fit scan tier.
 | 2026-11-26T14:19Z | `fd90709010a71607c3b3d98e676e2edae7d49878` (commit `b0e3c1e`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-26T15:09Z | `e5c054a5cee17134878c70b5b21ca1184920ead7` (commit `fdebbf6`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-26T17:54Z | `cb1b75733c4247913c7554243fb5e6bc114051a5` (commit `244d7d8`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-26T17:58Z | `8ca74448142f0b1d6d44f0fa5fc15be2a2e24e3f` (commit `9283329`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -822,6 +823,38 @@ row is appended here in the next commit.
   - **Mutation check.** 5 mutants, all caught: the time match loosened, the status match
     loosened, the full match bypassed, the carry check removed, and the write moved back before
     the check.
+
+- **2026-11-26, round 91: the pre-freeze review by Claude**
+  ([round91-v1.5d-prefreeze.md](../../validation/round91-v1.5d-prefreeze.md)). A fresh, independent
+  Claude Opus reviewed `9283329`: **NOT READY** (3 A, 5 B).
+  - **Round 86's findings.** Findings 1, 3 and 5 are resolved, and finding 4 is resolved for
+    HTML comments. Findings 2 and 6 are partly open.
+  - **The class A findings.**
+    - A1: after a merge commit, the merged branch's receipt neither sets the floor nor has to be
+      carried.
+    - A2: a results receipt not in the frozen form falls back to a tree-only carry, or needs no
+      carry.
+    - A3: an unreadable file's name leaks through an exception.
+  - **The class B findings.**
+    - B1: a huge integer crashes the tier.
+    - B2: an output bound to an agent's submission is accepted.
+    - B3: the documented known limit is wider than stated.
+    - B4: a receipt body can be text that does not render.
+    - B5: the round 90 (b) gate is text-only.
+  - **Owner's decision** (recorded 2026-11-26T18:47Z, given just before): "Fix all, scoped
+    Claude round 92". The fixes come with gates first. Then a fresh, scoped Claude review, and
+    the owner decides on the freeze after it.
+  - **Gates.** Strict xfails, each failing on its intended defect under `--runxfail`:
+    - A1 (merged floor, merged carry), A2 (four phrasings, and an earlier commit's receipt), A3
+      (an unreadable retained file, an unreadable report), B1 and B2 (three cases), in
+      `tests/test_v15_fit_tier.py`;
+    - B4 (four bodies), in `tests/test_v15_verification.py`, with a control.
+
+    B5's gate is behavioural: it runs the snippet against a stand-in client, in
+    `tests/test_v15c_release.py`, with a control. It passes on the round 90 fix, and catches both
+    mutants that round 91 found escaping (the rank dropped, and a print in place of the raise).
+    B3 is documented with the fixes.
+  - **The ledger** gets the owed `9283329` receipt row.
 
 ## 7. Exit matrix
 

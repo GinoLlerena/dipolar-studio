@@ -1840,3 +1840,169 @@ def test_r90_a_carried_receipt_keeps_its_time_and_status(tmp_path: Path, carried
     problems = rs.check_staged(root)
     assert any("receipt" in p for p in problems), problems
     assert _digits_free(problems)
+
+
+# ============================================ round 91 gates (pre-freeze; frozen before the fixes)
+_r91 = pytest.mark.xfail(strict=True, reason="round 91: frozen before its fix")
+
+
+def _results_message(tree: str = "b" * 40, at: str = "2026-11-25T11:00Z", benzene: int = 3) -> str:
+    return (
+        f"Scan receipt (Decision 11B): tree {tree} at {at}: passed, not skipped; "
+        f"fit tier: results (files: {BENZENE} {benzene}, {ODCB} 0)."
+    )
+
+
+def _merged(tmp_path: Path) -> tuple[Path, list[Path]]:
+    """Three runs committed on main; a feature branch whose last commit holds a results receipt;
+    the branch merged with --no-ff, as a pull request is."""
+    root = _repo(tmp_path, logged=True, staged="clean\n")
+    paths = _chain(root, 3)
+    _git(root, "commit", "-q", "-m", "three runs")
+    _git(root, "branch", "-M", "main")
+    _git(root, "switch", "-q", "-c", "feature")
+    (root / "notes.md").write_text("feature\n", encoding="utf-8")
+    _git(root, "add", "notes.md")
+    _git(root, "commit", "-q", "-m", f"feature\n\n{_results_message()}\n")
+    _git(root, "switch", "-q", "main")
+    _git(root, "merge", "-q", "--no-ff", "-m", "Merge the feature branch", "feature")
+    (root / "notes.md").write_text("after the merge\n", encoding="utf-8")
+    _git(root, "add", "notes.md")
+    return root, paths
+
+
+@_r91
+def test_r91_a_merged_branchs_receipt_keeps_the_floor(tmp_path: Path) -> None:
+    """Round 91 (A1): the receipt at the tip of a merged branch still sets the floor of outputs,
+    from every commit message reachable from HEAD."""
+    rs = _r87()
+    root, paths = _merged(tmp_path)
+    _restore_run_1(root, paths)
+    problems = rs.check_staged(root)
+    assert any("receipt" in p for p in problems), problems
+    assert rs.main(["--root", str(root)]) == 1
+    assert _digits_free(problems)
+
+
+@_r91
+def test_r91_a_merged_branchs_receipt_must_be_carried(tmp_path: Path) -> None:
+    """Round 91 (A1): the commit after a merge carries the receipt at the tip of each parent into
+    §6, as it carries a single parent's."""
+    rs = _r87()
+    root, _ = _merged(tmp_path)
+    problems = rs.check_staged(root)
+    assert any("not carried" in p for p in problems), problems
+
+
+R91_PHRASINGS = {
+    "seconds in the time": _results_message(at="2026-11-25T11:00:00Z"),
+    "no final period": _results_message()[:-1] + "\nCo-Authored-By: someone <x@invalid>",
+    "a comma before the time": _results_message().replace(" at 2026", ", 2026"),
+    "the short form": f"Scan receipt: passed, not skipped; fit tier: results (files: {BENZENE} 3, {ODCB} 0).",
+}
+
+
+@_r91
+@pytest.mark.parametrize("phrasing", list(R91_PHRASINGS))
+def test_r91_a_receipt_not_in_the_decision_11b_form_is_refused(tmp_path: Path, phrasing: str) -> None:
+    """Round 91 (A2): a results receipt in the last commit message that is not in the frozen
+    form (tree, time, status) is refused, so it cannot fall back to a tree-only carry."""
+    rs = _r87()
+    root = _repo(tmp_path, logged=True, staged="clean\n")
+    _chain(root, 3)
+    _git(root, "commit", "-q", "-m", f"runs\n\n{R91_PHRASINGS[phrasing]}\n")
+    row = f"| 2026-11-25T11:00Z | `{'b' * 40}` (commit `bbbbbbb`) | passed, not skipped; fit tier: results (files: {BENZENE} 1, {ODCB} 0) | Claude |"  # noqa: E501
+    text = (root / LEDGER_REL).read_text(encoding="utf-8")
+    (root / LEDGER_REL).write_text(
+        text.replace("\n\nEach receipt is first recorded", "\n" + row + "\n\nEach receipt is first recorded"),
+        encoding="utf-8",
+    )
+    _git(root, "add", str(LEDGER_REL))
+    problems = rs.check_staged(root)
+    assert any("receipt" in p for p in problems), problems
+
+
+@_r91
+def test_r91_an_earlier_commits_receipt_in_any_phrasing_keeps_the_floor(tmp_path: Path) -> None:
+    """Round 91 (A1, A2): a receipt two commits back, in the short form, still sets the floor."""
+    rs = _r87()
+    root = _repo(tmp_path, logged=True, staged="clean\n")
+    paths = _chain(root, 3)
+    _git(root, "commit", "-q", "-m", f"runs\n\n{R91_PHRASINGS['the short form']}\n")
+    (root / "notes.md").write_text("unrelated\n", encoding="utf-8")
+    _git(root, "add", "notes.md")
+    _git(root, "commit", "-q", "-m", "an unrelated change")
+    _restore_run_1(root, paths)
+    (root / "notes.md").write_text("unrelated again\n", encoding="utf-8")
+    _git(root, "add", "notes.md")
+    problems = rs.check_staged(root)
+    assert any("fewer" in p for p in problems), problems
+
+
+def _unreadable(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    """Reading the file called ``name`` fails as an unreadable file does, with its path in the
+    message (round 91: a mode-000 file; patched, so it holds on every platform)."""
+    read_bytes, read_text = Path.read_bytes, Path.read_text
+
+    def refuse(path: Path) -> None:
+        raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr(Path, "read_bytes", lambda p: refuse(p) if p.name == name else read_bytes(p))
+    monkeypatch.setattr(Path, "read_text", lambda p, *a, **k: refuse(p) if p.name == name else read_text(p, *a, **k))
+
+
+@_r91
+@pytest.mark.parametrize("which", ["an out-of-sequence retained output", "a run's report"])
+def test_r91_an_unreadable_file_gives_a_value_free_problem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, which: str
+) -> None:
+    """Round 91 (A3): an unreadable file gives a redacted problem, never an exception carrying its
+    name."""
+    rs = _r87()
+    root = _root(tmp_path, logged=True)
+    paths = _chain(root, 2)
+    if which.startswith("an out"):
+        odd = paths[0].with_name(f"{BENZENE}.48736829.fit-values.json")
+        odd.write_text("{}", encoding="utf-8")
+        _unreadable(monkeypatch, odd.name)
+    else:
+        _unreadable(monkeypatch, f"{BENZENE}.1.md")
+    fit = rs.fit_tier(root)
+    assert fit.problems
+    assert "48736829" not in "\n".join(fit.problems)
+
+
+@_r91
+def test_r91_a_huge_integer_is_a_problem_not_a_crash(tmp_path: Path) -> None:
+    """Round 91 (B1): an integer beyond the float range is refused as a value, without an
+    exception."""
+    rs = _r87()
+    root = _root(tmp_path, logged=True)
+    record = _record()
+    record["values"][0]["value"] = 10**400
+    _fit_file(root, record)
+    fit = rs.fit_tier(root)
+    assert fit.problems and _digits_free(fit.problems)
+
+
+@_r91
+@pytest.mark.parametrize("case", ["an agent's submission", "a submission before the freeze", "no freeze"])
+def test_r91_only_an_authorized_submission_after_the_freeze_binds_an_output(tmp_path: Path, case: str) -> None:
+    """Round 91 (B2): the fit tier refuses a logged submission by an agent, or one not after
+    `freeze approved`, and an output bound to it."""
+    rs = _r87()
+    root = _root(tmp_path, logged=False)
+    submission = _submission()
+    text = (root / LEDGER_REL).read_text(encoding="utf-8")
+    if case == "an agent's submission":
+        submission["runner"] = "agent"
+        rows = [LAST_LOG_ROW, FREEZE_ROW, _log_row(submission)]
+    elif case == "a submission before the freeze":
+        submission["at"] = "2026-11-23T10:00Z"
+        rows = [LAST_LOG_ROW, _log_row(submission), FREEZE_ROW]
+    else:
+        rows = [LAST_LOG_ROW, _log_row(submission)]
+    (root / LEDGER_REL).write_text(text.replace(LAST_LOG_ROW, "\n".join(rows)), encoding="utf-8")
+    _fit_file(root, {**_record(), "submission": submission})
+    fit = rs.fit_tier(root)
+    assert any("freeze" in p or "authorized" in p for p in fit.problems), fit.problems

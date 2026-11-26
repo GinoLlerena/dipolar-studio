@@ -871,3 +871,60 @@ def test_r90_the_snippet_checks_the_run_before_it_writes_the_file() -> None:
     block = "\n".join(_snippet_code())
     write = block.find("write_text")
     assert -1 < block.find('"estimated"') < write and -1 < block.find('["rank"]["verified"]') < write
+
+
+# ======================================== round 91 gate (B5: a stronger check; it passes on the fix)
+def _run_the_snippet(tmp_path: Path, result: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> tuple[bool, Path]:
+    """The guide's snippet, as written but for its path lines, against a stand-in client whose
+    ``run.get`` gives ``result``: whether it exited normally, and the output path."""
+    import types
+
+    class Studio:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        @classmethod
+        def connect(cls, _ready: object) -> Studio:
+            return cls()
+
+        def __enter__(self) -> Studio:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def call(self, operation: str, **_: object) -> dict[str, Any]:
+            if operation == "run.list":
+                return {"runs": [{"id": "run_000001", "stale": False}]}
+            return {"run": {"id": "run_000001", "stale": False}, "result": result}
+
+    api = types.ModuleType("dipolar_app.api")
+    api.Studio = Studio  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "dipolar_app.api", api)
+    out = tmp_path / "run.json"
+    code = _module(REHEARSAL).the_guides_snippet(GUIDE, tmp_path, out, run_id="run_000001")
+    try:
+        exec(compile(code, "<snippet>", "exec"), {"__name__": "__main__"})
+    except SystemExit as stop:
+        return stop.code in (None, 0), out
+    return True, out
+
+
+def _result(status: str, verified: bool) -> dict[str, Any]:
+    return {"components": [{"name": "Szz", "status": status, "estimate": -0.0815}], "rank": {"verified": verified}}
+
+
+@pytest.mark.parametrize(("status", "verified"), [("estimated", False), ("fixed", True), ("unverified", False)])
+def test_r91_the_snippet_refuses_an_unusable_run_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str, verified: bool
+) -> None:
+    """Round 91 (B5): run as written, the snippet exits non-zero and writes no file for a run
+    whose S_zz is not estimated or whose rank is not verified."""
+    ok, out = _run_the_snippet(tmp_path, _result(status, verified), monkeypatch)
+    assert not ok and not out.exists()
+
+
+def test_r91_the_snippet_saves_a_usable_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The control for the round 91 (B5) gate."""
+    ok, out = _run_the_snippet(tmp_path, _result("estimated", True), monkeypatch)
+    assert ok and out.exists()
