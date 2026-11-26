@@ -222,10 +222,11 @@ with Studio.connect(Path(PROJECT_DIR).expanduser() / "serve.ready.json") as stud
     if got["run"]["stale"]:  # read with the result: the project may change during the save
         raise SystemExit(f"{RUN_ID} became stale while it was read. Fit again, and save the new run.")
     result = got["result"]
-Path(OUT).write_text(json.dumps(result, indent=2), encoding="utf-8")
 szz = next(c for c in result["components"] if c["name"] == "Szz")
 print("S_zz", szz["status"], repr(szz["estimate"]), "rank verified:", result["rank"]["verified"])
-assert szz["status"] == "estimated" and result["rank"]["verified"]
+if szz["status"] != "estimated" or not result["rank"]["verified"]:
+    raise SystemExit(f"{RUN_ID}: S_zz is not estimated with a verified rank, so it is not saved.")
+Path(OUT).write_text(json.dumps(result, indent=2), encoding="utf-8")
 ```
 
 S_zz is the component named `Szz` in `result["components"]`. A run is **stale** when the project

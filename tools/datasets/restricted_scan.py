@@ -312,8 +312,12 @@ class FitTier:
 _RESULTS_RECEIPT = re.compile(
     r"passed, not skipped; fit tier: results \(files: " + ", ".join(rf"{re.escape(d)} (\d+)" for d in FIT_DATASETS) + r"\)"
 )
-#: The receipt a commit message records (Decision 11B); the next commit carries it into §6 (round 87).
+#: The receipt a commit message records (Decision 11B); the next commit carries it into §6 (round 87),
+#: with its own time and status (round 90: the tree alone let a row lower the results floor).
 _LAST_RECEIPT = re.compile(r"Scan receipt \(Decision 11B\): tree ([0-9a-f]{40})")
+_FULL_RECEIPT = re.compile(
+    r"Scan receipt \(Decision 11B\): tree ([0-9a-f]{40}) at (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z): (.+?)\.(?: |$)"
+)
 #: A §6 scan receipt row (round 86: a staged ledger may not drop or change a committed one).
 _RECEIPT_ROW = re.compile(r"\| \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z \| `[0-9a-f]{40}` .*")
 
@@ -640,9 +644,17 @@ def _staged(root: Path) -> tuple[list[str], FitTier]:
     message = subprocess.run(["git", "log", "-1", "--format=%B", "HEAD"], cwd=root, capture_output=True)
     last = message.stdout.decode("utf-8", errors="replace") if message.returncode == 0 else ""
     anchors = [committed or "", last]
-    receipt = _LAST_RECEIPT.search(re.sub(r"\s+", " ", last))
-    if receipt and staged is not None and f"`{receipt.group(1)}`" not in staged:
-        problems.append(f"{LEDGER}: the last commit's scan receipt is not carried into §6")
+    flat = re.sub(r"\s+", " ", last)
+    receipt, full = _LAST_RECEIPT.search(flat), _FULL_RECEIPT.search(flat)
+    if receipt and staged is not None:
+        if full:
+            tree, at, status = full.groups()
+            row = re.compile(rf"\| {re.escape(at)} \| `{tree}` [^|]*\| {re.escape(status)} \| [^|]+ \|")
+            carried = any(row.fullmatch(re.sub(r"\s+", " ", x.strip())) for x in staged.splitlines())
+        else:
+            carried = f"`{receipt.group(1)}`" in staged
+        if not carried:
+            problems.append(f"{LEDGER}: the last commit's scan receipt is not carried into §6 with its time and status")
     prereg = _git_show(root, f":{PREREG}")
     fit = fit_tier(
         root,

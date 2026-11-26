@@ -865,7 +865,6 @@ def test_r89_the_notes_point_to_the_0_1_notes_for_phase_1() -> None:
 
 
 # ========================================================= round 90 gate (frozen before its fix)
-@pytest.mark.xfail(strict=True, reason="round 90: frozen before its fix")
 def test_r90_the_snippet_checks_the_run_before_it_writes_the_file() -> None:
     """Round 90 (b): S_zz estimated and the rank verified are checked before the file is
     written, so an unusable run leaves no file."""

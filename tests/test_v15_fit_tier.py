@@ -1807,10 +1807,6 @@ def test_an_earlier_revisions_pending_cells_are_roster_cells(tmp_path: Path) -> 
 
 
 # ============================================ round 90 gates (pre-freeze; frozen before the fix)
-_r90 = pytest.mark.xfail(strict=True, reason="round 90: frozen before its fix")
-
-
-@_r90
 @pytest.mark.parametrize(
     "carried",
     [

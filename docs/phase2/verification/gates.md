@@ -155,6 +155,7 @@ restricted-fit scan tier.
 | 2026-11-25T22:58Z | `2152d94d0b0c4dd30cd5553df56aea65c3172bdf` (commit `60edaea`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-26T14:19Z | `fd90709010a71607c3b3d98e676e2edae7d49878` (commit `b0e3c1e`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-26T15:09Z | `e5c054a5cee17134878c70b5b21ca1184920ead7` (commit `fdebbf6`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-26T17:54Z | `cb1b75733c4247913c7554243fb5e6bc114051a5` (commit `244d7d8`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -811,6 +812,16 @@ row is appended here in the next commit.
 
     Run with `--runxfail`, each fails on its own assertion.
   - **The ledger** gets the owed `fdebbf6` receipt row.
+
+- **2026-11-26, round 90 fixes.** Both `_r90` markers are removed, and the gates pass.
+  - **(a)** The last commit's receipt is carried into §6 only by a row with its tree, its time
+    and its whole status. The status includes a results receipt's per-dataset counts. The
+    tree-only match stays only for a message whose receipt has no time and status.
+  - **(b)** The guide's snippet checks that S_zz is estimated with a verified rank before it
+    writes the file.
+  - **Mutation check.** 5 mutants, all caught: the time match loosened, the status match
+    loosened, the full match bypassed, the carry check removed, and the write moved back before
+    the check.
 
 ## 7. Exit matrix
 
