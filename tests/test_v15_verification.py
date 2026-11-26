@@ -2251,7 +2251,6 @@ def _receipt_on(tmp_path: Path, section: str) -> tuple[Any, dict[str, str]]:
     return evidence, ref
 
 
-@pytest.mark.xfail(strict=True, reason="round 91: frozen before its fix")
 @pytest.mark.parametrize("section", list(R91_SECTIONS))
 def test_r91_text_that_does_not_render_is_not_a_body(tmp_path: Path, section: str) -> None:
     """Round 91 (B4): a body is text that renders, before the heading's first subheading."""

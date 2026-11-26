@@ -1563,7 +1563,11 @@ def _receipt_repo(tmp_path: Path, *, in_ledger: bool) -> tuple[Path, list[Path]]
         _git(root, "add", str(LEDGER_REL))
         message = "runs\n"
     _git(root, "commit", "-q", "-m", message)
-    assert restricted_scan.check_staged(root) == []
+    problems = restricted_scan.check_staged(root)
+    if in_ledger:
+        assert problems == []
+    else:  # gate correction (round 91, A2): a receipt not in the Decision 11B form is refused
+        assert problems and all("Decision 11B form" in p for p in problems), problems
     return root, paths
 
 
@@ -1843,9 +1847,6 @@ def test_r90_a_carried_receipt_keeps_its_time_and_status(tmp_path: Path, carried
 
 
 # ============================================ round 91 gates (pre-freeze; frozen before the fixes)
-_r91 = pytest.mark.xfail(strict=True, reason="round 91: frozen before its fix")
-
-
 def _results_message(tree: str = "b" * 40, at: str = "2026-11-25T11:00Z", benzene: int = 3) -> str:
     return (
         f"Scan receipt (Decision 11B): tree {tree} at {at}: passed, not skipped; "
@@ -1871,7 +1872,6 @@ def _merged(tmp_path: Path) -> tuple[Path, list[Path]]:
     return root, paths
 
 
-@_r91
 def test_r91_a_merged_branchs_receipt_keeps_the_floor(tmp_path: Path) -> None:
     """Round 91 (A1): the receipt at the tip of a merged branch still sets the floor of outputs,
     from every commit message reachable from HEAD."""
@@ -1884,7 +1884,6 @@ def test_r91_a_merged_branchs_receipt_keeps_the_floor(tmp_path: Path) -> None:
     assert _digits_free(problems)
 
 
-@_r91
 def test_r91_a_merged_branchs_receipt_must_be_carried(tmp_path: Path) -> None:
     """Round 91 (A1): the commit after a merge carries the receipt at the tip of each parent into
     §6, as it carries a single parent's."""
@@ -1902,7 +1901,6 @@ R91_PHRASINGS = {
 }
 
 
-@_r91
 @pytest.mark.parametrize("phrasing", list(R91_PHRASINGS))
 def test_r91_a_receipt_not_in_the_decision_11b_form_is_refused(tmp_path: Path, phrasing: str) -> None:
     """Round 91 (A2): a results receipt in the last commit message that is not in the frozen
@@ -1922,7 +1920,6 @@ def test_r91_a_receipt_not_in_the_decision_11b_form_is_refused(tmp_path: Path, p
     assert any("receipt" in p for p in problems), problems
 
 
-@_r91
 def test_r91_an_earlier_commits_receipt_in_any_phrasing_keeps_the_floor(tmp_path: Path) -> None:
     """Round 91 (A1, A2): a receipt two commits back, in the short form, still sets the floor."""
     rs = _r87()
@@ -1951,7 +1948,6 @@ def _unreadable(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
     monkeypatch.setattr(Path, "read_text", lambda p, *a, **k: refuse(p) if p.name == name else read_text(p, *a, **k))
 
 
-@_r91
 @pytest.mark.parametrize("which", ["an out-of-sequence retained output", "a run's report"])
 def test_r91_an_unreadable_file_gives_a_value_free_problem(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, which: str
@@ -1972,7 +1968,6 @@ def test_r91_an_unreadable_file_gives_a_value_free_problem(
     assert "48736829" not in "\n".join(fit.problems)
 
 
-@_r91
 def test_r91_a_huge_integer_is_a_problem_not_a_crash(tmp_path: Path) -> None:
     """Round 91 (B1): an integer beyond the float range is refused as a value, without an
     exception."""
@@ -1985,7 +1980,6 @@ def test_r91_a_huge_integer_is_a_problem_not_a_crash(tmp_path: Path) -> None:
     assert fit.problems and _digits_free(fit.problems)
 
 
-@_r91
 @pytest.mark.parametrize("case", ["an agent's submission", "a submission before the freeze", "no freeze"])
 def test_r91_only_an_authorized_submission_after_the_freeze_binds_an_output(tmp_path: Path, case: str) -> None:
     """Round 91 (B2): the fit tier refuses a logged submission by an agent, or one not after
@@ -2006,3 +2000,16 @@ def test_r91_only_an_authorized_submission_after_the_freeze_binds_an_output(tmp_
     _fit_file(root, {**_record(), "submission": submission})
     fit = rs.fit_tier(root)
     assert any("freeze" in p or "authorized" in p for p in fit.problems), fit.problems
+
+
+# Added with the round 91 fixes, for a mutant that the B2 problem masked: an unauthorized
+# submission also binds no output, by its own check alone.
+def test_r91_an_unauthorized_submission_binds_no_output(tmp_path: Path) -> None:
+    rs = _r87()
+    root = _root(tmp_path, logged=False)
+    submission = {**_submission(), "runner": "agent"}
+    text = (root / LEDGER_REL).read_text(encoding="utf-8")
+    rows = [LAST_LOG_ROW, FREEZE_ROW, _log_row(submission)]
+    (root / LEDGER_REL).write_text(text.replace(LAST_LOG_ROW, "\n".join(rows)), encoding="utf-8")
+    _fit_file(root, {**_record(), "submission": submission})
+    assert any("not bound to a submission" in p for p in rs.fit_tier(root).problems)

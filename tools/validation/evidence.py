@@ -212,22 +212,29 @@ _HEADING = re.compile(r"(#{1,6}) \S.*")
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 
 
+#: Round 91 (B4): further text that does not render: an element marked hidden, a link-reference
+#: definition, and zero-width or soft-hyphen characters.
+_HIDDEN = re.compile(r"<(\w+)\b[^>]*\bhidden\b[^>]*>.*?</\1\s*>", re.DOTALL | re.IGNORECASE)
+_LINK_DEFINITION = re.compile(r"^ {0,3}\[[^\]]+\]:[ \t]*\S.*$", re.MULTILINE)
+_INVISIBLE = re.compile("[\u00ad\u200b-\u200f\u2060\ufeff]")
+
+
 def _rendered(text: str) -> str:
-    """The text without its HTML comments, an unclosed one included (round 87: what renders)."""
-    return re.sub(r"<!--.*\Z", "", _COMMENT.sub("", text), flags=re.DOTALL)
+    """The text without what does not render: HTML comments, an unclosed one included (round
+    87), hidden elements, link-reference definitions and invisible characters (round 91)."""
+    text = re.sub(r"<!--.*\Z", "", _COMMENT.sub("", text), flags=re.DOTALL)
+    return _INVISIBLE.sub("", _LINK_DEFINITION.sub("", _HIDDEN.sub("", text)))
 
 
 def _section_has_body(lines: list[str], heading: str) -> bool:
-    """Whether the heading's section (up to the next heading of its level or above) holds a
-    line that is not blank and not a heading. ``lines`` are the rendered text's, without HTML
+    """Whether the heading's own text (up to its next heading of any level: round 91) holds a
+    line that renders. ``lines`` are the rendered text's, without HTML
     comments (``_rendered``; rounds 86 and 87: a comment does not render, so it is not a body)."""
-    level = len(heading) - len(heading.lstrip("#"))
     at = lines.index(heading)
     for line in lines[at + 1 :]:
-        m = _HEADING.fullmatch(line)
-        if m and len(m.group(1)) <= level:
+        if _HEADING.fullmatch(line):  # round 91 (B4): a body comes before the first subheading
             return False
-        if line.strip() and not m:
+        if re.sub(r"<[^>]*>", "", line).strip():  # text that renders, not a bare tag
             return True
     return False
 

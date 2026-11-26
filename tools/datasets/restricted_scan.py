@@ -316,8 +316,11 @@ _RESULTS_RECEIPT = re.compile(
 #: with its own time and status (round 90: the tree alone let a row lower the results floor).
 _LAST_RECEIPT = re.compile(r"Scan receipt \(Decision 11B\): tree ([0-9a-f]{40})")
 _FULL_RECEIPT = re.compile(
-    r"Scan receipt \(Decision 11B\): tree ([0-9a-f]{40}) at (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z): (.+?)\.(?: |$)"
+    r"Scan receipt \(Decision 11B\): tree ([0-9a-f]{40}) at (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z): "
+    r"(passed, not skipped(?:; fit tier: (?:pre-result|results \(files: [^)]*\)))?)\.(?: |$)"
 )
+#: Who may run a comparison (verification.AUTHORIZED_RUNNERS; round 91, B2: the tier checks it too).
+AUTHORIZED_RUNNERS = ("owner", "participant")
 #: A §6 scan receipt row (round 86: a staged ledger may not drop or change a committed one).
 _RECEIPT_ROW = re.compile(r"\| \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z \| `[0-9a-f]{40}` .*")
 
@@ -463,7 +466,7 @@ def _fit_entries(
     values, good = [], []
     for i, entry in enumerate(entries):
         value = entry.get("value") if isinstance(entry, dict) else None
-        if isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value):
+        if fr.finite(value):  # round 91 (B1): an integer beyond the float range is no value
             values.append(float(value))
         problem = fr.entry_problem(entry)
         if problem is None:
@@ -526,12 +529,26 @@ def fit_tier(
         if not isinstance(prereg_data, dict):
             prereg_data = {}  # round 87: null, a list or a string is unreadable too, never "the working copy"
     logged_entries: list[ffl.Entry] = []
+    authorized: list[ffl.Entry] = []
     ledger_text: str | None = None
     try:
         text = (root / LEDGER).read_text(encoding="utf-8") if ledger is None else ledger
         ledger_text = text
         section3 = _section3_logged(text)
-        logged_entries = ffl.submissions(ffl.parse(text))
+        entries = ffl.parse(text)
+        logged_entries = ffl.submissions(entries)
+        # Round 91 (B2): only an authorized runner's submission strictly after `freeze approved`
+        # binds an output; any other is a problem, and binds nothing.
+        freeze = next((e.at for e in entries if e.event == "freeze approved"), None)
+        for n, e in enumerate(logged_entries, start=1):
+            if e.runner not in AUTHORIZED_RUNNERS or freeze is None or e.at <= freeze:
+                problems.append(
+                    f"{LEDGER}: submission number {n} of the first-fit log is not an authorized runner's "
+                    "after `freeze approved`"
+                )
+        authorized = [
+            e for e in logged_entries if e.runner in AUTHORIZED_RUNNERS and freeze is not None and e.at > freeze
+        ]
         logged = section3 or bool(logged_entries)
         if section3 and not logged_entries:
             problems.append(f"{LEDGER}: §3 records a first fit that the first-fit log (§10) does not")
@@ -540,7 +557,7 @@ def fit_tier(
         logged = True  # unknown: require the tier
     required_entries = logged_entries if committed is None else _submissions(committed)
     rosters = _Rosters(root, prereg_data)
-    logged_records = [_logged_record(e) for e in logged_entries]
+    logged_records = [_logged_record(e) for e in authorized]
     required = [_logged_record(e) for e in required_entries]
     folder = root / FIT_DIR
     found = [(p, False) for p in sorted(folder.glob(f"*{FIT_SUFFIX}"))] if folder.is_dir() else []
@@ -578,7 +595,12 @@ def fit_tier(
         if expected is not None:
             read = record if isinstance(record, dict) else {}
             if is_retained:
-                retained.setdefault(expected[0], {})[expected[1]] = (read, fr.sha256(path))
+                try:
+                    digest = fr.sha256(path)
+                except OSError:  # round 91 (A3): a value-free problem, never the exception
+                    problems.append(f"{rel}: cannot be read")
+                    digest = ""
+                retained.setdefault(expected[0], {})[expected[1]] = (read, digest)
             else:
                 current[expected[0]] = read
     for dataset in sorted(set(current) | set(retained)):
@@ -615,6 +637,12 @@ def status_line(fit: FitTier) -> str:
     return f"fit tier: results ({fit.files} {files}, {fit.values} values, {len(fit.problems)} problems)"
 
 
+def _git_out(root: Path, *args: str) -> str:
+    """A git command's output, or "" when it fails (no commit yet, or not a checkout)."""
+    done = subprocess.run(["git", *args], cwd=root, capture_output=True)
+    return done.stdout.decode("utf-8", errors="replace") if done.returncode == 0 else ""
+
+
 def _git_show(root: Path, spec: str) -> str | None:
     shown = subprocess.run(["git", "show", spec], cwd=root, capture_output=True)
     return shown.stdout.decode("utf-8", errors="replace") if shown.returncode == 0 else None
@@ -641,19 +669,26 @@ def _staged(root: Path) -> tuple[list[str], FitTier]:
         rows = {line.strip() for line in staged.splitlines()}
         if any(_RECEIPT_ROW.fullmatch(x.strip()) and x.strip() not in rows for x in committed.splitlines()):
             problems.append(f"{LEDGER}: the staged ledger drops or changes a committed scan receipt (§6)")
-    message = subprocess.run(["git", "log", "-1", "--format=%B", "HEAD"], cwd=root, capture_output=True)
-    last = message.stdout.decode("utf-8", errors="replace") if message.returncode == 0 else ""
-    anchors = [committed or "", last]
-    flat = re.sub(r"\s+", " ", last)
-    receipt, full = _LAST_RECEIPT.search(flat), _FULL_RECEIPT.search(flat)
-    if receipt and staged is not None:
-        if full:
-            tree, at, status = full.groups()
-            row = re.compile(rf"\| {re.escape(at)} \| `{tree}` [^|]*\| {re.escape(status)} \| [^|]+ \|")
-            carried = any(row.fullmatch(re.sub(r"\s+", " ", x.strip())) for x in staged.splitlines())
-        else:
-            carried = f"`{receipt.group(1)}`" in staged
-        if not carried:
+    # Round 91 (A1, A2): the floor is the largest results receipt of every commit message
+    # reachable from HEAD (merges and any phrasing included), with the committed ledger.
+    anchors = [committed or "", _git_out(root, "log", "--format=%B", "HEAD")]
+    # The carry rule: the receipt of HEAD's message, and of each parent's when HEAD is a merge.
+    parents = _git_out(root, "rev-list", "--parents", "-n", "1", "HEAD").split()[1:]
+    tips = ["HEAD", *parents] if len(parents) > 1 else ["HEAD"]
+    for tip in tips:
+        flat = re.sub(r"\s+", " ", _git_out(root, "log", "-1", "--format=%B", tip))
+        full = _FULL_RECEIPT.search(flat)
+        if full is None:
+            if "Scan receipt" in flat or _RESULTS_RECEIPT.search(flat):
+                problems.append(
+                    f"{LEDGER}: a last commit's scan receipt is not in the Decision 11B form (tree, time and status)"
+                )
+            continue
+        if staged is None:
+            continue
+        tree, at, status = full.groups()
+        row = re.compile(rf"\| {re.escape(at)} \| `{tree}` [^|]*\| {re.escape(status)} \| [^|]+ \|")
+        if not any(row.fullmatch(re.sub(r"\s+", " ", x.strip())) for x in staged.splitlines()):
             problems.append(f"{LEDGER}: the last commit's scan receipt is not carried into §6 with its time and status")
     prereg = _git_show(root, f":{PREREG}")
     fit = fit_tier(

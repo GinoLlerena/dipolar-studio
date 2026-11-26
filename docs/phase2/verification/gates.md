@@ -157,6 +157,7 @@ restricted-fit scan tier.
 | 2026-11-26T15:09Z | `e5c054a5cee17134878c70b5b21ca1184920ead7` (commit `fdebbf6`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-26T17:54Z | `cb1b75733c4247913c7554243fb5e6bc114051a5` (commit `244d7d8`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-26T17:58Z | `8ca74448142f0b1d6d44f0fa5fc15be2a2e24e3f` (commit `9283329`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-26T18:58Z | `3241206beed6a36ea9abb4cdab9f704cbc30a26d` (commit `43cdf73`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -855,6 +856,36 @@ row is appended here in the next commit.
     mutants that round 91 found escaping (the rank dropped, and a print in place of the raise).
     B3 is documented with the fixes.
   - **The ledger** gets the owed `9283329` receipt row.
+
+- **2026-11-26, round 91 fixes.** Every `_r91` marker is removed, and the six test files pass.
+  - **A1, A2: the floor.** The floor is the largest results receipt of every commit message
+    reachable from `HEAD` (merges and any phrasing included), as well as the committed and
+    staged ledgers. Outputs never decrease legitimately.
+  - **A1, A2: the carry rule.** It applies to `HEAD`'s receipt, and to each parent's when `HEAD`
+    is a merge: the row the next commit after a pull request owes is now required. A receipt
+    not in the Decision 11B form (tree, time, and `passed, not skipped` with its fit tier) is
+    refused, so there is no tree-only fallback.
+  - **A3.** Every read in the fit tier and the chain (a retained record's hash, a report's hash
+    and signed line, the couplings and targets files) gives a value-free problem on `OSError`.
+  - **B1.** An integer beyond the float range is not a value (`fit_record.finite`).
+  - **B2.** Only a submission by the owner or a participant, strictly after `freeze approved`,
+    binds an output. Any other submission is a problem.
+  - **B3, the known limit, as amended.** Only retained records are bound by a hash. The latest
+    record of each dataset, including its `pending_targets` and values, is bound by none until
+    the next run retains it. Editing it is not detected by the fit tier. The owner's receipt,
+    and the next run's `previous_sha256`, are the record of it. Binding the latest record (for
+    example, its SHA-256 in the results receipt) is left to the V1.5e audit.
+  - **B4.** A body is text that renders, before the heading's first subheading of any level.
+    Hidden elements, link-reference definitions, invisible characters and bare tags are not a
+    body.
+  - **B5.** The behavioural gate is in `tests/test_v15c_release.py` (round 91 gates).
+  - **Gate correction.** `_receipt_repo`'s message-only case committed a short-form receipt and
+    required the scan to pass. It now expects exactly the form refusal (A2).
+  - **Added for a masked mutant.** `test_r91_an_unauthorized_submission_binds_no_output`.
+  - **Mutation check.** 12 mutants, all caught: the floor from the last message only, the
+    merge parents ignored, the form refusal removed, each `OSError` guard narrowed, the overflow
+    guard narrowed, the authorized filter removed, the B2 problem removed, each of the three
+    non-rendering removals dropped, and the subheading stop limited by level.
 
 ## 7. Exit matrix
 
