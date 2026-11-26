@@ -1804,3 +1804,43 @@ def test_an_earlier_revisions_pending_cells_are_roster_cells(tmp_path: Path) -> 
     invented = {**record, "pending_targets": [list(pending[0]), ["I/999", "S_zz"]]}
     _fit_file(root, invented, name=f"{ODCB}.fit-values.json")
     assert rs.main(["--root", str(root)]) == 1
+
+
+# ============================================ round 90 gates (pre-freeze; frozen before the fix)
+_r90 = pytest.mark.xfail(strict=True, reason="round 90: frozen before its fix")
+
+
+@_r90
+@pytest.mark.parametrize(
+    "carried",
+    [
+        f"2026-11-25T11:00Z | passed, not skipped; fit tier: results (files: {BENZENE} 1, {ODCB} 0)",
+        "2026-11-25T11:00Z | passed, not skipped; fit tier: pre-result",
+        f"2026-11-25T11:05Z | passed, not skipped; fit tier: results (files: {BENZENE} 3, {ODCB} 0)",
+    ],
+    ids=["lower counts", "no counts", "another time"],
+)
+def test_r90_a_carried_receipt_keeps_its_time_and_status(tmp_path: Path, carried: str) -> None:
+    """Round 90 (a): the row that carries the last commit's receipt into §6 names that receipt's
+    tree with its own time and status. A row with the tree but lower counts, no counts, or another
+    time is refused, so the next commit cannot lower the results floor."""
+    rs = _r87()
+    root = _repo(tmp_path, logged=True, staged="clean\n")
+    _chain(root, 3)
+    tree = "b" * 40
+    message = (
+        f"runs\n\nScan receipt (Decision 11B): tree {tree}\nat 2026-11-25T11:00Z: passed, not skipped; "
+        f"fit tier: results\n(files: {BENZENE} 3, {ODCB} 0).\n"
+    )
+    _git(root, "commit", "-q", "-m", message)
+    at, status = carried.split(" | ")
+    row = f"| {at} | `{tree}` (commit `bbbbbbb`) | {status} | Claude |"
+    text = (root / LEDGER_REL).read_text(encoding="utf-8")
+    (root / LEDGER_REL).write_text(
+        text.replace("\n\nEach receipt is first recorded", "\n" + row + "\n\nEach receipt is first recorded"),
+        encoding="utf-8",
+    )
+    _git(root, "add", str(LEDGER_REL))
+    problems = rs.check_staged(root)
+    assert any("receipt" in p for p in problems), problems
+    assert _digits_free(problems)

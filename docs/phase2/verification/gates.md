@@ -154,6 +154,7 @@ restricted-fit scan tier.
 | 2026-11-25T18:34Z | `f7d1d7a0e57b00b9d2a23b8b751b503ce6ca6144` (commit `7d94171`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T22:58Z | `2152d94d0b0c4dd30cd5553df56aea65c3172bdf` (commit `60edaea`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-26T14:19Z | `fd90709010a71607c3b3d98e676e2edae7d49878` (commit `b0e3c1e`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-26T15:09Z | `e5c054a5cee17134878c70b5b21ca1184920ead7` (commit `fdebbf6`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -788,6 +789,28 @@ row is appended here in the next commit.
       (the same five `ok` lines as the workflow), and `smoke.py` (φ = 36.985°).
   - **Next.** The owner publishes the draft. A later change that affects installation or
     reproduction needs `0.2.0b2` and a rerun (decision 6).
+
+- **2026-11-26, round 90: the pre-freeze re-review**
+  ([round90-v1.5d-prefreeze.md](../../validation/round90-v1.5d-prefreeze.md)). The owner chose
+  "Re-review now" before any `freeze approved` row. The re-review covers the round 87 fixes and
+  the round 89 fixes.
+  - **No verdict.** The provider's safety filter flagged both GPT-6.2-Sol attempts, and neither
+    delivered a report.
+  - **One finding confirmed** by the second attempt and from the code. A row carrying the last
+    commit's receipt into §6 was matched by its tree alone, so lower counts, no counts or another
+    time passed (the results floor of round 86's finding 6).
+  - **One class B lead,** confirmed from the code: the guide's snippet wrote the file before it
+    checked the run.
+  - **Owner's decision** (recorded 2026-11-26T17:51Z, given just before): "Fix both, Claude
+    review". The fixes come with gates first. Then a fresh, independent Claude reviewer does the
+    full pre-freeze re-review, and the owner decides on the freeze after it.
+  - **Gates** (`_r90`, strict xfails):
+    - `tests/test_v15_fit_tier.py::test_r90_a_carried_receipt_keeps_its_time_and_status` (lower
+      counts, no counts, another time);
+    - `tests/test_v15c_release.py::test_r90_the_snippet_checks_the_run_before_it_writes_the_file`.
+
+    Run with `--runxfail`, each fails on its own assertion.
+  - **The ledger** gets the owed `fdebbf6` receipt row.
 
 ## 7. Exit matrix
 

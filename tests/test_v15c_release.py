@@ -862,3 +862,13 @@ def test_r89_the_notes_point_to_the_0_1_notes_for_phase_1() -> None:
     status = _section(_text(NOTES), "Verification status")
     assert f"{REPO}/blob/{TAG}/docs/release-notes/0.1.0b1.md" in _links(status)
     assert "described under Validation" not in " ".join(status.split())
+
+
+# ========================================================= round 90 gate (frozen before its fix)
+@pytest.mark.xfail(strict=True, reason="round 90: frozen before its fix")
+def test_r90_the_snippet_checks_the_run_before_it_writes_the_file() -> None:
+    """Round 90 (b): S_zz estimated and the rank verified are checked before the file is
+    written, so an unusable run leaves no file."""
+    block = "\n".join(_snippet_code())
+    write = block.find("write_text")
+    assert -1 < block.find('"estimated"') < write and -1 < block.find('["rank"]["verified"]') < write
