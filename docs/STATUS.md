@@ -418,8 +418,9 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
        wheel manifest check, and a synthetic D6h rehearsal on the installed wheels from outside
        the checkout. Gates: `tests/test_v15c_release.py`. The round 89 fixes were not re-reviewed,
        so the V1.5e exit audit re-checks them.
-     - **Next:** the owner's go-ahead to push the `v0.2.0b1` tag. The workflow then drafts the
-       release, its assets are checked and recorded, and the owner publishes it (decision 6A).
+     - **The `v0.2.0b1` draft exists** (2026-11-26). The tag is on `a0f8c08`, and release workflow
+       run 45845735303 passed. The draft's own wheels were checked on a fresh install from outside
+       the checkout (ledger §6). **Next:** the owner publishes it (decision 6A).
        Then V1.5d (the owner's local comparisons) and V1.5e (the outside exercise and the exit
        audit), `docs/phase2/v1.5-plan.md`.
      - **Decided by the owner on 2026-11-18:**

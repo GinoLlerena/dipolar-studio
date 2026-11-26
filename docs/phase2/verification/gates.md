@@ -153,6 +153,7 @@ restricted-fit scan tier.
 | 2026-11-25T18:23Z | `920df98e06c45e35720bb934b2fdd3807d45bc89` (commit `bb77185`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T18:34Z | `f7d1d7a0e57b00b9d2a23b8b751b503ce6ca6144` (commit `7d94171`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T22:58Z | `2152d94d0b0c4dd30cd5553df56aea65c3172bdf` (commit `60edaea`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-26T14:19Z | `fd90709010a71607c3b3d98e676e2edae7d49878` (commit `b0e3c1e`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -753,6 +754,40 @@ row is appended here in the next commit.
       - renaming `geometry_computed` in the Geometry table (round 88's fixes);
       - removing the snippet's `run.list` stale check. The `run.get` check, read with the
         result, refuses the same run, and the round 89 gates require that check.
+
+- **2026-11-26, the `v0.2.0b1` draft** (decision 6A). PR #29 was merged as `a0f8c08` after all six
+  CI jobs passed on `b0e3c1e`, on the owner's decision ("Fix both, merge on CI").
+  - **Tag and workflow.** On the owner's instruction ("push the v0.2.0b1 tag"), the annotated
+    tag `v0.2.0b1` points to `a0f8c081e1afbd669747600f2ea192da77232a7b`, pushed as
+    `refs/tags/v0.2.0b1`. The release workflow ran as
+    [run 45845735303](https://github.com/GinoLlerena/dipolar-studio/actions/runs/45845735303)
+    on that commit, and every step passed:
+    - the tag is both packages' version, and the release notes exist;
+    - no release existed for the tag;
+    - the source archive leaves out third-party data;
+    - the build, with the licence shipped, the page bundled and no excluded data (40 and 16
+      entries);
+    - the user's path (`smoke.py`): the version line, the guide's Python example, the bundled
+      page and its 2 assets, and a fit through `dipolar serve` (φ = 36.985°);
+    - the literal installed version, `dipolar 0.2.0b1 (dipolar-core 0.2.0b1, contract 0.12.0)`;
+    - the synthetic D6h rehearsal from outside the checkout: S_zz recovered within 1e-8 (off by
+      4.4e-11), and the snippet refusing a run made stale during the save and a stale run;
+    - the draft.
+  - **The draft.** "Dipolar Studio 0.2.0b1" is a draft and a prerelease, with two assets.
+    - `dipolar_app-0.2.0b1-py3-none-any.whl`: 263,826 bytes, SHA-256
+      `95402564bbaf7db570da424d1075fe88b679fda878ccfb857c8bb50c00781187`.
+    - `dipolar_core-0.2.0b1-py3-none-any.whl`: 55,072 bytes, SHA-256
+      `f84a937494014771acb0ef84f87541548b15649662c4a78fa18222b349d75fd0`.
+
+    Both equal the local build's (round 88 fixes, above).
+  - **Owner-side check of the draft's own assets** (macOS):
+    - downloaded with `gh release download`, with the SHA-256 values above;
+    - `check_wheels.py`: no excluded data;
+    - installed into a fresh virtual environment;
+    - from a directory outside the checkout: the exact `dipolar --version` line, `rehearse_d6h.py`
+      (the same five `ok` lines as the workflow), and `smoke.py` (φ = 36.985°).
+  - **Next.** The owner publishes the draft. A later change that affects installation or
+    reproduction needs `0.2.0b2` and a rerun (decision 6).
 
 ## 7. Exit matrix
 
