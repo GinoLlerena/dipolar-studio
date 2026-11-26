@@ -410,11 +410,18 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
        robot tutorial. The owner merged the round 87 fixes without another review (2026-11-25),
        so the V1.5e exit audit re-reviews the owner-local scan and review checks before any
        `freeze approved` row.
-     - **In progress:** V1.5c, the benzene guide and the `v0.2.0b1` candidate
-       (`docs/phase2/reproduce-benzene.md`, its worksheet, `docs/release-notes/0.2.0b1.md`, the
-       package-only release trigger, and a synthetic D6h rehearsal on the installed wheels; gates
-       `tests/test_v15c_release.py`). Then V1.5d (the owner's local comparisons) and V1.5e (the
-       outside exercise and the exit audit), `docs/phase2/v1.5-plan.md`.
+     - **Done:** V1.5c, the benzene guide and the `v0.2.0b1` candidate (PR #29; rounds 88–89,
+       both NOT READY, every finding fixed with a gate frozen first, merged on the owner's decision
+       once CI passed; record `docs/validation/round88-v1.5c-review.md` and
+       `round89-v1.5c-review.md`): `docs/phase2/reproduce-benzene.md` and its worksheet,
+       `docs/release-notes/0.2.0b1.md`, versions 0.2.0b1, the package-only release trigger, the
+       wheel manifest check, and a synthetic D6h rehearsal on the installed wheels from outside
+       the checkout. Gates: `tests/test_v15c_release.py`. The round 89 fixes were not re-reviewed,
+       so the V1.5e exit audit re-checks them.
+     - **Next:** the owner's go-ahead to push the `v0.2.0b1` tag. The workflow then drafts the
+       release, its assets are checked and recorded, and the owner publishes it (decision 6A).
+       Then V1.5d (the owner's local comparisons) and V1.5e (the outside exercise and the exit
+       audit), `docs/phase2/v1.5-plan.md`.
      - **Decided by the owner on 2026-11-18:**
        - D-1: carry projects over by export file;
        - decision 4: two independent AI transcriptions, with the owner's spot-check;

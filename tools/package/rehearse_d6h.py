@@ -111,6 +111,20 @@ def the_guides_snippet(guide: Path, project_dir: Path, out: Path, *, run_id: str
     return code
 
 
+def during_the_save(snippet: str, csv: str, mapping: dict[str, str]) -> str:
+    """The snippet with one line inserted just before its ``run.get``: a second connection
+    replaces the couplings, so the run listed as current is stale when it is read."""
+    lines = snippet.splitlines()
+    (at,) = [i for i, line in enumerate(lines) if '"run.get"' in line]
+    indent = lines[at][: len(lines[at]) - len(lines[at].lstrip())]
+    hook = (
+        f"{indent}with Studio.connect(Path(PROJECT_DIR).expanduser() / 'serve.ready.json') as _other: "
+        f"_other.call('couplings.import', csv={csv!r}, confirmed_mapping={mapping!r}, "
+        "expected_science_revision=_other.science_revision)"
+    )
+    return "\n".join([*lines[:at], hook, *lines[at:]]) + "\n"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--guide", type=Path, required=True)
@@ -177,8 +191,18 @@ def main() -> int:
             print("ok  the guide's run.get snippet ran")
             result = json.loads(saved.read_text(encoding="utf-8"))
 
-            # Replace the couplings (σ changed), so the run is stale: the snippet must refuse it.
-            changed = csv.replace(f",{SIGMA_HZ}\n", f",{2 * SIGMA_HZ}\n")
+            # Round 89: the couplings change between the snippet's run.list and its run.get, through
+            # a second connection. The run is current when listed and stale when read: refused.
+            during = csv.replace(f",{SIGMA_HZ}\n", f",{2 * SIGMA_HZ}\n")
+            raced = Path(tmp) / "raced.json"
+            snippet = during_the_save(the_guides_snippet(ns.guide, project, raced, run_id=run_id), during, mapping)
+            done = subprocess.run([sys.executable, "-I", "-c", snippet], capture_output=True, text=True, timeout=120)
+            if done.returncode == 0 or raced.exists() or "stale" not in done.stderr:
+                raise SystemExit(f"the guide's snippet saved a run made stale during the save:\n{done.stderr}")
+            print("ok  the guide's snippet refuses a run made stale during the save")
+
+            # Replace the couplings again (σ changed), so the run is stale: the snippet must refuse it.
+            changed = csv.replace(f",{SIGMA_HZ}\n", f",{3 * SIGMA_HZ}\n")
             with Studio.connect(ready) as studio:
                 studio.call(
                     "couplings.import",

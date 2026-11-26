@@ -840,10 +840,8 @@ def test_r88_the_notes_scope_the_status_to_v1_5() -> None:
 
 
 # ========================================================= round 89 gates (frozen before its fixes)
-_r89 = pytest.mark.xfail(strict=True, reason="round 89: frozen before its fix")
 
 
-@_r89
 def test_r89_the_snippet_checks_the_staleness_returned_with_the_result() -> None:
     """``run.get`` returns the run record from the same read as the result: the snippet checks
     that ``run.stale`` after ``run.get`` and before it writes the file (round 89, A1)."""
@@ -852,7 +850,6 @@ def test_r89_the_snippet_checks_the_staleness_returned_with_the_result() -> None
     assert -1 < got < stale < write, (got, stale, write)
 
 
-@_r89
 def test_r89_the_rehearsal_shows_a_run_made_stale_during_the_save_refused(tmp_path: Path) -> None:
     """The rehearsal replaces the couplings between the snippet's ``run.list`` and its
     ``run.get``, through a second connection: the snippet must refuse and write nothing."""
@@ -861,7 +858,6 @@ def test_r89_the_rehearsal_shows_a_run_made_stale_during_the_save_refused(tmp_pa
     assert "ok  the guide's snippet refuses a run made stale during the save" in out.stdout
 
 
-@_r89
 def test_r89_the_notes_point_to_the_0_1_notes_for_phase_1() -> None:
     status = _section(_text(NOTES), "Verification status")
     assert f"{REPO}/blob/{TAG}/docs/release-notes/0.1.0b1.md" in _links(status)

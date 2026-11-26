@@ -218,7 +218,10 @@ with Studio.connect(Path(PROJECT_DIR).expanduser() / "serve.ready.json") as stud
         raise SystemExit(f"{RUN_ID} is not a run of this project")
     if listed[0]["stale"]:
         raise SystemExit(f"{RUN_ID} is stale: the project changed after it. Fit again, and save the new run.")
-    result = studio.call("run.get", run_id=RUN_ID)["result"]
+    got = studio.call("run.get", run_id=RUN_ID)
+    if got["run"]["stale"]:  # read with the result: the project may change during the save
+        raise SystemExit(f"{RUN_ID} became stale while it was read. Fit again, and save the new run.")
+    result = got["result"]
 Path(OUT).write_text(json.dumps(result, indent=2), encoding="utf-8")
 szz = next(c for c in result["components"] if c["name"] == "Szz")
 print("S_zz", szz["status"], repr(szz["estimate"]), "rank verified:", result["rank"]["verified"])
@@ -226,7 +229,8 @@ assert szz["status"] == "estimated" and result["rank"]["verified"]
 ```
 
 S_zz is the component named `Szz` in `result["components"]`. A run is **stale** when the project
-changed after it, for example when its couplings were replaced. The snippet refuses a stale run.
+changed after it, for example when its couplings were replaced. The snippet refuses a stale run,
+including one that becomes stale while it is read.
 Keep the saved files: the owner checks them in a private session (see the end of this guide).
 
 ## Step 4. Compare with the paper

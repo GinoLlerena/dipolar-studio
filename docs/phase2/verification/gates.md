@@ -152,6 +152,7 @@ restricted-fit scan tier.
 | 2026-11-25T16:39Z | `d13bba4e49057d2fbde18de0d0fa53cd29159c8c` (commit `26e8365`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T18:23Z | `920df98e06c45e35720bb934b2fdd3807d45bc89` (commit `bb77185`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T18:34Z | `f7d1d7a0e57b00b9d2a23b8b751b503ce6ca6144` (commit `7d94171`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T22:58Z | `2152d94d0b0c4dd30cd5553df56aea65c3172bdf` (commit `60edaea`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -737,6 +738,21 @@ row is appended here in the next commit.
     - the rehearsal replaces the couplings between the snippet's two calls, and requires a
       refusal;
     - the notes link the 0.1.0b1 notes for Phase 1.
+
+- **2026-11-25, round 89 fixes** (fixed, not re-reviewed). Every `_r89` marker is removed, and all
+  60 V1.5c gates pass.
+  - **A1.** The snippet checks the `run.stale` that `run.get` returns with the result, and only
+    then writes the file. The rehearsal inserts a second connection between the snippet's
+    `run.list` and its `run.get`, which replaces the couplings, and requires a refusal with no
+    file written.
+  - **B1.** The notes link the 0.1.0b1 release notes for Phase 1's validation.
+  - **Mutation check.**
+    - Against the fixes: 5 mutants, all caught (the check removed or disabled, the rehearsal's
+      inserted change removed, the notes' link broken).
+    - The earlier sets were rerun. Two mutants now pass, and are retired:
+      - renaming `geometry_computed` in the Geometry table (round 88's fixes);
+      - removing the snippet's `run.list` stale check. The `run.get` check, read with the
+        result, refuses the same run, and the round 89 gates require that check.
 
 ## 7. Exit matrix
 
