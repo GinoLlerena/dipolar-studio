@@ -403,8 +403,25 @@ Earlier stopping points: `m0-step2`, `m0-step3`, `m0-complete`, `m1-step1` to `m
        `docs/phase2/verification/gates.md`): the owner's 12 decisions, V0.3 amendments P-1 and P-2
        as closed JSON fields (protocol revision `263f268…`), the no-fit attestation, and the V1.5
        gates (`tests/test_v15_gates.py`, the collinear rank-1 recovery gate).
-     - **Next:** V1.5b, the report workflow (`tools/validation/verification.py`, the five pages, the
-       restricted-fit scan tier, the `jump4` robot tutorial); then V1.5c–e (`docs/phase2/v1.5-plan.md`).
+     - **Done:** V1.5b, the report workflow (PR #28; rounds 83–86, each NOT READY, every finding
+       fixed with a gate frozen first; record `docs/validation/round83-v1.5b-review.md` to
+       `round86-v1.5b-review.md`): `tools/validation/verification.py`, the five report pages, the
+       first-fit log (ledger §10), the restricted-fit scan tier, review evidence, and the `jump4`
+       robot tutorial. The owner merged the round 87 fixes without another review (2026-11-25),
+       so the V1.5e exit audit re-reviews the owner-local scan and review checks before any
+       `freeze approved` row.
+     - **Done:** V1.5c, the benzene guide and the `v0.2.0b1` candidate (PR #29; rounds 88–89,
+       both NOT READY, every finding fixed with a gate frozen first, merged on the owner's decision
+       once CI passed; record `docs/validation/round88-v1.5c-review.md` and
+       `round89-v1.5c-review.md`): `docs/phase2/reproduce-benzene.md` and its worksheet,
+       `docs/release-notes/0.2.0b1.md`, versions 0.2.0b1, the package-only release trigger, the
+       wheel manifest check, and a synthetic D6h rehearsal on the installed wheels from outside
+       the checkout. Gates: `tests/test_v15c_release.py`. The round 89 fixes were not re-reviewed,
+       so the V1.5e exit audit re-checks them.
+     - **Next:** the owner's go-ahead to push the `v0.2.0b1` tag. The workflow then drafts the
+       release, its assets are checked and recorded, and the owner publishes it (decision 6A).
+       Then V1.5d (the owner's local comparisons) and V1.5e (the outside exercise and the exit
+       audit), `docs/phase2/v1.5-plan.md`.
      - **Decided by the owner on 2026-11-18:**
        - D-1: carry projects over by export file;
        - decision 4: two independent AI transcriptions, with the owner's spot-check;

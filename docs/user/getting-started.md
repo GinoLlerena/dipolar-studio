@@ -2,8 +2,9 @@
 
 Dipolar Studio fits the **conformation** (the inter-ring torsion φ) and the **orientational
 order** (the Saupe order matrix) of a biphenyl-type molecule dissolved in a liquid crystal, from
-its NMR **dipolar couplings**. It runs on your computer: a local server, `dipolar serve`, and the
-app in your browser. Nothing is sent anywhere else.
+its NMR **dipolar couplings**. Since 0.2 it also fits the order of a rigid molecule, such as
+benzene, from its XYZ geometry and declared symmetry. It runs on your computer: a local server,
+`dipolar serve`, and the app in your browser. Nothing is sent anywhere else.
 
 This is a **beta**. What it covers, and what it does not, is listed under
 [Scope of the beta](#scope-of-the-beta). Please report problems (see [Reporting a
@@ -22,7 +23,7 @@ Then install the two wheels of the release (the browser app is bundled inside th
 needed):
 
 ```bash
-pip install dipolar_core-0.1.0b1-py3-none-any.whl dipolar_app-0.1.0b1-py3-none-any.whl
+pip install dipolar_core-0.2.0b1-py3-none-any.whl dipolar_app-0.2.0b1-py3-none-any.whl
 dipolar --version
 ```
 
@@ -51,6 +52,11 @@ dipolar open --project-dir ~/dipolar/my-project
 
 Stop the server with **Ctrl+C**. Starting it again on the same directory brings back the project
 as you left it. One server at a time can use a project directory.
+
+**Projects from 0.1.** This version does not open a directory written by Dipolar Studio 0.1, and
+it does not change it. To carry a project over, open it with 0.1, export it (Data → Export, or
+`project.export`), and load the file into a new directory with this version. The undo history,
+runs and proposals stay in the old directory.
 
 ## A first fit (the synthetic example)
 
@@ -108,9 +114,9 @@ i–j is the rotating bond and a, b are neighbours on each side. Then choose the
 Under the model, the Data tab says when the project is **ready to fit**, and what is missing if
 it is not.
 
-### A rigid molecule (fixed geometry; after 0.1)
+### A rigid molecule (fixed geometry)
 
-The development version also fits a **rigid molecule with no torsion**, such as benzene or a
+Since 0.2, Dipolar Studio also fits a **rigid molecule with no torsion**, such as benzene or a
 dichlorobenzene, from its XYZ file. Only the order tensor is fitted, so the fit is linear and its
 intervals are exact. The worked example is synthetic 1,4-dichlorobenzene
 (`datasets/dichlorobenzene-synthetic/`, with the expected answer in its README):
@@ -174,9 +180,12 @@ a running server (with a token from its ready file).
 
 ## Scope of the beta
 
-- **Molecules:** biphenyl-type, two rings and one inter-ring torsion; the template or your XYZ.
+- **Molecules:** biphenyl-type, two rings and one inter-ring torsion, from the template or your
+  XYZ; and, since 0.2, rigid molecules with no torsion from your XYZ, with a declared point group
+  (C1, Cs, C2v, D2h, D3h or D6h).
 - **Models:** rigid and the symmetric four-site jump (template); rigid with c2z or c1 order
-  (imported geometry). Other molecule classes and models are Phase 2 work.
+  (imported geometry); fixed geometry (rigid molecules). Other molecule classes and models are
+  later work.
 - **Observables:** ¹H–¹H dipolar couplings D, in Hz, with σ.
 - **Results:** the fitted torsion and order parameters, χ², residuals, validity flags, and
   profile intervals where the fit supports them.

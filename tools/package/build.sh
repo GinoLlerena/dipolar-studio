@@ -30,3 +30,5 @@ names = zipfile.ZipFile(wheel).namelist()
 assert "dipolar_app/static/index.html" in names, "the page is not bundled"
 print(f"{wheel.name}: page bundled ({sum(n.startswith('dipolar_app/static/') for n in names)} files)")
 PY
+# No third-party or local data in any wheel (plan, V1.5c).
+python3 tools/package/check_wheels.py dist/packages/*.whl

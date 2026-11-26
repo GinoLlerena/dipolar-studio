@@ -146,6 +146,13 @@ restricted-fit scan tier.
 | 2026-11-25T01:41Z | `b4ef643735c2f3f67c84beccb8d1f2aab9286755` (commit `3c516dc`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T02:56Z | `482947faba10adb3a000bd9b719c73b020f7fe20` (commit `da89862`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T03:38Z | `fb59e5658f0f89bfd06e83585f5b534f41c0e894` (commit `1456a88`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T03:58Z | `7a2be32f97a487d5c203670d2d5df93b5b1348fa` (commit `31f7f21`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T15:21Z | `6a20fe40992e47ba585631c82c7dc37ac5c8dcd0` (commit `b5063db`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T16:25Z | `402cf62abbe34edad653bd1877e561561cf7e2cd` (commit `f89f13e`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T16:39Z | `d13bba4e49057d2fbde18de0d0fa53cd29159c8c` (commit `26e8365`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T18:23Z | `920df98e06c45e35720bb934b2fdd3807d45bc89` (commit `bb77185`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T18:34Z | `f7d1d7a0e57b00b9d2a23b8b751b503ce6ca6144` (commit `7d94171`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-25T22:58Z | `2152d94d0b0c4dd30cd5553df56aea65c3172bdf` (commit `60edaea`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -608,6 +615,144 @@ row is appended here in the next commit.
      use `as_posix()`.
   3. **jump4 generator.** It wrote platform line endings, while its committed output is LF. It
      now writes LF.
+
+- **2026-11-25, V1.5c gates frozen** (plan, V1.5c row). `tests/test_v15c_release.py`, written
+  before the guide and the candidate. A gate the candidate does not meet yet is a strict xfail,
+  and the implementation commit removes each marker. The gates cover:
+  - **versions:** both packages, both `__version__` values and `uv.lock` name `0.2.0b1`;
+    `dipolar --version` names both packages and the contract;
+  - **release notes:** the version, both wheels, the contract, D-1, the fixed-geometry
+    workflow, each report page's verification field as the page prints it, the holdout status,
+    the credits, and links pinned to `v0.2.0b1`;
+  - **the historical beta guide:** `docs/beta/testers.md` keeps every repository link pinned to
+    `v0.1.0b1`, and the 0.1.0b1 release notes keep their tagged bytes (decision 7A);
+  - **the benzene guide** (`docs/phase2/reproduce-benzene.md`):
+    - the SI hash, byte size and links, and the stop on a mismatch (decision 10);
+    - the frozen geometry, ring positions, D6h and its axes;
+    - the copy probe, the 15-condition roster from the corpus's labels, and the orbit mapping;
+    - an invented token example, with no corpus coupling quoted;
+    - the precision rule (§8), the release and its exact `dipolar --version` line;
+    - a `run.get` snippet that saves the run and reads `Szz`;
+    - eligibility (decision 8), the order of step 4, and what stays on the participant's
+      computer (decision 9);
+  - **the worksheet:** blank, every closed record field of `verification.check_participant`, and
+    no personal field;
+  - **the workflows:**
+    - the release checks are kept, and the archive check covers every export-ignored path;
+    - the installed version is checked literally;
+    - `tools/package/check_wheels.py` checks every wheel's manifest;
+    - a synthetic D6h rehearsal (`tools/package/rehearse_d6h.py`) runs on the installed wheels
+      with `-I` from outside the checkout, in the release workflow and the CI packaged job;
+  - **exclusion:** the `git archive` of `HEAD` has no third-party or local data.
+
+- **2026-11-25, V1.5c implementation.** Every `_v15c` marker is removed, and all 37 gates pass.
+  - **Release trigger.** `release.yml` now triggers only on the three package-shaped tag filters.
+    `tests/test_v15_gates.py::test_the_release_workflow_uses_exactly_the_approved_trigger` passes,
+    and no longer xfails.
+  - **Gate correction.** The worksheet gate accepted a record key that was only mentioned in the
+    worksheet's text. Each closed key (except `conditions` and `counts`, which are its two
+    tables) must now be a table row of its own.
+  - **Mutation check.** 28 mutants of the guide, the worksheet, the release notes, the testers'
+    guide, both workflows, `build.sh`, both package scripts and a module version were applied
+    one at a time. The V1.5c gates caught every one.
+  - **Local rehearsal** (macOS, from `tools/package/build.sh`). Both wheels report no excluded
+    data (40 and 16 entries).
+    - SHA-256 of `dipolar_app-0.2.0b1-py3-none-any.whl`:
+      `95402564bbaf7db570da424d1075fe88b679fda878ccfb857c8bb50c00781187`.
+    - SHA-256 of `dipolar_core-0.2.0b1-py3-none-any.whl`:
+      `f84a937494014771acb0ef84f87541548b15649662c4a78fa18222b349d75fd0`.
+    - In a fresh virtual environment, run from a directory outside the checkout:
+      - `dipolar --version` printed `dipolar 0.2.0b1 (dipolar-core 0.2.0b1, contract 0.12.0)`,
+        and the workflow's literal version check passed;
+      - `rehearse_d6h.py` recovered the synthetic S_zz within 1e-8 (off by 4.4e-11), through
+        `dipolar serve` and the guide's own `run.get` snippet;
+      - `smoke.py` passed.
+
+    These are local wheels. The draft's own assets are checked after the tag is pushed.
+
+- **2026-11-25, Windows CI on `f89f13e`.** The rehearsal test failed on Windows only. The
+  rehearsal rewrites the guide snippet's two path lines with `re.subn`, and the replacement
+  was a template string. Its backslashes were read as escapes, so a Windows path in the
+  `json.dumps` literal lost its doubled backslashes, and the snippet no longer compiled. The
+  guide itself was right. A platform-independent regression test came first
+  (`test_the_rehearsal_keeps_a_windows_path_in_the_guides_snippet`, failing on macOS before the
+  fix). The replacement is now a function. The release workflow runs on Linux, where the paths
+  have no backslashes.
+
+- **2026-11-25, round 88** ([round88-v1.5c-review.md](../../validation/round88-v1.5c-review.md)).
+  GPT-6.2-Sol reviewed `f89f13e`: **NOT READY** (8 A, 1 B).
+  - **Owner's decision** (2026-11-25T18:18Z): "Fix all, then round 89". The fixes come with gates
+    frozen first, then one more scoped Sol review: the second and last the plan allows for V1.5c.
+  - **Gates.** The round 88 gates are in `tests/test_v15c_release.py`. Seven are strict xfails
+    (`_r88`) until the fixes: A2 (two), A3 (three), A4 and B1. The rest pass on the candidate and
+    are stronger checks. They are:
+    - A6: the original `v*` trigger now fails B10 (`tests/test_v15_gates.py`) instead of
+      xfailing;
+    - A7: a hash mismatch only stops; each proton sits on its own carbon; the pair classes are the
+      corpus's; Step 4 states the frozen criterion; nothing private is to be shared; the owner's
+      `numerical_match` column; and nothing personal in the worksheet's prose;
+    - A8: the release-checking steps of both workflows, compared with their frozen text and
+      order; the build ending with the wheel check; and the wheel-check command's exit status.
+  - **Mutation check.** The 14 escaped mutations of A6–A8 were applied one at a time, and every
+    one fails a gate now.
+  - **A1** was fixed in `26e8365`, before the report arrived.
+  - **A5** is recorded: gate corrections land in a gate commit before the fixes, as here.
+
+- **2026-11-25, round 88 fixes.** Every `_r88` marker is removed, and all 57 V1.5c gates pass.
+  - **A2.** The guide gains "Before you fit": no fit until the first-fit log has `freeze
+    approved` and the attempt's own `submission` row. The allowance is now stated as the absolute
+    per-condition change in the reference S_zz, computed with identical couplings, mapping and
+    settings, added to 1e-8.
+  - **A3.** The snippet saves the run named by `RUN_ID`, copied from the Fit tab's list of runs,
+    and refuses a stale run. The rehearsal fits, saves that run, replaces the couplings, and shows
+    the snippet refusing the now-stale run.
+  - **A4.** The worksheet ends with "The owner's record", which lists exactly the record's
+    fields. Conditions are keyed `<run>/<sample>`, each holding only `numerical_match`. The
+    worksheet records both count sets: the participant's (`counts`) and the published ones.
+  - **B1.** The notes scope the status to V1.5's comparisons, run by the owner independently of
+    the release, and point to Phase 1's validation.
+  - **Gate correction.** The A4 gate read the record table's header cell ("Key") as a field. It
+    now reads only backticked keys. No other gate changed after `bb77185`.
+  - **Mutation check.**
+    - Against the fixes: 13 mutants, all caught (the hold, the allowance, the run ID, the stale
+      refusal, the rehearsal's run-ID line, the record rows, the notes).
+    - The round 88 and V1.5c mutation sets were rerun. All are caught but one, which is retired:
+      renaming `geometry_computed` in the Geometry table. The key now also appears in the
+      owner's-record table, which is the record's field and is covered by the A4 gate.
+  - **Rehearsal.** The installed wheels were rebuilt, byte-identical to the SHA-256 values
+    above. From outside the checkout they recovered S_zz (off by 4.4e-11) and refused the stale
+    run.
+
+- **2026-11-25, round 89** ([round89-v1.5c-review.md](../../validation/round89-v1.5c-review.md)),
+  the second and last review under the cap. GPT-6.2-Sol reviewed `7d94171`: **NOT READY**
+  (1 A, 1 B). All nine round 88 findings are resolved.
+  - **The findings.**
+    - A1: a run made stale between the snippet's `run.list` and its `run.get` was saved.
+    - B1: the notes' Phase 1 cross-reference pointed to the wrong section.
+  - **Owner's decision** (2026-11-25T22:57Z): "Fix both, merge on CI". The fixes come with gates
+    frozen first, the full suites are rerun locally, and the merge follows once all six CI jobs
+    pass. The round 89 fixes are not re-reviewed, so the V1.5e exit audit re-checks them, with the
+    owner-local checks already owed (round 87).
+  - **Gates** (`_r89`, strict xfails):
+    - the snippet checks the `run.stale` returned by `run.get`, before it writes the file;
+    - the rehearsal replaces the couplings between the snippet's two calls, and requires a
+      refusal;
+    - the notes link the 0.1.0b1 notes for Phase 1.
+
+- **2026-11-25, round 89 fixes** (fixed, not re-reviewed). Every `_r89` marker is removed, and all
+  60 V1.5c gates pass.
+  - **A1.** The snippet checks the `run.stale` that `run.get` returns with the result, and only
+    then writes the file. The rehearsal inserts a second connection between the snippet's
+    `run.list` and its `run.get`, which replaces the couplings, and requires a refusal with no
+    file written.
+  - **B1.** The notes link the 0.1.0b1 release notes for Phase 1's validation.
+  - **Mutation check.**
+    - Against the fixes: 5 mutants, all caught (the check removed or disabled, the rehearsal's
+      inserted change removed, the notes' link broken).
+    - The earlier sets were rerun. Two mutants now pass, and are retired:
+      - renaming `geometry_computed` in the Geometry table (round 88's fixes);
+      - removing the snippet's `run.list` stale check. The `run.get` check, read with the
+        result, refuses the same run, and the round 89 gates require that check.
 
 ## 7. Exit matrix
 

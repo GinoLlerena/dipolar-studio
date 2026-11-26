@@ -4,14 +4,17 @@ Thank you for testing Dipolar Studio. This beta fits the **inter-ring torsion** 
 **orientational order** of a biphenyl-type molecule dissolved in a liquid crystal, from its NMR
 dipolar couplings. It runs locally: a small server and the app in your browser.
 
+This guide is for the **0.1.0b1** release, and its links point to that release's documents. The
+8CB exercise uses the 0.1.0b1 wheels, even after newer releases.
+
 The beta has one goal you can help with directly: **two or more people, on their own, reproduce
 the published fit of biphenyl in the liquid crystal 8CB** (the exercise below), with no serious
 problem left open. Anything else you try, and anything that confuses you, is just as welcome.
 
 ## 1. Install and start
 
-Follow [getting started](../user/getting-started.md): Python 3.12 or newer, `pip install` the two
-wheels of the release, then `dipolar serve --project-dir <a directory> --open`. Check that
+Follow [getting started](https://github.com/GinoLlerena/dipolar-studio/blob/v0.1.0b1/docs/user/getting-started.md)
+as of 0.1.0b1: Python 3.12 or newer, `pip install` the two wheels of the release, then `dipolar serve --project-dir <a directory> --open`. Check that
 `dipolar --version` prints `dipolar 0.1.0b1 …`, and run the synthetic example once (Data → "Open
 the synthetic biphenyl example", then Fit → "Run fit"): it should find φ ≈ 37°.
 
@@ -48,7 +51,7 @@ Type the primes as an ASCII apostrophe, as shown (`H2'`).
 **Fit it, either way:**
 
 - **In a notebook** (recommended: it checks everything for you): open
-  [notebook 3](../notebooks/03-reproduce-8cb.ipynb), set `COUPLINGS_CSV` to your file and run it.
+  [notebook 3](https://github.com/GinoLlerena/dipolar-studio/blob/v0.1.0b1/docs/notebooks/03-reproduce-8cb.ipynb), set `COUPLINGS_CSV` to your file and run it.
   It checks your 12 pairs, fits both configurations below and compares them with the reference;
   if anything differs it says what to check.
 - **In the app:** make a copy of your file with every `sigma_Hz` set to `1` (the "unweighted"
