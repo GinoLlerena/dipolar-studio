@@ -514,6 +514,37 @@ def test_the_rehearsal_match_rule_is_the_ledgers() -> None:
     assert r.matches(0.1, 0.1 + 1e-8 * 0.99) and not r.matches(0.1, 0.1 + 2e-8)
 
 
+def test_the_rehearsals_cleanup_waits_for_a_released_lock(tmp_path: Path) -> None:
+    """PR #32, Windows: the console launcher exits before its child releases ``serve.lock``, so
+    removing the project directory can fail at first. The cleanup retries until it succeeds."""
+    r = _module(REHEARSAL)
+    calls: list[Path] = []
+
+    def held_twice(path: Path) -> None:
+        calls.append(path)
+        if len(calls) < 3:
+            raise PermissionError("serve.lock is in use")
+
+    r.remove_when_released(tmp_path, timeout=10.0, rmtree=held_twice)
+    assert calls == [tmp_path] * 3
+
+
+def test_the_rehearsals_cleanup_gives_up_after_its_timeout(tmp_path: Path) -> None:
+    r = _module(REHEARSAL)
+
+    def held(path: Path) -> None:
+        raise PermissionError("serve.lock is in use")
+
+    with pytest.raises(PermissionError):
+        r.remove_when_released(tmp_path, timeout=0.0, rmtree=held)
+
+
+def test_the_rehearsal_removes_its_directory_with_the_retrying_cleanup() -> None:
+    source = _text(REHEARSAL)
+    assert "tempfile.TemporaryDirectory(" not in source
+    assert "remove_when_released(Path(tmp))" in source
+
+
 def test_the_rehearsal_passes_from_outside_the_checkout(tmp_path: Path) -> None:
     """The synthetic D6h fit through ``dipolar serve`` and the guide's own ``run.get`` snippet,
     run with ``-I`` from a directory outside the checkout (the CI packaged job and the release

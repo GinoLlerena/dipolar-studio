@@ -161,6 +161,7 @@ restricted-fit scan tier.
 | 2026-11-26T19:12Z | `8bb45cc503d2a267cf6e08223702d9e9befbdf4b` (commit `95ffcb9`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-26T20:39Z | `b672767a0030d27ebb55d5285d9b6af91eabb774` (commit `22cf16c`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-26T21:31Z | `e89b7e30e4d1d707f4f72d5da956b1b05fed58fd` (commit `2dc6d41`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-27T00:31Z | `71e4c91bb920697bd2d1d4b08f1d564199b66243` (commit `e54d39c`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -966,6 +967,10 @@ row is appended here in the next commit.
   - **The ledger** gets the owed `2dc6d41` receipt row, the last receipt of the merged branch.
   - **Next:** the owner's `freeze approved` row in §10, in the owner's own commit. No
     experimental coupling is fitted before it.
+  - **Windows CI on PR #32.** The rehearsal's steps all passed, but removing its temporary
+    project failed: the `dipolar` console launcher exited before its child released
+    `serve.lock`. The cleanup now retries for up to 30 s (`remove_when_released`). Three tests
+    fail without the fix: the retry, the timeout, and its use in `main`. No check changed.
 
 ## 7. Exit matrix
 

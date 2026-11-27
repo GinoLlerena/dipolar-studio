@@ -125,6 +125,24 @@ def during_the_save(snippet: str, csv: str, mapping: dict[str, str]) -> str:
     return "\n".join([*lines[:at], hook, *lines[at:]]) + "\n"
 
 
+def remove_when_released(path: Path, *, timeout: float = 30.0, rmtree: Any = shutil.rmtree) -> None:
+    """Remove ``path``, retrying while another process still holds a file in it.
+
+    On Windows the ``dipolar`` console launcher can exit before its child Python releases
+    ``serve.lock``, so the first removal may fail with ``PermissionError``. Retried until
+    ``timeout``; the last error is raised after it.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            rmtree(path)
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.2)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--guide", type=Path, required=True)
@@ -146,7 +164,8 @@ def main() -> int:
         f"{a},{b},{observed[o]!r},{SIGMA_HZ}\n"
         for o, (a, b) in prereg["datasets"]["benzene-taggar2006"]["orbits"].items()
     )
-    with tempfile.TemporaryDirectory() as tmp:
+    tmp = tempfile.mkdtemp()
+    try:
         project = Path(tmp) / "benzene-synthetic"
         ready = project / "serve.ready.json"
         server = subprocess.Popen(
@@ -219,6 +238,8 @@ def main() -> int:
         finally:
             server.terminate()
             server.wait(timeout=30)
+    finally:
+        remove_when_released(Path(tmp))
 
     (szz,) = [c for c in result["components"] if c["name"] == "Szz"]
     if result["provenance"]["fit_version"] != prereg["model"]["fixed_fit_version"]:
