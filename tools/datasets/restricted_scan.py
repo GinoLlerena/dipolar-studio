@@ -312,8 +312,18 @@ class FitTier:
 _RESULTS_RECEIPT = re.compile(
     r"passed, not skipped; fit tier: results \(files: " + ", ".join(rf"{re.escape(d)} (\d+)" for d in FIT_DATASETS) + r"\)"
 )
-#: The receipt a commit message records (Decision 11B); the next commit carries it into §6 (round 87).
+#: The receipt a commit message records (Decision 11B); the next commit carries it into §6 (round 87),
+#: with its own time and status (round 90: the tree alone let a row lower the results floor).
 _LAST_RECEIPT = re.compile(r"Scan receipt \(Decision 11B\): tree ([0-9a-f]{40})")
+_FULL_RECEIPT = re.compile(
+    r"Scan receipt \(Decision 11B\): tree ([0-9a-f]{40}) at (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z): "
+    r"(passed, not skipped(?:; fit tier: (?:pre-result|results \(files: [^)]*\)))?)\.(?: |$)"
+)
+#: The start of a scan receipt in a commit message, in any form (round 92: prose mentioning receipts
+#: does not count).
+_RECEIPT_START = re.compile(r"Scan receipt(?: \(Decision 11B\))?:")
+#: Who may run a comparison (verification.AUTHORIZED_RUNNERS; round 91, B2: the tier checks it too).
+AUTHORIZED_RUNNERS = ("owner", "participant")
 #: A §6 scan receipt row (round 86: a staged ledger may not drop or change a committed one).
 _RECEIPT_ROW = re.compile(r"\| \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z \| `[0-9a-f]{40}` .*")
 
@@ -391,7 +401,7 @@ class _Rosters:
                     revision = fr.protocol_sha256(data)
                     for d, entry in data["datasets"].items():
                         self.revisions.add((revision, str(d), str(entry["targets"]["sha256"])))
-                except (ValueError, KeyError, TypeError, AttributeError):
+                except (ValueError, KeyError, TypeError, AttributeError, RecursionError):
                     continue
         return self.revisions
 
@@ -428,7 +438,7 @@ def _fit_entries(
     submission it binds completely (None when it binds none), and the record read."""
     try:
         record: Any = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError):
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError):  # round 92 (B5): deep nesting
         return [], [f"{rel}: not a readable JSON fit-values record"], None, None
     if not isinstance(record, dict):
         return [], [f"{rel}: not a fit-values record (an object with {sorted(FIT_RECORD_FIELDS)})"], None, None
@@ -459,7 +469,7 @@ def _fit_entries(
     values, good = [], []
     for i, entry in enumerate(entries):
         value = entry.get("value") if isinstance(entry, dict) else None
-        if isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value):
+        if fr.finite(value):  # round 91 (B1): an integer beyond the float range is no value
             values.append(float(value))
         problem = fr.entry_problem(entry)
         if problem is None:
@@ -486,6 +496,15 @@ def _fit_entries(
             problems.append(f"{rel}: it names a targets file of no committed revision of the preregistration")
     problems += [f"{rel}: {p}" for p in fr.check(record, good, frozen, pending)]
     return values, problems, (submission if bound and not problems else None), record
+
+
+def _regular(path: Path) -> bool:
+    """A regular file, not a link; False when it cannot be stat'ed (round 92, A1: never the
+    exception, which names the path)."""
+    try:
+        return path.is_file() and not path.is_symlink()
+    except OSError:
+        return False
 
 
 def _submissions(text: str | None) -> list[ffl.Entry]:
@@ -517,17 +536,37 @@ def fit_tier(
     if prereg is not None:
         try:
             prereg_data = json.loads(prereg)
-        except ValueError:
+        except (ValueError, RecursionError):
             prereg_data = {}  # unreadable: every roster read reports it
         if not isinstance(prereg_data, dict):
             prereg_data = {}  # round 87: null, a list or a string is unreadable too, never "the working copy"
     logged_entries: list[ffl.Entry] = []
+    authorized: list[ffl.Entry] = []
     ledger_text: str | None = None
     try:
         text = (root / LEDGER).read_text(encoding="utf-8") if ledger is None else ledger
         ledger_text = text
         section3 = _section3_logged(text)
-        logged_entries = ffl.submissions(ffl.parse(text))
+        entries = ffl.parse(text)
+        logged_entries = ffl.submissions(entries)
+        # Round 91 (B2): only an authorized runner's submission strictly after `freeze approved`
+        # binds an output; any other is a problem, and binds nothing.
+        freeze = next((e.at for e in entries if e.event == "freeze approved"), None)
+        for n, e in enumerate(logged_entries, start=1):
+            if e.runner not in AUTHORIZED_RUNNERS or freeze is None or e.at <= freeze:
+                problems.append(
+                    f"{LEDGER}: submission number {n} of the first-fit log is not an authorized runner's "
+                    "after `freeze approved`"
+                )
+        authorized = [
+            e for e in logged_entries if e.runner in AUTHORIZED_RUNNERS and freeze is not None and e.at > freeze
+        ]
+        if freeze is not None:  # round 92 (B3): the runner's whole chronology, not only its freeze time
+            import verification
+
+            if not verification.freeze_ok(verification.chronology(entries)):
+                problems.append(f"{LEDGER}: the first-fit log's chronology does not hold (freeze_ok)")
+                authorized = []
         logged = section3 or bool(logged_entries)
         if section3 and not logged_entries:
             problems.append(f"{LEDGER}: §3 records a first fit that the first-fit log (§10) does not")
@@ -536,22 +575,27 @@ def fit_tier(
         logged = True  # unknown: require the tier
     required_entries = logged_entries if committed is None else _submissions(committed)
     rosters = _Rosters(root, prereg_data)
-    logged_records = [_logged_record(e) for e in logged_entries]
+    logged_records = [_logged_record(e) for e in authorized]
     required = [_logged_record(e) for e in required_entries]
     folder = root / FIT_DIR
-    found = [(p, False) for p in sorted(folder.glob(f"*{FIT_SUFFIX}"))] if folder.is_dir() else []
     kept = folder / fr.RETAINED
-    found += [(p, True) for p in sorted(kept.glob(f"*{FIT_SUFFIX}"))] if kept.is_dir() else []
+    found: list[tuple[Path, bool]] = []
+    for where, is_retained, place in ((folder, False, FIT_DIR), (kept, True, f"{FIT_DIR}/{fr.RETAINED}")):
+        try:  # round 92 (A1): a folder that cannot be searched is a value-free problem
+            if where.is_dir():
+                found += [(p, is_retained) for p in sorted(where.glob(f"*{FIT_SUFFIX}"))]
+        except OSError:
+            problems.append(f"{place}: cannot be read")
     values: list[float] = []
     satisfied: list[dict[str, Any]] = []
     current: dict[str, dict[str, Any]] = {}
     retained: dict[str, dict[int, tuple[dict[str, Any], str]]] = {}
     in_sequence: dict[str, int] = {}  # round 86: retained numbers above this count are never printed
-    odd = [(p, r) for p, r in found if not p.is_file() or p.is_symlink()]
+    odd = [(p, r) for p, r in found if not _regular(p)]
     found = [(p, r) for p, r in found if (p, r) not in odd]
     for _, is_retained in odd:  # round 87: neither read nor named
         place = f"{FIT_DIR}/{fr.RETAINED}" if is_retained else FIT_DIR
-        problems.append(f"{place}/{UNEXPECTED_NAME}: not a regular file")
+        problems.append(f"{place}/{UNEXPECTED_NAME}: not a regular file, or it cannot be read")
     for path, is_retained in found:
         named = _expected_name(path.name, is_retained)
         if is_retained and named is not None:
@@ -563,8 +607,6 @@ def fit_tier(
         rel = f"{place}/{path.name}" if printable else f"{place}/{UNEXPECTED_NAME}"
         if expected is None:
             problems.append(f"{rel}: not named <dataset>{FIT_SUFFIX} (or <dataset>.<n>{FIT_SUFFIX} when retained)")
-        if path.is_symlink():
-            problems.append(f"{rel}: a link, not a file")
         dataset = expected[0] if expected is not None else None
         got, bad, bound, record = _fit_entries(path, rel, dataset, rosters, logged_records)
         values += got
@@ -574,7 +616,12 @@ def fit_tier(
         if expected is not None:
             read = record if isinstance(record, dict) else {}
             if is_retained:
-                retained.setdefault(expected[0], {})[expected[1]] = (read, fr.sha256(path))
+                try:
+                    digest = fr.sha256(path)
+                except OSError:  # round 91 (A3): a value-free problem, never the exception
+                    problems.append(f"{rel}: cannot be read")
+                    digest = ""
+                retained.setdefault(expected[0], {})[expected[1]] = (read, digest)
             else:
                 current[expected[0]] = read
     for dataset in sorted(set(current) | set(retained)):
@@ -611,6 +658,12 @@ def status_line(fit: FitTier) -> str:
     return f"fit tier: results ({fit.files} {files}, {fit.values} values, {len(fit.problems)} problems)"
 
 
+def _git_out(root: Path, *args: str) -> str:
+    """A git command's output, or "" when it fails (no commit yet, or not a checkout)."""
+    done = subprocess.run(["git", *args], cwd=root, capture_output=True)
+    return done.stdout.decode("utf-8", errors="replace") if done.returncode == 0 else ""
+
+
 def _git_show(root: Path, spec: str) -> str | None:
     shown = subprocess.run(["git", "show", spec], cwd=root, capture_output=True)
     return shown.stdout.decode("utf-8", errors="replace") if shown.returncode == 0 else None
@@ -637,12 +690,34 @@ def _staged(root: Path) -> tuple[list[str], FitTier]:
         rows = {line.strip() for line in staged.splitlines()}
         if any(_RECEIPT_ROW.fullmatch(x.strip()) and x.strip() not in rows for x in committed.splitlines()):
             problems.append(f"{LEDGER}: the staged ledger drops or changes a committed scan receipt (§6)")
-    message = subprocess.run(["git", "log", "-1", "--format=%B", "HEAD"], cwd=root, capture_output=True)
-    last = message.stdout.decode("utf-8", errors="replace") if message.returncode == 0 else ""
-    anchors = [committed or "", last]
-    receipt = _LAST_RECEIPT.search(re.sub(r"\s+", " ", last))
-    if receipt and staged is not None and f"`{receipt.group(1)}`" not in staged:
-        problems.append(f"{LEDGER}: the last commit's scan receipt is not carried into §6")
+    # Round 91 (A1, A2): the floor is the largest results receipt of every commit reachable from
+    # HEAD (merges included), with the committed ledger. Round 92 (B1): only a commit's own
+    # receipt, in the Decision 11B form and naming that commit's tree, counts; quoted text does not.
+    own: list[str] = []
+    for commit in _git_out(root, "log", "--format=%T%x1f%B%x1e", "HEAD").split("\x1e"):
+        tree_of, _, body = commit.strip("\n").partition("\x1f")
+        own += [m.group(3) for m in _FULL_RECEIPT.finditer(re.sub(r"\s+", " ", body)) if m.group(1) == tree_of]
+    anchors = [committed or "", " ".join(own)]
+    # The carry rule: the receipt of HEAD's message, and of each parent's when HEAD is a merge.
+    parents = _git_out(root, "rev-list", "--parents", "-n", "1", "HEAD").split()[1:]
+    tips = ["HEAD", *parents] if len(parents) > 1 else ["HEAD"]
+    for tip in tips:
+        flat = re.sub(r"\s+", " ", _git_out(root, "log", "-1", "--format=%B", tip))
+        receipts = list(_FULL_RECEIPT.finditer(flat))
+        if not receipts:
+            if _RECEIPT_START.search(flat) or _RESULTS_RECEIPT.search(flat):
+                problems.append(
+                    f"{LEDGER}: a last commit's scan receipt is not in the Decision 11B form (tree, time and status)"
+                )
+            continue
+        lines = [re.sub(r"\s+", " ", x.strip()) for x in (staged or "").splitlines()]
+        for full in receipts:  # round 92 (B2): every receipt of the message, a squash merge's too
+            tree, at, status = full.groups()
+            row = re.compile(rf"\| {re.escape(at)} \| `{tree}` [^|]*\| {re.escape(status)} \| [^|]+ \|")
+            if staged is not None and not any(row.fullmatch(x) for x in lines):
+                problems.append(
+                    f"{LEDGER}: the last commit's scan receipt is not carried into §6 with its time and status"
+                )
     prereg = _git_show(root, f":{PREREG}")
     fit = fit_tier(
         root,

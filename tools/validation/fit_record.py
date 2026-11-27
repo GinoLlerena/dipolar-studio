@@ -26,8 +26,11 @@ exactly the pending cells; unsigned, every target withheld.
 analysis, and each fitted condition's fit provenance per track (its science hash among them).
 
 **The chain (A6).** Each record has its run number, the SHA-256 of the record it replaced (None
-for the first run) and the SHA-256 of its run's local report. Deleting, editing or renumbering
-any run's record or report breaks the chain.
+for the first run) and the SHA-256 of its run's local report. Deleting, editing or renumbering a
+retained record, or any run's report, breaks the chain. The latest record is bound by no hash
+until the next run retains it. That run's ``previous_sha256`` then fixes the record as it is at
+that moment, any edit included, and a scan receipt records only counts (rounds 91 and 92: the
+ledger's known limit).
 
 Every problem is value-free: it names the record's place and what is wrong, never a value, a
 condition or a file's content.
@@ -131,9 +134,16 @@ def roster(root: Path, dataset: str, prereg: Mapping[str, Any] | None = None) ->
     except (OSError, ValueError, KeyError, TypeError):
         raise ValueError(f"{PREREG}: the roster of {dataset} cannot be read") from None
     path = root / rel
-    if not path.is_file() or path.is_symlink():
+    try:  # round 92 (A1): a stat that fails is value-free too
+        regular = path.is_file() and not path.is_symlink()
+    except OSError:
+        raise ValueError(f"{dataset}: the couplings file cannot be read") from None
+    if not regular:
         raise ValueError(f"{dataset}: the couplings file is absent, so the frozen roster cannot be read")
-    data = path.read_bytes()
+    try:
+        data = path.read_bytes()
+    except OSError:  # round 91 (A3): value-free, never the exception
+        raise ValueError(f"{dataset}: the couplings file cannot be read") from None
     if hashlib.sha256(data).hexdigest() != frozen:
         raise ValueError(f"{dataset}: the couplings file is not at its frozen SHA-256")
     try:
@@ -158,9 +168,16 @@ def pending_targets(root: Path, dataset: str, prereg: Mapping[str, Any] | None =
     except (OSError, ValueError, KeyError, TypeError):
         raise ValueError(f"{PREREG}: the targets of {dataset} cannot be read") from None
     path = root / rel
-    if not path.is_file() or path.is_symlink():
+    try:  # round 92 (A1)
+        regular = path.is_file() and not path.is_symlink()
+    except OSError:
+        raise ValueError(f"{dataset}: the targets file cannot be read") from None
+    if not regular:
         raise ValueError(f"{dataset}: the targets file is absent, so its pending targets cannot be read")
-    data = path.read_bytes()
+    try:
+        data = path.read_bytes()
+    except OSError:  # round 91 (A3)
+        raise ValueError(f"{dataset}: the targets file cannot be read") from None
     if hashlib.sha256(data).hexdigest() != frozen:
         raise ValueError(f"{dataset}: the targets file is not at its frozen SHA-256")
     if form == "table":
@@ -173,7 +190,18 @@ def pending_targets(root: Path, dataset: str, prereg: Mapping[str, Any] | None =
 
 
 def _value(x: object) -> bool:
-    return isinstance(x, int | float) and not isinstance(x, bool) and math.isfinite(x)
+    return finite(x)
+
+
+def finite(x: object) -> bool:
+    """A JSON number that is a finite float; an integer beyond the float range is not (round 91,
+    B1: no OverflowError)."""
+    if not isinstance(x, int | float) or isinstance(x, bool):
+        return False
+    try:
+        return math.isfinite(x)
+    except OverflowError:
+        return False
 
 
 def entry_problem(entry: object) -> str | None:
@@ -380,9 +408,14 @@ def chain(
         run = record.get("run")
         if isinstance(run, int) and not isinstance(run, bool) and run >= 1:
             report = root / DIR / REPORTS / f"{dataset}.{run}.md"
-            if not report.is_file() or report.is_symlink():
+            try:
+                digest = sha256(report) if report.is_file() and not report.is_symlink() else None
+            except OSError:  # round 91 (A3): a value-free problem, never the exception
+                problems.append(f"{place}: its run's local report cannot be read")
+                continue
+            if digest is None:
                 problems.append(f"{place}: its run's local report is missing")
-            elif sha256(report) != record.get("report_sha256"):
+            elif digest != record.get("report_sha256"):
                 problems.append(f"{place}: its run's local report is changed")
             elif _signed_line(report) != record.get("spot_check_signed"):
                 problems.append(f"{place}: its declared spot-check signed state is not its report's")
@@ -393,7 +426,7 @@ def _signed_line(report: Path) -> bool | None:
     """The spot-check state the report states on its one ``SIGNED_LINE``, or None."""
     try:
         lines = [x for x in report.read_text(encoding="utf-8").splitlines() if x.startswith(SIGNED_LINE)]
-    except UnicodeDecodeError:
+    except (OSError, UnicodeDecodeError):  # round 91 (A3)
         return None
     states = {"True": True, "False": False}
     return states.get(lines[0][len(SIGNED_LINE) :]) if len(lines) == 1 else None

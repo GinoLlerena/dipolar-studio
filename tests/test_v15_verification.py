@@ -2222,3 +2222,110 @@ def test_the_runner_fits_a_committed_authorized_submission(tmp_path: Path, call:
     counted, seen = _counting(call)
     report = v.run_report(BENZENE, call=counted, prereg=syn.prereg, root=tmp_path, submission=syn.logged())
     assert report["status"] == "complete" and seen.count("fit.run") == 15
+
+
+# ======================================== round 91 gates (pre-freeze; frozen before the fixes)
+R91_KEY = {
+    "dataset": ODCB,
+    "track": "independent",
+    "condition": "I/314",
+    "component": "S_zz",
+    "protocol_sha256": "e" * 64,
+}
+R91_SECTIONS = {
+    "a link-reference definition": "### Discrepancy review 1\n\n[//]: # (a hidden note)\n",
+    "a zero-width space": "### Discrepancy review 1\n\n​\n",
+    "a hidden element": "### Discrepancy review 1\n\n<div hidden>x</div>\n",
+    "only a subheading's section": "### Discrepancy review 1\n\n#### A subheading\n\nIts text.\n",
+}
+
+
+def _receipt_on(tmp_path: Path, section: str) -> tuple[Any, dict[str, str]]:
+    import evidence
+
+    reviews = _evidence(tmp_path, [R91_KEY])
+    public = tmp_path / PUBLIC_ENTRY
+    public.write_text("# Synthetic README\n\n" + section, encoding="utf-8")
+    ref = reviews["receipts"][0]
+    _rewrite(tmp_path, ref, lambda r: r["public_entry"].update(sha256=_sha(public)))
+    return evidence, ref
+
+
+@pytest.mark.parametrize("section", list(R91_SECTIONS))
+def test_r91_text_that_does_not_render_is_not_a_body(tmp_path: Path, section: str) -> None:
+    """Round 91 (B4): a body is text that renders, before the heading's first subheading."""
+    evidence, ref = _receipt_on(tmp_path, R91_SECTIONS[section])
+    assert evidence.check_receipt(tmp_path, ref) == "links a heading without a body"
+
+
+def test_r91_a_rendered_body_is_still_a_body(tmp_path: Path) -> None:
+    """The control for the round 91 (B4) gate."""
+    evidence, ref = _receipt_on(tmp_path, "### Discrepancy review 1\n\nA synthetic, value-free context.\n")
+    assert evidence.check_receipt(tmp_path, ref) is None
+
+
+# ======================================== round 92 gates (pre-freeze; frozen before the fixes)
+R92_SECTIONS = {
+    "an entity zero-width space": "&#8203;",
+    "a non-breaking space entity": "&nbsp;",
+    "a braille blank": "⠀",
+    "a Hangul filler": "ㅤ",
+    "an invisible separator": "⁣",
+    "a combining grapheme joiner": "͏",
+    "a nested hidden element": "<div hidden><div>x</div>y</div>",
+    "an unclosed hidden element": "<div hidden>\nSome text.\n",
+    "an empty link": "[](https://example.invalid)",
+    "a thematic break": "***",
+    "an empty table": "| |\n|---|",
+    "an element styled display:none": '<p style="display:none">Some text.</p>',
+}
+
+
+@pytest.mark.parametrize("section", list(R92_SECTIONS))
+def test_r92_a_body_needs_visible_words(tmp_path: Path, section: str) -> None:
+    """Round 92 (B4): a body is a line with a visible word, after markup, entities and invisible
+    characters are removed."""
+    evidence, ref = _receipt_on(tmp_path, "### Discrepancy review 1\n\n" + R92_SECTIONS[section] + "\n")
+    assert evidence.check_receipt(tmp_path, ref) == "links a heading without a body"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        '<span class="not-hidden">Agreed, after review.</span>',
+        "Plain, value-free review text.",
+    ],
+)
+def test_r92_visible_words_are_a_body(tmp_path: Path, body: str) -> None:
+    """The control for the round 92 (B4) gate, including a class name containing "hidden"."""
+    evidence, ref = _receipt_on(tmp_path, "### Discrepancy review 1\n\n" + body + "\n")
+    assert evidence.check_receipt(tmp_path, ref) is None
+
+
+def test_r92_a_bare_tag_is_no_body(tmp_path: Path) -> None:
+    """Round 92 (B6): the revert that dropped bare-tag stripping passed every test."""
+    evidence, ref = _receipt_on(tmp_path, "### Discrepancy review 1\n\n<br>\n")
+    assert evidence.check_receipt(tmp_path, ref) == "links a heading without a body"
+
+
+# Added with the round 92 fixes, for mutants the other cases masked: two combining marks and two
+# blank fillers are \w characters, so only their own removal keeps them from forming a "word";
+# and a public file whose stat fails is a problem, not an exception.
+@pytest.mark.parametrize("section", ["͏͏", "ㅤㅤ"], ids=["two joiners", "two fillers"])
+def test_r92_two_invisible_letters_are_no_word(tmp_path: Path, section: str) -> None:
+    evidence, ref = _receipt_on(tmp_path, "### Discrepancy review 1\n\n" + section + "\n")
+    assert evidence.check_receipt(tmp_path, ref) == "links a heading without a body"
+
+
+def test_r92_a_public_file_that_cannot_be_stated_is_a_problem(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    evidence, ref = _receipt_on(tmp_path, "### Discrepancy review 1\n\nA synthetic, value-free context.\n")
+    is_file = Path.is_file
+
+    def refuse(p: Path) -> bool:
+        if p.name == Path(PUBLIC_ENTRY).name:
+            raise PermissionError(13, "Permission denied", str(p))
+        return is_file(p)
+
+    monkeypatch.setattr(Path, "is_file", refuse)
+    problem = evidence.check_receipt(tmp_path, ref)
+    assert isinstance(problem, str) and "Permission" not in problem

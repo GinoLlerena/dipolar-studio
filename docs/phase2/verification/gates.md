@@ -154,6 +154,12 @@ restricted-fit scan tier.
 | 2026-11-25T18:34Z | `f7d1d7a0e57b00b9d2a23b8b751b503ce6ca6144` (commit `7d94171`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-25T22:58Z | `2152d94d0b0c4dd30cd5553df56aea65c3172bdf` (commit `60edaea`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-26T14:19Z | `fd90709010a71607c3b3d98e676e2edae7d49878` (commit `b0e3c1e`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-26T15:09Z | `e5c054a5cee17134878c70b5b21ca1184920ead7` (commit `fdebbf6`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-26T17:54Z | `cb1b75733c4247913c7554243fb5e6bc114051a5` (commit `244d7d8`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-26T17:58Z | `8ca74448142f0b1d6d44f0fa5fc15be2a2e24e3f` (commit `9283329`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-26T18:58Z | `3241206beed6a36ea9abb4cdab9f704cbc30a26d` (commit `43cdf73`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-26T19:12Z | `8bb45cc503d2a267cf6e08223702d9e9befbdf4b` (commit `95ffcb9`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-26T20:39Z | `b672767a0030d27ebb55d5285d9b6af91eabb774` (commit `22cf16c`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -788,6 +794,170 @@ row is appended here in the next commit.
       (the same five `ok` lines as the workflow), and `smoke.py` (φ = 36.985°).
   - **Next.** The owner publishes the draft. A later change that affects installation or
     reproduction needs `0.2.0b2` and a rerun (decision 6).
+
+- **2026-11-26, round 90: the pre-freeze re-review**
+  ([round90-v1.5d-prefreeze.md](../../validation/round90-v1.5d-prefreeze.md)). The owner chose
+  "Re-review now" before any `freeze approved` row. The re-review covers the round 87 fixes and
+  the round 89 fixes.
+  - **No verdict.** The provider's safety filter flagged both GPT-6.2-Sol attempts, and neither
+    delivered a report.
+  - **One finding confirmed** by the second attempt and from the code. A row carrying the last
+    commit's receipt into §6 was matched by its tree alone, so lower counts, no counts or another
+    time passed (the results floor of round 86's finding 6).
+  - **One class B lead,** confirmed from the code: the guide's snippet wrote the file before it
+    checked the run.
+  - **Owner's decision** (recorded 2026-11-26T17:51Z, given just before): "Fix both, Claude
+    review". The fixes come with gates first. Then a fresh, independent Claude reviewer does the
+    full pre-freeze re-review, and the owner decides on the freeze after it.
+  - **Gates** (`_r90`, strict xfails):
+    - `tests/test_v15_fit_tier.py::test_r90_a_carried_receipt_keeps_its_time_and_status` (lower
+      counts, no counts, another time);
+    - `tests/test_v15c_release.py::test_r90_the_snippet_checks_the_run_before_it_writes_the_file`.
+
+    Run with `--runxfail`, each fails on its own assertion.
+  - **The ledger** gets the owed `fdebbf6` receipt row.
+
+- **2026-11-26, round 90 fixes.** Both `_r90` markers are removed, and the gates pass.
+  - **(a)** The last commit's receipt is carried into §6 only by a row with its tree, its time
+    and its whole status. The status includes a results receipt's per-dataset counts. The
+    tree-only match stays only for a message whose receipt has no time and status.
+  - **(b)** The guide's snippet checks that S_zz is estimated with a verified rank before it
+    writes the file.
+  - **Mutation check.** 5 mutants, all caught: the time match loosened, the status match
+    loosened, the full match bypassed, the carry check removed, and the write moved back before
+    the check.
+
+- **2026-11-26, round 91: the pre-freeze review by Claude**
+  ([round91-v1.5d-prefreeze.md](../../validation/round91-v1.5d-prefreeze.md)). A fresh, independent
+  Claude Opus reviewed `9283329`: **NOT READY** (3 A, 5 B).
+  - **Round 86's findings.** Findings 1, 3 and 5 are resolved, and finding 4 is resolved for
+    HTML comments. Findings 2 and 6 are partly open.
+  - **The class A findings.**
+    - A1: after a merge commit, the merged branch's receipt neither sets the floor nor has to be
+      carried.
+    - A2: a results receipt not in the frozen form falls back to a tree-only carry, or needs no
+      carry.
+    - A3: an unreadable file's name leaks through an exception.
+  - **The class B findings.**
+    - B1: a huge integer crashes the tier.
+    - B2: an output bound to an agent's submission is accepted.
+    - B3: the documented known limit is wider than stated.
+    - B4: a receipt body can be text that does not render.
+    - B5: the round 90 (b) gate is text-only.
+  - **Owner's decision** (recorded 2026-11-26T18:47Z, given just before): "Fix all, scoped
+    Claude round 92". The fixes come with gates first. Then a fresh, scoped Claude review, and
+    the owner decides on the freeze after it.
+  - **Gates.** Strict xfails, each failing on its intended defect under `--runxfail`:
+    - A1 (merged floor, merged carry), A2 (four phrasings, and an earlier commit's receipt), A3
+      (an unreadable retained file, an unreadable report), B1 and B2 (three cases), in
+      `tests/test_v15_fit_tier.py`;
+    - B4 (four bodies), in `tests/test_v15_verification.py`, with a control.
+
+    B5's gate is behavioural: it runs the snippet against a stand-in client, in
+    `tests/test_v15c_release.py`, with a control. It passes on the round 90 fix, and catches both
+    mutants that round 91 found escaping (the rank dropped, and a print in place of the raise).
+    B3 is documented with the fixes.
+  - **The ledger** gets the owed `9283329` receipt row.
+
+- **2026-11-26, round 91 fixes.** Every `_r91` marker is removed, and the six test files pass.
+  - **A1, A2: the floor.** The floor is the largest results receipt of every commit message
+    reachable from `HEAD` (merges and any phrasing included), as well as the committed and
+    staged ledgers. Outputs never decrease legitimately.
+  - **A1, A2: the carry rule.** It applies to `HEAD`'s receipt, and to each parent's when `HEAD`
+    is a merge: the row the next commit after a pull request owes is now required. A receipt
+    not in the Decision 11B form (tree, time, and `passed, not skipped` with its fit tier) is
+    refused, so there is no tree-only fallback.
+  - **A3.** Every read in the fit tier and the chain (a retained record's hash, a report's hash
+    and signed line, the couplings and targets files) gives a value-free problem on `OSError`.
+  - **B1.** An integer beyond the float range is not a value (`fit_record.finite`).
+  - **B2.** Only a submission by the owner or a participant, strictly after `freeze approved`,
+    binds an output. Any other submission is a problem.
+  - **B3, the known limit, as amended.** Only retained records are bound by a hash. The latest
+    record of each dataset, including its `pending_targets` and values, is bound by none until
+    the next run retains it. Editing it is not detected by the fit tier. The owner's receipt,
+    and the next run's `previous_sha256`, are the record of it. Binding the latest record (for
+    example, its SHA-256 in the results receipt) is left to the V1.5e audit.
+  - **B4.** A body is text that renders, before the heading's first subheading of any level.
+    Hidden elements, link-reference definitions, invisible characters and bare tags are not a
+    body.
+  - **B5.** The behavioural gate is in `tests/test_v15c_release.py` (round 91 gates).
+  - **Gate correction.** `_receipt_repo`'s message-only case committed a short-form receipt and
+    required the scan to pass. It now expects exactly the form refusal (A2).
+  - **Added for a masked mutant.** `test_r91_an_unauthorized_submission_binds_no_output`.
+  - **Mutation check.** 12 mutants, all caught: the floor from the last message only, the
+    merge parents ignored, the form refusal removed, each `OSError` guard narrowed, the overflow
+    guard narrowed, the authorized filter removed, the B2 problem removed, each of the three
+    non-rendering removals dropped, and the subheading stop limited by level.
+
+- **2026-11-26, round 92: the scoped pre-freeze review by Claude**
+  ([round92-v1.5d-prefreeze.md](../../validation/round92-v1.5d-prefreeze.md)). A fresh, independent
+  Claude Opus reviewed `95ffcb9`: **NOT READY** (1 A, 7 B).
+  - **Round 91's findings.**
+    - Resolved: A1 (the reviewer's replay of the merge carry rule over the real history demands
+      exactly the rows the ledger has), A2, B1, B2 (as scoped) and B5.
+    - Resolved for the reported cases: B4.
+    - Documented and acceptable: B3.
+    - Partly open: A3.
+  - **The class A finding.** A1: a `stat` on a path that cannot be searched raises, with a name.
+  - **The class B findings.**
+    - B1: quoted receipt text sets a false floor.
+    - B2: only a message's first receipt is carried.
+    - B3: the tier does not apply `freeze_ok`.
+    - B4: the case-by-case detection of non-rendering text.
+    - B5: deep nesting crashes the tier.
+    - B6: six reverts pass every test.
+    - B7: one known-limit sentence overstates.
+  - **Owner's decision** (recorded 2026-11-26T20:32Z, given shortly before): "Fix all, then you
+    decide". The fixes come with gates first and the full suites. Then the freeze decision goes
+    to the owner, without another review round, so **the round 92 fixes are not re-reviewed**.
+  - **Gates.**
+    - Strict xfails (`_r92`, or per parameter): A1 (three stat cases), B1, B2, B3, B4 (twelve
+      bodies that must not count, and a `class="not-hidden"` span that must), and B5.
+    - B6 gets a test for each missed revert, which passes now: the status pattern, `_signed_line`,
+      the couplings and targets reads, a submission at the freeze instant, and a bare tag.
+  - **Gate corrections** (B1 changes what sets a floor).
+    - The round 91 merge gate's receipt now names its commit's own tree.
+    - The round 91 "earlier commit" gate now uses the commit's own receipt in the Decision 11B
+      form. A short form blocks the next commit (round 91, A2), so it cannot stay in the history.
+  - **The ledger** gets the owed `95ffcb9` receipt row.
+
+- **2026-11-26, round 92 fixes** (fixed, not re-reviewed, on the owner's decision). Every round 92
+  marker is removed.
+  - **A1.** Every `stat` in the fit tier, the chain, the couplings and targets reads, and
+    `evidence._file` gives a value-free problem on `OSError`, including a folder that cannot be
+    searched.
+  - **B1.** Only a commit's own receipt sets the history floor: in the Decision 11B form, and
+    naming that commit's tree. The ledger's rows still set it too. **Rule:** a commit message
+    carries only its own scan receipt, and never quotes another commit's.
+  - **B2.** Every receipt of a carried message must be carried. Only text that starts a receipt
+    (`Scan receipt:`, or `Scan receipt (Decision 11B):`) or holds a results status counts as one,
+    so prose about receipts does not.
+  - **B3.** The fit tier applies the runner's `freeze_ok(chronology(...))`. When it fails, no
+    submission binds an output.
+  - **B4.** A body is a line with a visible word, meaning two letters in a row. Before the
+    check, entities are decoded and blank fillers removed. Tags, link targets, hidden elements
+    (the `hidden` attribute itself, `display:none`, unclosed ones included), link-reference
+    definitions and invisible characters are stripped.
+    - A class name containing "hidden" is not hidden.
+    - A body made only of an autolink, a footnote or `[Note]: …` still fails closed. That is
+      acceptable: a review entry is prose, and the owner attests to its substance (round 85,
+      B).
+  - **B5.** Deep nesting (`RecursionError`) in a fit output, a staged preregistration, a
+    committed revision or a review record gives a value-free problem.
+  - **B6.** Each of the six reverts has its test (round 92 gates).
+  - **B7, the known limit, worded exactly.** Only retained records are bound by a hash. The
+    next run's `previous_sha256` fixes the latest record as it is at that moment, any edit
+    included. A scan receipt records only counts. Binding the latest record is left to the V1.5e
+    audit.
+  - **Tests added for masked mutants.**
+    - The couplings stat guard alone.
+    - Two blank fillers.
+    - A public file whose `stat` fails.
+    - Two combining joiners: they showed the planned format and combining filter to be redundant
+      (such characters never form a word), so it was dropped.
+  - **Mutation check.** 15 mutants, all caught. They cover each new `OSError` guard, the
+    own-tree condition, the first-receipt-only carry, the `freeze_ok` check, the `RecursionError`
+    guard, and each part of the visible-word rule.
 
 ## 7. Exit matrix
 
