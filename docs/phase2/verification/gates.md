@@ -162,6 +162,7 @@ restricted-fit scan tier.
 | 2026-11-26T20:39Z | `b672767a0030d27ebb55d5285d9b6af91eabb774` (commit `22cf16c`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-26T21:31Z | `e89b7e30e4d1d707f4f72d5da956b1b05fed58fd` (commit `2dc6d41`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-27T00:31Z | `71e4c91bb920697bd2d1d4b08f1d564199b66243` (commit `e54d39c`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-27T00:40Z | `4aa967c0e967b6615ef57058448a5e729c4de8e3` (commit `01e6173`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -971,6 +972,21 @@ row is appended here in the next commit.
     project failed: the `dipolar` console launcher exited before its child released
     `serve.lock`. The cleanup now retries for up to 30 s (`remove_when_released`). Three tests
     fail without the fix: the retry, the timeout, and its use in `main`. No check changed.
+
+- **2026-11-27, the ledger fixtures before the freeze row.** With the owner's `freeze approved`
+  row staged, 37 tests failed. Their fixtures copy the real ledger and add their own freeze
+  (2026-11-24) and submissions after the attestation row, so each fixture held two freezes, out
+  of order, which the checks rightly refuse.
+  - **Fix.** The fixtures start from the real ledger with its first-fit log cut back to the four
+    transcribed rows (`base_ledger` in `tests/test_v15_first_fit_log.py`). On the ledger as it
+    stands, with no freeze row, that is the ledger unchanged, so every fixture is byte for byte
+    what it was. No check changed.
+  - **The real log's test** still requires the four transcribed rows and no submission. After
+    them it allows only the owner's freeze row, and then requires that the runner's `freeze_ok`
+    accepts the real chronology.
+  - **Checked** both ways: 214 tests in the two files pass with the staged freeze row and
+    without it.
+  - **The ledger** gets the owed `01e6173` receipt row.
 
 ## 7. Exit matrix
 

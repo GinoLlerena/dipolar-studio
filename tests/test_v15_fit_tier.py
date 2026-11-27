@@ -209,8 +209,16 @@ def _log_row(s: dict[str, str]) -> str:
     return "| " + " | ".join(cells) + " |"
 
 
+def _base() -> str:
+    """The real ledger with its first-fit log cut back to the transcribed rows (see
+    ``test_v15_first_fit_log.base_ledger``): a fixture adds its own freeze and submissions."""
+    from test_v15_first_fit_log import base_ledger
+
+    return base_ledger(LEDGER.read_text(encoding="utf-8"))
+
+
 def _ledger(*submissions: dict[str, str]) -> str:
-    text = LEDGER.read_text(encoding="utf-8")
+    text = _base()
     if not submissions:
         return text
     return text.replace(LAST_LOG_ROW, "\n".join([LAST_LOG_ROW, FREEZE_ROW, *(_log_row(s) for s in submissions)]))
@@ -229,7 +237,7 @@ def test_the_real_ledger_has_no_logged_fit_yet() -> None:
 @pytest.mark.parametrize("change", ["the row missing", "the row twice", "the value blank", "the log malformed"])
 def test_an_unreadable_first_fit_record_is_refused(change: str) -> None:
     rs = _r83()
-    text = LEDGER.read_text(encoding="utf-8")
+    text = _base()
     if change == "the row missing":
         text = text.replace(FIRST_FIT_ROW + "\n", "")
     elif change == "the row twice":
