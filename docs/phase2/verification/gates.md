@@ -160,6 +160,7 @@ restricted-fit scan tier.
 | 2026-11-26T18:58Z | `3241206beed6a36ea9abb4cdab9f704cbc30a26d` (commit `43cdf73`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-26T19:12Z | `8bb45cc503d2a267cf6e08223702d9e9befbdf4b` (commit `95ffcb9`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-26T20:39Z | `b672767a0030d27ebb55d5285d9b6af91eabb774` (commit `22cf16c`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-26T21:31Z | `e89b7e30e4d1d707f4f72d5da956b1b05fed58fd` (commit `2dc6d41`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -958,6 +959,13 @@ row is appended here in the next commit.
   - **Mutation check.** 15 mutants, all caught. They cover each new `OSError` guard, the
     own-tree condition, the first-receipt-only carry, the `freeze_ok` check, the `RecursionError`
     guard, and each part of the visible-word rule.
+
+- **2026-11-27, PR #31 merged** (`937a8ee`), on the owner's decision.
+  - **Owner's decision** (recorded 2026-11-27T00:31Z, given shortly before): "Merge now". The
+    round 92 fixes stay not re-reviewed; their re-review is owed at V1.5e.
+  - **The ledger** gets the owed `2dc6d41` receipt row, the last receipt of the merged branch.
+  - **Next:** the owner's `freeze approved` row in §10, in the owner's own commit. No
+    experimental coupling is fitted before it.
 
 ## 7. Exit matrix
 
