@@ -65,12 +65,26 @@ def _submission_row(at: str, protocol: str = PROTOCOL, runner: str = "owner", da
     return _row(at, "submission", dataset, runner, "v0.2.0b1", protocol)
 
 
+LAST_TRANSCRIBED = "| 2026-11-22T14:11Z | no-fit attestation | — | — | — | — |"
+
+
+def base_ledger(text: str) -> str:
+    """The real ledger with its first-fit log cut back to the four transcribed rows, so a fixture's
+    own freeze and submissions stand alone, whatever the real log holds later (the owner's
+    `freeze approved` row, then submissions)."""
+    lines = text.split("\n")
+    assert lines.count(LAST_TRANSCRIBED) == 1
+    i = lines.index(LAST_TRANSCRIBED) + 1
+    j = i
+    while j < len(lines) and lines[j].startswith("| "):
+        j += 1
+    return "\n".join(lines[:i] + lines[j:])
+
+
 def _with_rows(*rows: str) -> str:
-    """The real ledger with rows appended to its first-fit log table."""
-    text = LEDGER.read_text(encoding="utf-8")
-    last = "| 2026-11-22T14:11Z | no-fit attestation | — | — | — | — |"
-    assert text.count(last) == 1
-    return text.replace(last, "\n".join([last, *rows]))
+    """The real ledger, cut back to the transcribed rows, with rows appended to its first-fit log."""
+    text = base_ledger(LEDGER.read_text(encoding="utf-8"))
+    return text.replace(LAST_TRANSCRIBED, "\n".join([LAST_TRANSCRIBED, *rows]))
 
 
 FREEZE = _row("2026-11-24T09:00Z", "freeze approved")
@@ -80,12 +94,17 @@ FREEZE = _row("2026-11-24T09:00Z", "freeze approved")
 def test_the_real_log_parses_and_has_no_submission() -> None:
     log = _log()
     entries = log.parse(LEDGER.read_text(encoding="utf-8"))
-    assert [e.event for e in entries] == [
+    assert [e.event for e in entries[:4]] == [
         "decisions approved",
         "amendments approved",
         "decision changed",
         "no-fit attestation",
     ]
+    # After the transcribed rows, at most the owner's freeze, and one the runner accepts.
+    assert [e.event for e in entries[4:]] in ([], ["freeze approved"])
+    if entries[4:]:
+        v = importlib.import_module("verification")
+        assert v.freeze_ok(v.chronology(entries)) is True
     assert entries[0].at == datetime(2026, 11, 21, 14, 59, tzinfo=UTC)
     assert log.submissions(entries) == []
     assert all(e.dataset is None and e.protocol_sha256 is None for e in entries)

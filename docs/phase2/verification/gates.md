@@ -162,6 +162,8 @@ restricted-fit scan tier.
 | 2026-11-26T20:39Z | `b672767a0030d27ebb55d5285d9b6af91eabb774` (commit `22cf16c`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-26T21:31Z | `e89b7e30e4d1d707f4f72d5da956b1b05fed58fd` (commit `2dc6d41`) | passed, not skipped; fit tier: pre-result | Claude |
 | 2026-11-27T00:31Z | `71e4c91bb920697bd2d1d4b08f1d564199b66243` (commit `e54d39c`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-27T00:40Z | `4aa967c0e967b6615ef57058448a5e729c4de8e3` (commit `01e6173`) | passed, not skipped; fit tier: pre-result | Claude |
+| 2026-11-27T22:52Z | `34c5459a7c35b1bae63079c8c02c2344be47e1ab` (commit `7d29f8b`) | passed, not skipped; fit tier: pre-result | Claude |
 
 Each receipt is first recorded in its commit's message: a tree cannot contain its own hash. Its
 row is appended here in the next commit.
@@ -972,6 +974,32 @@ row is appended here in the next commit.
     `serve.lock`. The cleanup now retries for up to 30 s (`remove_when_released`). Three tests
     fail without the fix: the retry, the timeout, and its use in `main`. No check changed.
 
+- **2026-11-27, the ledger fixtures before the freeze row.** With the owner's `freeze approved`
+  row staged, 37 tests failed. Their fixtures copy the real ledger and add their own freeze
+  (2026-11-24) and submissions after the attestation row, so each fixture held two freezes, out
+  of order, which the checks rightly refuse.
+  - **Fix.** The fixtures start from the real ledger with its first-fit log cut back to the four
+    transcribed rows (`base_ledger` in `tests/test_v15_first_fit_log.py`). On the ledger as it
+    stands, with no freeze row, that is the ledger unchanged, so every fixture is byte for byte
+    what it was. No check changed.
+  - **The real log's test** still requires the four transcribed rows and no submission. After
+    them it allows only the owner's freeze row, and then requires that the runner's `freeze_ok`
+    accepts the real chronology.
+  - **Checked** both ways: 214 tests in the two files pass with the staged freeze row and
+    without it.
+  - **The ledger** gets the owed `01e6173` receipt row.
+
+- **2026-11-27, freeze approved** by the owner.
+  - **Owner's decision** (recorded 2026-11-27T22:35Z, given shortly before): "Yes, I approve: stage it".
+    Claude stages the §10 row at that time. The owner then asked Claude to make the commit
+    (recorded 2026-11-28T01:24Z, given shortly before: "Can you do it for me").
+  - **Known before the freeze.** The round 92 fixes are not re-reviewed, and the latest fit
+    record is bound by no hash until the next run retains it (round 92, B7). Both stay for the
+    V1.5e audit.
+  - **From now on.** Each comparison is logged as a `submission` row in §10, and committed,
+    before it runs. Only the owner or a participant runs one; no agent fits experimental data.
+  - **The ledger** gets the owed `7d29f8b` receipt row.
+
 ## 7. Exit matrix
 
 One row per exit criterion of the plan's audit table, each with its evidence: a test, or a named
@@ -1099,6 +1127,7 @@ after a submission). The cells an event does not use hold `—`.
 | 2026-11-21T15:32Z | amendments approved | — | — | — | — |
 | 2026-11-21T15:33Z | decision changed | — | — | — | — |
 | 2026-11-22T14:11Z | no-fit attestation | — | — | — | — |
+| 2026-11-27T22:35Z | freeze approved | — | — | — | — |
 
 The first four rows transcribe §1, §3 and the §6 entries of those times: the decisions, P-1 and
 P-2, decision 11's change from A to B, and the owner's signed attestation.
